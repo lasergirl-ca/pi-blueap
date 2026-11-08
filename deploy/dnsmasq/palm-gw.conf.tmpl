@@ -1,0 +1,30 @@
+# Rendered by palm-gw from deploy/dnsmasq/palm-gw.conf.tmpl; do not edit by hand.
+# Run by palm-gw-dnsmasq.service as a project-owned instance (dnsmasq-base).
+
+# Only speak on the Palm gateway address. bind-dynamic (not bind-interfaces) so dnsmasq
+# survives the bridge appearing after it starts, and binds the address itself so PPP peers
+# (which arrive via pppN, not the bridge) are also served.
+bind-dynamic
+listen-address={{GATEWAY}}
+interface={{BRIDGE}}
+except-interface=lo
+no-dhcp-interface=eth0
+no-dhcp-interface=wlan0
+{{if and (ne UPLINK "eth0") (ne UPLINK "wlan0")}}no-dhcp-interface={{UPLINK}}
+{{end}}
+dhcp-range={{DHCP_START}},{{DHCP_END}},{{NETMASK}},12h
+dhcp-option=option:router,{{GATEWAY}}
+dhcp-option=option:dns-server,{{GATEWAY}}
+dhcp-authoritative
+dhcp-leasefile=/var/lib/palm-gw/dnsmasq.leases
+
+domain-needed
+bogus-priv
+cache-size=1000
+{{if DNS_UPSTREAM}}
+# Upstream pinned from [network].dns_upstream
+no-resolv
+{{range DNS_UPSTREAM}}server={{.}}
+{{end}}{{else}}
+# Upstream: follow the Pi's /etc/resolv.conf ([network].dns_upstream is empty)
+{{end}}

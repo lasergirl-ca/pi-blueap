@@ -1,0 +1,20 @@
+# BEGIN palm-gw
+# Managed by palm-gw (PLAN.md section 8.1). Edits inside this block are overwritten by `palm-gw setup`.
+[General]
+# What the Palm sees in its device list. The daemon also sets Alias at runtime.
+Name = {{NAME}}
+# Class of Device. Only the major and minor device class bits are considered by BlueZ;
+# the service-class bits are computed from the UUIDs of registered services.
+#   major 0x03 (0x000300): LAN / Network Access Point, minor 0x00: fully available
+Class = 0x000300
+# Stay discoverable forever; the daemon controls Pairable separately and keeps it off outside pairing windows.
+DiscoverableTimeout = 0
+PairableTimeout = 0
+# If a Palm is hard-reset and re-pairs with a key the Pi doesn't know, let it.
+JustWorksRepairing = always
+# Palms are BR/EDR only. Leaving LE on is harmless.
+ControllerMode = dual
+
+[Policy]
+AutoEnable = true
+# END palm-gw

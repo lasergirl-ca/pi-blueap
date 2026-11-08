@@ -1,0 +1,10 @@
+# build outputs
+/bin/
+/dist/
+# handoff material kept locally, not part of the repository
+/palm-gw-handoff/
+/palm-gw-handoff.zip
+/CLAUDE-CODE-KICKOFF.md
+# editor / OS
+.DS_Store
+*.swp

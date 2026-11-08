@@ -1,0 +1,48 @@
+[Unit]
+Description=Palm Bluetooth Gateway (SPP/LAP/DUN over PPP, PAN NAP)
+Documentation=https://github.com/lasergirl-ca/pi-blueap
+After=bluetooth.service NetworkManager.service palm-gwd-nm-bridge.service nftables.service palm-gw-dnsmasq.service
+Wants=bluetooth.service palm-gwd-nm-bridge.service nftables.service palm-gw-dnsmasq.service
+# Not Requires=bluetooth.service: the daemon handles BlueZ going away and coming back itself.
+# The package enables this unit but it must not start until setup has written a config.
+ConditionPathExists=/etc/palm-gw/config.toml
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/palm-gwd -config /etc/palm-gw/config.toml
+ExecReload=/usr/local/bin/palm-gwctl reload
+Restart=always
+RestartSec=3
+RuntimeDirectory=palm-gw
+RuntimeDirectoryMode=0750
+StateDirectory=palm-gw
+WatchdogSec=60
+
+# Hardening. Start here; relax only what breaks, and document each relaxation in DECISIONS.md.
+User=root
+ProtectSystem=strict
+ReadWritePaths=/run /var/lib/palm-gw /var/log /etc/ppp /etc/palm-gw
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_BLUETOOTH
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_KILL CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SYS_ADMIN
+AmbientCapabilities=
+# pppd needs to keep privileges; keep this `no` unless tested otherwise.
+NoNewPrivileges=no
+# pppd `notty` creates a pseudo-tty pair and opens /dev/ppp; all three are required.
+DevicePolicy=closed
+DeviceAllow=/dev/ppp rw
+DeviceAllow=/dev/ptmx rw
+DeviceAllow=/dev/pts/* rw
+
+[Install]
+WantedBy=multi-user.target

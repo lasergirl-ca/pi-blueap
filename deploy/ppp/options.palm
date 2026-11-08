@@ -1,0 +1,25 @@
+# /etc/ppp/options.palm: pppd options for every Palm session (PLAN.md Appendix D).
+# The daemon passes the addresses, ms-dns, linkname, ipparam, noauth and nocrtscts on the
+# command line, so this file is static. Debian's /etc/ppp/options is read first; later
+# options override earlier ones, so these win.
+local
+noauth
+nodetach
+logfd 2
+nodefaultroute
+noipv6
+nocrtscts
+noccp
+novj
+novjccomp
+nobsdcomp
+nodeflate
+nopcomp
+noaccomp
+asyncmap 0
+mtu 1500
+mru 1500
+lcp-echo-interval 20
+lcp-echo-failure 3
+lcp-max-configure 30
+ipcp-accept-remote

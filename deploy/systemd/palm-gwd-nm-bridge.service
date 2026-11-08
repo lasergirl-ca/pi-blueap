@@ -1,0 +1,13 @@
+[Unit]
+Description=palm-gw: ensure the {{BRIDGE}} bridge exists via NetworkManager
+After=NetworkManager.service
+Wants=NetworkManager.service
+Before=palm-gwd.service palm-gw-dnsmasq.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/palm-gw/nm-bridge.sh {{BRIDGE}} {{GATEWAY}} {{PREFIX}}
+
+[Install]
+WantedBy=multi-user.target

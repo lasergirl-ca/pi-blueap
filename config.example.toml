@@ -1,0 +1,85 @@
+# /etc/palm-gw/config.toml
+# Every key has a default; an empty file is a valid configuration (PLAN.md section 7).
+# This file lists every key at its default. The [[firewall.allow]] examples are commented out.
+
+[bluetooth]
+adapter          = "hci0"          # "hci0", "hci1", or "auto" (PLAN.md section 3)
+name             = "Palm Gateway"  # Adapter Alias; this is what the Palm shows in its device list
+class            = 0x000300        # major/minor Class of Device only (BlueZ sets the service bits itself)
+class_fallback   = 0x000104        # used by `palm-gwctl class toggle` when a Palm cannot see the gateway
+pin              = ""              # "" = random 4-digit PIN per pairing window; "1234" = fixed (discouraged)
+pin_length       = 4               # for random PINs; 4 to 6 is practical on a stylus keyboard
+pair_window_default_minutes = 5    # used when `palm-gwctl pair` has no argument
+allow_any        = false           # true = accept any *paired* device even if not in allowlist (warned at start)
+allow            = []              # static allowlist of device addresses, e.g. ["00:07:E0:12:34:56"]
+trust_on_pair    = true            # set Device1.Trusted after a successful pairing in a window
+
+[spp]                              # Serial Port Profile; Palm "Connect to: PC"
+enabled = true
+channel = 1
+[lap]                              # LAN Access Profile; Palm "Connect to: Local Network" (where offered)
+enabled = true
+channel = 2
+[dun]                              # Dial-Up Networking; Palm "Connect to: Mobile Phone" (AT emulator)
+enabled = true
+channel = 3
+[pan]
+enabled = true
+bridge  = "br-palm"
+
+[handshake]
+ms_null_modem        = true        # answer "CLIENT" with "CLIENTSERVER"
+ms_timeout_ms        = 3000        # how long to wait for CLIENT or PPP before starting pppd blind
+at_emulator          = true        # DUN channel: answer AT commands, CONNECT on ATD
+at_connect_banner    = "CONNECT 115200"
+
+[network]
+subnet     = "10.42.0.0/24"
+gateway    = "10.42.0.1"
+ppp_pool   = ["10.42.0.10", "10.42.0.99"]      # inclusive range for PPP peers
+dhcp_pool  = ["10.42.0.100", "10.42.0.199"]    # dnsmasq range for PAN clients
+uplink     = "eth0"                             # interface to NAT out of
+dns_upstream = []                               # [] = use the Pi's resolv.conf; or ["1.1.1.1", "9.9.9.9"]
+mss_clamp  = true                               # clamp TCP MSS to path MTU on forward (helps PPPoE uplinks)
+
+[ppp]
+options_file   = "/etc/ppp/options.palm"
+debug          = false             # adds `debug` to pppd; very chatty
+idle_seconds   = 0                 # 0 = never; else pppd `idle N` disconnects idle links
+max_sessions   = 8
+per_device_max = 1                 # a new connection from an address with a live session kills the old one
+
+[firewall]
+manage_nftables = true             # false = daemon never touches nft (you own the rules)
+palm_to_pi      = ["udp/53", "udp/67", "icmp"]   # what Palms may send to the Pi itself
+
+# LAN hosts Palms may reach; everything else RFC1918 is dropped. Examples:
+#
+# [[firewall.allow]]
+# host    = "192.168.1.20"
+# ports   = ["tcp/14238", "tcp/14237"]
+# comment = "NetSync (HotSync over TCP)"
+#
+# [[firewall.allow]]
+# host    = "192.168.1.0/24"         # CIDR is allowed too
+# ports   = ["udp/5353"]
+# comment = "mDNS, if you want Palm apps to find things"
+
+[logging]
+level  = "info"                    # debug | info | warn | error
+format = "json"                    # json | text
+btmon_on_failure = false           # if true, on repeated pairing/connect failures run `btmon -w` for 60 s
+
+[ctl]
+socket = "/run/palm-gw/ctl.sock"
+group  = "palm-gw"                 # socket is 0660 root:palm-gw so an operator can run palm-gwctl without sudo
+
+[web]
+enabled        = true
+listen         = ["0.0.0.0:8042"]   # bound to LAN addresses only at runtime; nftables drops 8042 from the Palm side
+tls            = "self-signed"      # "off" | "self-signed" | "file"
+tls_cert_file  = ""
+tls_key_file   = ""
+password_hash  = ""                 # argon2id; written by `palm-gw setup` or `palm-gw web set-password`
+session_hours  = 72
+allow_cidrs    = []                 # [] = any LAN source; or ["192.168.1.0/24"]

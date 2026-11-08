@@ -1,0 +1,53 @@
+# Rendered by palm-gw from deploy/nftables/palm-gw.nft.tmpl; do not edit by hand.
+# Included from /etc/nftables.conf. UPLINK, SUBNET and BRIDGE come from /etc/palm-gw/config.toml.
+# No wildcard interface names inside sets (support varies by nft version); wildcards appear only
+# in plain iifname/oifname rule matches, which every nftables since 0.9 supports.
+table inet palm_gw {
+    # Filled by palm-gwd from [[firewall.allow]]: dst addr . l4proto . dport
+    set lan_allow {
+        type ipv4_addr . inet_proto . inet_service
+        flags interval
+    }
+    set lan_allow_icmp {
+        type ipv4_addr
+        flags interval
+    }
+
+    # Classifier chains: the base chains only decide "did this come from the Palm side?"
+    # policy accept + jump means this table coexists with any other firewall on the Pi.
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+        iifname "{{BRIDGE}}" jump palm_forward
+        iifname "ppp*"    jump palm_forward
+    }
+    chain input {
+        type filter hook input priority filter; policy accept;
+        iifname "{{BRIDGE}}" jump palm_input
+        iifname "ppp*"    jump palm_input
+    }
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        ip saddr {{SUBNET}} oifname "{{UPLINK}}" masquerade
+    }
+
+    chain palm_forward {
+        ct state established,related accept
+        ct state invalid drop
+        ip daddr . meta l4proto . th dport @lan_allow accept
+        ip daddr @lan_allow_icmp ip protocol icmp accept
+        ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 } counter drop comment "palm->rfc1918"
+{{if MSS_CLAMP}}        oifname "{{UPLINK}}" tcp flags syn tcp option maxseg size set rt mtu
+{{end}}        oifname "{{UPLINK}}" accept
+        counter drop comment "palm->other"
+    }
+    chain palm_input {
+        ct state established,related accept
+        udp dport 53 accept
+        tcp dport 53 accept
+        udp dport 67 accept                                   comment "DHCP from PAN clients"
+        tcp dport 80 accept                                   comment "the /palm status page"
+        icmp type { echo-request, destination-unreachable, time-exceeded } accept
+        tcp dport 8042 counter drop comment "palm->webui"
+        counter drop comment "palm->pi"
+    }
+}

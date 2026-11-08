@@ -1,0 +1,20 @@
+[Unit]
+Description=palm-gw: DHCP and DNS for the Palm subnet (project-owned dnsmasq instance)
+Documentation=https://github.com/lasergirl-ca/pi-blueap
+After=network.target palm-gwd-nm-bridge.service
+Wants=palm-gwd-nm-bridge.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/dnsmasq --test --conf-file=/etc/palm-gw/dnsmasq.conf
+ExecStart=/usr/sbin/dnsmasq -k --conf-file=/etc/palm-gw/dnsmasq.conf --pid-file=/run/palm-gw-dnsmasq/dnsmasq.pid
+ExecReload=/bin/kill -HUP $MAINPID
+# Its own runtime directory: palm-gwd owns /run/palm-gw, and a RuntimeDirectory is removed
+# when its unit stops, which would take the control socket with it.
+RuntimeDirectory=palm-gw-dnsmasq
+StateDirectory=palm-gw
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

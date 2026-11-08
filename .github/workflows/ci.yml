@@ -1,0 +1,42 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  go:
+    name: vet, lint, test, arm64 build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+      - run: go test ./...
+      - run: make build-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: palm-gw-linux-arm64
+          path: dist/linux-arm64/
+
+  nft:
+    # Renders the nftables template from the example config and checks it with the oldest
+    # supported nftables (Bookworm, 1.0.6). Also runs the test suite with nft present so
+    # nft-dependent tests (Phase 3 onwards) are not skipped.
+    name: nftables syntax (Bookworm)
+    runs-on: ubuntu-latest
+    container: golang:1.24-bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update -qq && apt-get install -y -qq nftables dnsmasq-base
+      - run: nft --version
+      - run: go run ./cmd/palm-gwd -config config.example.toml -render deploy/nftables/palm-gw.nft.tmpl > /tmp/palm-gw.nft
+      - run: cat /tmp/palm-gw.nft
+      - run: nft -c -f /tmp/palm-gw.nft
+      - run: go run ./cmd/palm-gwd -config config.example.toml -render deploy/dnsmasq/palm-gw.conf.tmpl > /tmp/dnsmasq.conf
+      - run: dnsmasq --test --conf-file=/tmp/dnsmasq.conf
+      - run: go test ./...
