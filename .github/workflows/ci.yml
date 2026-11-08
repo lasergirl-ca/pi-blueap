@@ -29,7 +29,11 @@ jobs:
     # nft-dependent tests (Phase 3 onwards) are not skipped.
     name: nftables syntax (Bookworm)
     runs-on: ubuntu-latest
-    container: golang:1.24-bookworm
+    container:
+      image: golang:1.24-bookworm
+      # nft -c still opens a netlink socket to initialise its cache; without this it fails with
+      # "netlink: Error: cache initialization failed: Operation not permitted".
+      options: --cap-add=NET_ADMIN
     steps:
       - uses: actions/checkout@v4
       - run: apt-get update -qq && apt-get install -y -qq nftables dnsmasq-base

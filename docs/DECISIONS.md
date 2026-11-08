@@ -86,7 +86,44 @@ The units reference `/usr/local/bin/palm-gwd` exactly as section 8.10 writes the
 rendering its own copies of the units, most likely) is decided in Phase 6; nothing in Phase 0
 depends on it.
 
+### D-011: The daemon sets the group of its runtime directory, not only of the socket
+
+Section 8.8 wants the control socket `0660 root:palm-gw` so an operator can use `palm-gwctl`
+without sudo, and section 8.10 has `RuntimeDirectoryMode=0750`. On the Pi 5 the first run showed
+that systemd creates `/run/palm-gw` as `root:root 0750`, so group members could not traverse the
+directory to reach a socket that was already `root:palm-gw`. `ctl.Server.Listen` now also sets the
+directory's group to `[ctl].group` (mode stays 0750). Verified: `palm-gwctl status` works as
+`sysadmin` with no sudo after the fix.
+
+### D-012: `install.sh` re-applies sysctl after the units start
+
+`-net.ipv4.conf.<bridge>.proxy_arp = 0` cannot be applied before the bridge exists. The installer
+now applies the sysctl file quietly before the units and again after `palm-gwd-nm-bridge` has
+created the bridge, and prints the resulting `ip_forward` and `rp_filter` values. At boot,
+`systemd-sysctl` runs before NetworkManager, so the bridge key is skipped then too (the leading `-`
+makes that silent); the daemon will set it itself when it starts managing the bridge in Phase 4 if
+the value turns out not to be 0 by default. Observed on the Pi 5 after reboot: proxy_arp is 0
+regardless, because that is the kernel default.
+
 ## Hardware observations
 
-None yet. Hardware line (kickoff rule 4) still to be provided: boards, host, SSH user, dongle,
-Palm models, fake-palm laptop, uplink.
+### Test rig (kickoff rule 4), 2026-11-08
+
+- **Pi 5 Model B Rev 1.0**, 8 GB, booting from a 64 GB card, Raspberry Pi OS Lite 64-bit Trixie
+  (Debian 13.7), kernel 6.18.50+rpt-rpi-2712. `ssh sysadmin@10.4.0.241`, key auth, passwordless
+  sudo. Hostname `piblueap`.
+- Versions found: BlueZ 5.82, ppp 2.5.2, dnsmasq 2.91, nftables 1.1.3, NetworkManager 1.52.1,
+  Go 1.24.4 from apt. All at or above section 4's "expected" column.
+- Uplink `eth0` (10.4.0.241/23 via DHCP, also has a global IPv6 address). `wlan0` present and
+  down; Wi-Fi uplink is to be tested too per Zoe. Home LAN 10.4.0.0/23 does not overlap
+  10.42.0.0/24.
+- Onboard adapter `2C:CF:67:2F:29:F5`, shown by `bluetoothctl list`. A USB dongle is available
+  on request but is not plugged in.
+- `cmdline.txt` has `console=serial0,115200`. On a Pi 5 the debug UART is a separate connector,
+  so this is not a conflict (section 3); the installer's warning is Pi 4 only.
+- **No Pi 4 is available.** Every phase will record Pi 4 as untested until one appears, as
+  section 10 allows.
+- Palm models and whether a Linux laptop exists for `fake-palm`: not yet known.
+- `golangci-lint` is not packaged in Trixie. Its release install script (`curl | sh`) was not run
+  on the Pi; it is being built from source with `go install` instead. Lint is authoritative on the
+  development machine and in CI either way.

@@ -61,10 +61,14 @@ func NewServer(path, group string, log *slog.Logger) *Server {
 // Handle registers the handler for a command name.
 func (s *Server) Handle(cmd string, h Handler) { s.handlers[cmd] = h }
 
-// Listen creates the socket: parent directory 0750, stale socket removed,
-// mode 0660, group ownership when the group exists on this host.
+// Listen creates the socket: parent directory 0750 root:<group>, stale socket
+// removed, socket mode 0660 root:<group>, when the group exists on this host.
+// systemd's RuntimeDirectory= creates the directory root:root, which would
+// stop group members from reaching the socket at all, so the directory's
+// group is set here too.
 func (s *Server) Listen() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o750); err != nil {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("ctl: %w", err)
 	}
 	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -82,6 +86,11 @@ func (s *Server) Listen() error {
 		gid, _ := strconv.Atoi(g.Gid)
 		if err := os.Chown(s.path, -1, gid); err != nil {
 			s.log.Warn("ctl socket group not applied", "group", s.group, "err", err)
+		}
+		if err := os.Chown(dir, -1, gid); err != nil {
+			s.log.Warn("ctl directory group not applied", "dir", dir, "group", s.group, "err", err)
+		} else if err := os.Chmod(dir, 0o750); err != nil {
+			s.log.Warn("ctl directory mode not applied", "dir", dir, "err", err)
 		}
 	} else {
 		s.log.Warn("ctl group does not exist; socket is root-only", "group", s.group)

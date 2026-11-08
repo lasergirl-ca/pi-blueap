@@ -153,8 +153,8 @@ render "$REPO/deploy/ppp/options.palm"                    /etc/ppp/options.palm 
 # deploy/bluetooth/main.conf.block is applied by the Go INI editor from Phase 1 onwards.
 
 for m in bnep rfcomm ppp_generic ppp_async; do modprobe "$m" 2>/dev/null || warn "modprobe $m failed"; done
-sysctl -q -p /etc/sysctl.d/90-palm-gw.conf || true
-if ip link show "$(sed -n 's/^.*bridge *= *"\([^"]*\)".*$/\1/p' "$ETC/config.toml" | head -1)" >/dev/null 2>&1; then :; fi
+# The bridge key is applied again after the units start (the bridge may not exist yet here).
+sysctl -q -p /etc/sysctl.d/90-palm-gw.conf 2>/dev/null || true
 
 # ---------------------------------------------------------------- 7. nftables
 say "nftables"
@@ -211,6 +211,8 @@ systemctl enable --now nftables >/dev/null 2>&1 && note "nftables enabled"
 systemctl reload-or-restart nftables
 systemctl enable --now palm-gwd-nm-bridge >/dev/null 2>&1 && note "palm-gwd-nm-bridge enabled and started"
 systemctl enable --now palm-gw-dnsmasq   >/dev/null 2>&1 && note "palm-gw-dnsmasq enabled and started"
+sysctl -q -p /etc/sysctl.d/90-palm-gw.conf 2>/dev/null || true
+note "sysctl applied: ip_forward=$(sysctl -n net.ipv4.ip_forward) rp_filter=$(sysctl -n net.ipv4.conf.all.rp_filter)"
 if [ "$ENABLE_PALM_GWD" = 1 ]; then
   systemctl enable --now palm-gwd >/dev/null 2>&1 && note "palm-gwd enabled and started"
 else
