@@ -5,14 +5,13 @@
 #
 #   sudo make install [ADAPTER=onboard|dongle] [UPLINK=eth0|wlan0] [CONFIG=path/to/config.toml]
 #
-# Phase 0: places every file and enables the bridge, dnsmasq and nftables units. palm-gwd is
-# installed and its unit is present but it is NOT enabled until Phase 1 (ENABLE_PALM_GWD=1).
+# Enables the bridge, dnsmasq, nftables and palm-gwd units (ENABLE_PALM_GWD=0 to leave the daemon off).
 set -euo pipefail
 
 ADAPTER=${ADAPTER:-onboard}
 UPLINK=${UPLINK:-}
 CONFIG=${CONFIG:-}
-ENABLE_PALM_GWD=${ENABLE_PALM_GWD:-0}
+ENABLE_PALM_GWD=${ENABLE_PALM_GWD:-1}
 VERSION=${VERSION:-dev}
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -150,7 +149,17 @@ render "$REPO/deploy/dnsmasq/palm-gw.conf.tmpl"           "$ETC/dnsmasq.conf" 06
 render "$REPO/deploy/sysctl.d/90-palm-gw.conf"            /etc/sysctl.d/90-palm-gw.conf 0644
 render "$REPO/deploy/modules-load.d/palm-gw.conf"         /etc/modules-load.d/palm-gw.conf 0644
 render "$REPO/deploy/ppp/options.palm"                    /etc/ppp/options.palm 0644
-# deploy/bluetooth/main.conf.block is applied by the Go INI editor from Phase 1 onwards.
+
+# ---------------------------------------------------------------- 6b. bluetooth main.conf
+say "BlueZ main.conf managed block"
+MAINCONF=/etc/bluetooth/main.conf
+if [ -f "$MAINCONF" ] && [ ! -f "$STATE/main.conf.orig" ]; then
+  cp -p "$MAINCONF" "$STATE/main.conf.orig"   # belt and braces; the block is reversible on its own
+fi
+track "$MAINCONF"   # listed so uninstall knows to strip the block (it never deletes this file)
+mc=$("$BIN_DIR/palm-gwd" -config "$ETC/config.toml" -state "$STATE" -main-conf "$MAINCONF")
+BLUETOOTH_RESTART=0
+if [ "$mc" = changed ]; then note "$MAINCONF: managed block written (Name, Class, timeouts, JustWorksRepairing, AutoEnable)"; BLUETOOTH_RESTART=1; else note "$MAINCONF: managed block unchanged"; fi
 
 for m in bnep rfcomm ppp_generic ppp_async; do modprobe "$m" 2>/dev/null || warn "modprobe $m failed"; done
 # The bridge key is applied again after the units start (the bridge may not exist yet here).
@@ -206,7 +215,11 @@ esac
 # ---------------------------------------------------------------- 9. units
 say "Units"
 systemctl daemon-reload
-systemctl restart bluetooth
+if [ "$BLUETOOTH_RESTART" = 1 ] || ! systemctl is-active --quiet bluetooth; then
+  systemctl restart bluetooth; note "bluetooth restarted"
+else
+  note "bluetooth left running (main.conf unchanged)"
+fi
 systemctl enable --now nftables >/dev/null 2>&1 && note "nftables enabled"
 systemctl reload-or-restart nftables
 systemctl enable --now palm-gwd-nm-bridge >/dev/null 2>&1 && note "palm-gwd-nm-bridge enabled and started"
@@ -214,10 +227,11 @@ systemctl enable --now palm-gw-dnsmasq   >/dev/null 2>&1 && note "palm-gw-dnsmas
 sysctl -q -p /etc/sysctl.d/90-palm-gw.conf 2>/dev/null || true
 note "sysctl applied: ip_forward=$(sysctl -n net.ipv4.ip_forward) rp_filter=$(sysctl -n net.ipv4.conf.all.rp_filter)"
 if [ "$ENABLE_PALM_GWD" = 1 ]; then
-  systemctl enable --now palm-gwd >/dev/null 2>&1 && note "palm-gwd enabled and started"
+  systemctl enable palm-gwd >/dev/null 2>&1
+  systemctl restart palm-gwd && note "palm-gwd enabled and (re)started"
 else
   systemctl disable --now palm-gwd >/dev/null 2>&1 || true
-  note "palm-gwd installed but not enabled (Phase 0 scaffold)"
+  note "palm-gwd installed but not enabled (ENABLE_PALM_GWD=0)"
 fi
 
 # ---------------------------------------------------------------- 10. install-info
@@ -255,12 +269,12 @@ track "$STATE/install-info.json"
 say "Done"
 cat <<TXT
 
-palm-gw $VERSION is installed (Phase 0 scaffold).
+palm-gw $VERSION is installed.
   Config:    $ETC/config.toml
-  Check:     systemctl status nftables palm-gw-dnsmasq palm-gwd-nm-bridge
-             ip addr show $(sed -n 's/^.*bridge *= *"\([^"]*\)".*$/\1/p' "$ETC/config.toml" | head -1)
-  Daemon:    palm-gwd is not enabled yet; start it by hand to try the ctl socket:
-             sudo palm-gwd -config $ETC/config.toml &   then   palm-gwctl status
+  Status:    palm-gwctl status      (as a member of the palm-gw group, or with sudo)
+  Pair:      palm-gwctl pair        prints the PIN to enter on the Palm
+  Units:     systemctl status palm-gwd nftables palm-gw-dnsmasq palm-gwd-nm-bridge
+  Logs:      journalctl -fu palm-gwd
   Uninstall: sudo make uninstall  (PURGE=1 also removes config and state)
 TXT
 [ "$REBOOT_REQUIRED" = 1 ] && echo "Reboot required: YES (onboard Bluetooth disabled for dongle mode)" || echo "Reboot required: no"

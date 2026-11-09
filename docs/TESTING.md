@@ -280,3 +280,182 @@ from `config.example.toml` and checks them with `nft -c -f` (nftables 1.0.6, the
 and `dnsmasq --test`. The first run (commit 0e07ed2) passed the Go job and failed the nft job with
 `netlink: Error: cache initialization failed: Operation not permitted`: `nft -c` needs a netlink
 socket even for a dry run. Fixed by running that container with `--cap-add=NET_ADMIN`.
+
+## Phase 1: Adapter and agent
+
+**Accept:** From a laptop, `bluetoothctl scan on` shows "Palm Gateway" with the expected class.
+`palm-gwctl pair 2 --one` prints a PIN; pairing from the laptop succeeds and the window closes; the
+address appears in `status` and `state.json`. Pairing with no window open is refused (`btmon` shows
+the rejection). `palm-gwctl forget` removes the device from both the state file and
+`bluetoothctl devices`. Kill `bluetooth.service` and restart it: the daemon logs `bluez_lost` then
+`bluez_found` and `status` is healthy within 10 s.
+
+**Result: passed on the Pi 5, 2026-11-09**, with a Palm TX as the pairing client in place of a
+laptop (D-017). The Raspberry Pi 4 is untested because none is available.
+
+### Development machine, 2026-11-08
+
+`make test lint build-arm64` green. New unit tests: `internal/agent` (pairing window open, close
+reasons, `--one`, timeout, adapter failure, PIN randomness), `internal/allow`, `internal/state`
+(atomic save, reload, corrupt file is an error), `internal/setup` (main.conf block against Debian's
+stock file: placement, parking live keys, idempotence, byte-exact removal, mode preserved).
+
+### Raspberry Pi 5, 2026-11-08
+
+**Install** (`sudo make install`, over the Phase 0 install): main.conf block written, bluetooth
+restarted, `palm-gwd enabled and (re)started`.
+
+```
+$ palm-gwctl status
+palm-gwd c851da6-dirty, up 5s (phase 1)
+bluez:     ok, agent registered since 17:31:44
+adapter:   hci0 2C:CF:67:2F:29:F5  alias "Palm Gateway"  class 0x400300  powered=yes discoverable=yes pairable=no  (configured)
+pairing:   closed (palm-gwctl pair to open)
+allowlist: 0 entries
+$ bluetoothctl show | grep -E 'Alias|Class|Discoverable:|Pairable'
+	Alias: Palm Gateway
+	Class: 0x00400300 (4195072)
+	Discoverable: yes
+	Pairable: no
+```
+
+The first run showed `Pairable: yes` with no window; fixed (DECISIONS D-013) and re-verified above.
+
+**BlueZ restart** (after fixing the release race in DECISIONS D-016), three consecutive runs of
+`systemctl stop bluetooth; sleep 2; systemctl start bluetooth`, polling until `status` shows the
+agent registered, the adapter found and `Pairable: no`:
+
+```
+run 1: while down: bluez:     NOT RUNNING (lost 1 times) | healthy 1116 ms after bluetooth start
+run 2: while down: bluez:     NOT RUNNING (lost 2 times) | healthy 1147 ms after bluetooth start
+run 3: while down: bluez:     NOT RUNNING (lost 3 times) | healthy 1146 ms after bluetooth start
+$ systemctl show palm-gwd -p NRestarts
+NRestarts=0
+17:33:51.033 agent released by BlueZ
+17:33:51.034 BlueZ went away bluez_lost
+17:33:53.128 BlueZ is present bluez_found
+17:33:54.153 adapter configured
+17:33:54.154 agent registered
+```
+
+**Pairing window without a client:** `palm-gwctl pair 1 --one` prints the PIN and the Palm steps;
+`Pairable: yes` while it is open, `no` after Ctrl-C; a second `pair` while one is open is refused
+(`a pairing window is already open (closes 5:33PM); cancel it first`); opening a window immediately
+after a BlueZ restart works.
+
+**allow / forget without a client:**
+
+```
+$ palm-gwctl allow 00:07:E0:12:34:56
+00:07:E0:12:34:56 added to the allowlist
+$ palm-gwctl allow 00:07:e0:12:34:56
+00:07:E0:12:34:56 was already in the allowlist
+$ palm-gwctl forget 00:07:E0:12:34:56
+00:07:E0:12:34:56: allowlist removed, BlueZ device not known
+$ palm-gwctl forget nonsense; echo $?
+palm-gwctl forget: expected one Bluetooth address XX:XX:XX:XX:XX:XX
+2
+```
+
+**main.conf round trip:** stripping the block from the live file reproduced
+`/var/lib/palm-gw/main.conf.orig` exactly (`cmp`); re-applying printed `unchanged`.
+
+### Pairing with a real Palm, 2026-11-09
+
+Client: Palm TX (address 00:07:E0:3C:5E:FA, Bluetooth class 0x100114, PDA), driven by hand by
+the user. A `btmon -T` trace ran on the Pi throughout (`/var/tmp/phase1-btmon.txt`).
+
+**Discovery.** Prefs ▸ Bluetooth ▸ Trusted Devices ▸ Add Device lists "Palm Gateway".
+
+**Pairing inside a window (legacy PIN).** From the Mac:
+
+```
+$ ssh sysadmin@10.4.0.241 palm-gwctl pair 5 --one
+Pairing window open for 5m0s.
+On the Palm: Prefs > Communication > Bluetooth > Setup Devices > Trusted Devices > Add Device,
+then tap the gateway when it appears in the list.
+When asked for a passkey, enter:   6 0 2 4
+Waiting... (Ctrl-C closes the window)
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"  PIN requested
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"  paired, added to allowlist
+Window closed (one device).
+```
+
+Daemon log for the same run (trimmed):
+
+```
+05:25:12.562 window_open      minutes=5 one=true
+05:25:53.416 pin_requested    addr=00:07:E0:3C:5E:FA name="Zoë's Palm TX"
+05:25:59.091 paired           addr=00:07:E0:3C:5E:FA trusted=true
+05:25:59.099 window_closed    reason=one_device
+```
+
+`btmon` shows the legacy flow: HCI PIN Code Request, PIN Code Request Reply with the window's PIN,
+then Link Key Notification. Afterwards:
+
+```
+$ palm-gwctl status
+adapter:   hci0 2C:CF:67:2F:29:F5  alias "Palm Gateway"  class 0x400300  powered=yes discoverable=yes pairable=no  (configured)
+pairing:   closed (palm-gwctl pair to open)
+allowlist: 1 entries
+  00:07:E0:3C:5E:FA  dynamic  Zoë's Palm TX
+$ sudo cat /var/lib/palm-gw/state.json
+{ "version": 1, "devices": { "00:07:E0:3C:5E:FA": { "address": "00:07:E0:3C:5E:FA",
+  "name": "Zoë's Palm TX", "first_paired": "2026-11-09T05:25:59.091120413-07:00", ... } } }
+$ bluetoothctl info 00:07:E0:3C:5E:FA | grep -E "Paired|Bonded|Trusted"
+	Paired: yes
+	Bonded: yes
+	Trusted: yes
+```
+
+Pairable returned to `no` when the window closed.
+
+**Bug found and fixed: `--one` after the minutes was ignored.** The first run
+(`palm-gwctl pair 5 --one`, 05:21) logged `one=false` and left the window open after the Palm
+paired. Go's `flag` package stops at the first positional argument, and the CLI re-parsed only
+once after the command name. `parseInterleaved` in `internal/ctl/cli.go` now resumes after every
+positional argument; `TestParseInterleaved` covers flags before, between and after positionals,
+`--`, and unknown flags. The run above is with the fix deployed.
+
+**`forget` on a real paired device** (after the first pairing, 05:23):
+
+```
+$ palm-gwctl forget 00:07:E0:3C:5E:FA
+00:07:E0:3C:5E:FA: allowlist removed, BlueZ device removed
+$ sudo cat /var/lib/palm-gw/state.json
+{ "version": 1, "devices": {} }
+$ bluetoothctl devices
+$
+```
+
+**Pairing with no window open is refused.** After `palm-gwctl forget` (05:31:09), the user deleted
+"Palm Gateway" from the Palm's Trusted Devices, ran Add Device, picked the gateway and entered
+`1234`. The Palm reported that pairing failed. `btmon`:
+
+```
+> HCI Event: Connect Request (0x04)                    05:32:12.523443  00:07:E0:3C:5E:FA (Palm Inc.)
+> HCI Event: Connect Complete (0x03)                   05:32:12.727555  Status: Success
+> HCI Event: Remote Name Req Complete (0x07)           05:32:12.768554  Name: Zoë's Palm TX
+> HCI Event: PIN Code Request (0x16)                   05:32:19.101340  00:07:E0:3C:5E:FA
+< HCI Command: PIN Code Request Negative Reply (0x000e) 05:32:19.101358  00:07:E0:3C:5E:FA
+```
+
+The kernel answers the PIN request itself in 18 µs because the adapter is not bondable
+(`Pairable: no`), so the request never reaches bluetoothd or the agent. The agent's own
+`no_window` rejection is the second layer and is covered by unit tests. The Palm disconnected at
+05:32:19.337; `state.json` stayed empty and `bluetoothctl info` showed `Paired: no`.
+
+The Palm did not list the gateway on the user's first two no-window attempts. `hciconfig` showed
+`PSCAN ISCAN` and HCI Read Scan Enable returned 0x03 both with and without a window, so the Pi
+was discoverable throughout; the third attempt found it. A
+single Palm inquiry appears to miss the Pi at times. Watch for this in Phase 3 testing.
+
+**Palm network wizard.** After pairing, the Palm TX's Setup Devices wizard asks for a user name
+and password and will not continue with them blank (PLAN.md section 11 says to leave them blank, or set "unassigned").
+The user entered placeholder values. The gateway's PPP options use `noauth`, so the Palm is never
+asked for them; to confirm in Phase 2.
+
+### Raspberry Pi 4
+
+Not available; untested.
+

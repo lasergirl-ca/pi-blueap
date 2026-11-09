@@ -1,7 +1,7 @@
-// Command palm-gwd is the Palm Bluetooth Gateway daemon. Phase 0 (scaffold):
-// it loads and validates the configuration, sets up logging, serves the
-// control socket with `status`, and integrates with systemd (READY, watchdog).
-// BlueZ, pppd and nftables arrive in later phases.
+// Command palm-gwd is the Palm Bluetooth Gateway daemon. It loads and
+// validates the configuration, sets up logging, and runs the lifecycle in
+// internal/daemon: control socket, BlueZ adapter and agent (Phase 1), RFCOMM
+// profiles and PPP (Phase 2), firewall (Phase 3), PAN (Phase 4).
 package main
 
 import (
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -17,16 +18,26 @@ import (
 
 	"palm-gw/internal/config"
 	"palm-gw/internal/ctl"
+	gwdaemon "palm-gw/internal/daemon"
 	"palm-gw/internal/logging"
+	"palm-gw/internal/setup"
+	"palm-gw/internal/state"
 )
 
 // version is set by the Makefile: -X main.version=$(VERSION).
 var version = "dev"
 
 // phase is the PLAN.md section 10 phase this build has completed.
-const phase = "0"
+const phase = "1"
 
 func main() { os.Exit(run(os.Args[1:])) }
+
+func defaultStateDir() string {
+	if d := os.Getenv("STATE_DIRECTORY"); d != "" {
+		return d
+	}
+	return state.DefaultDir
+}
 
 func run(args []string) int {
 	// `palm-gwd ctl ...` is the same as palm-gwctl.
@@ -36,14 +47,26 @@ func run(args []string) int {
 
 	fs := flag.NewFlagSet("palm-gwd", flag.ContinueOnError)
 	cfgPath := fs.String("config", config.DefaultPath, "configuration file")
+	stateDir := fs.String("state", defaultStateDir(), "state directory (state.json lives here)")
 	check := fs.Bool("check", false, "load and validate the configuration, then exit")
 	render := fs.String("render", "", "render this deploy/ template with values from the configuration to stdout, then exit")
+	mainConf := fs.String("main-conf", "", "apply the managed block to this /etc/bluetooth/main.conf, then exit (prints changed|unchanged)")
+	mainConfRm := fs.String("main-conf-remove", "", "remove the managed block from this main.conf, then exit")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *showVersion {
 		fmt.Println("palm-gwd", version)
+		return 0
+	}
+	if *mainConfRm != "" {
+		changed, err := setup.RemoveFile(*mainConfRm)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "palm-gwd:", err)
+			return 1
+		}
+		fmt.Println(map[bool]string{true: "changed", false: "unchanged"}[changed])
 		return 0
 	}
 
@@ -67,6 +90,19 @@ func run(args []string) int {
 		fmt.Print(out)
 		return 0
 	}
+	if *mainConf != "" {
+		class := cfg.Bluetooth.Class
+		if st, err := state.Open(state.Path(*stateDir)); err == nil && st.Class() != 0 {
+			class = st.Class() // persisted `class toggle`
+		}
+		changed, err := setup.ApplyFile(*mainConf, setup.ManagedSettings(cfg, class))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "palm-gwd:", err)
+			return 1
+		}
+		fmt.Println(map[bool]string{true: "changed", false: "unchanged"}[changed])
+		return 0
+	}
 	if *check {
 		fmt.Printf("%s: configuration is valid\n", *cfgPath)
 		for _, w := range cfg.Warnings() {
@@ -76,7 +112,7 @@ func run(args []string) int {
 	}
 
 	log := logging.New(cfg.Logging, os.Stderr)
-	log.Info("palm-gwd starting", "version", version, "phase", phase, "config", *cfgPath)
+	log.Info("palm-gwd starting", "version", version, "phase", phase, "config", *cfgPath, "state", *stateDir)
 	for _, w := range cfg.Warnings() {
 		log.Warn(w)
 	}
@@ -89,35 +125,32 @@ func run(args []string) int {
 	for _, w := range warnings {
 		log.Warn(w)
 	}
-	allWarnings := append(cfg.Warnings(), warnings...)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	started := time.Now()
-	srv := ctl.NewServer(cfg.Ctl.Socket, cfg.Ctl.Group, log)
-	srv.Handle("status", func(_ context.Context, _ ctl.Request, w *ctl.Writer) error {
-		return w.Send(ctl.StatusReply{
-			Version:       version,
-			Phase:         phase,
-			StartedAt:     started,
-			UptimeSeconds: int64(time.Since(started).Seconds()),
-			ConfigPath:    *cfgPath,
-			Warnings:      allWarnings,
-			Config:        cfg.Redacted(),
-		})
+	// systemd integration: READY once the agent is registered, WATCHDOG at a
+	// third of the configured interval (WatchdogSec=60 gives 20 s, PLAN.md
+	// section 8.10). Both are no-ops outside systemd.
+	d, err := gwdaemon.New(gwdaemon.Options{
+		Config:     cfg,
+		ConfigPath: *cfgPath,
+		StatePath:  filepath.Join(*stateDir, "state.json"),
+		Version:    version,
+		Phase:      phase,
+		Warnings:   append(cfg.Warnings(), warnings...),
+		Log:        log,
+		OnReady: func() {
+			if _, err := daemon.SdNotify(false, daemon.SdNotifyReady); err != nil {
+				log.Warn("sd_notify READY failed", "err", err)
+			}
+			log.Info("palm-gwd ready", "ctl_socket", cfg.Ctl.Socket)
+		},
 	})
-	if err := srv.Listen(); err != nil {
-		log.Error("control socket", "err", err)
+	if err != nil {
+		log.Error("startup failed", "err", err)
+		fmt.Fprintln(os.Stderr, "palm-gwd:", err)
 		return 1
-	}
-	go srv.Serve(ctx)
-
-	// systemd integration: READY once we serve, WATCHDOG at a third of the
-	// configured interval (WatchdogSec=60 in the unit gives 20 s, as PLAN.md
-	// section 8.10 asks). Both are no-ops outside systemd.
-	if _, err := daemon.SdNotify(false, daemon.SdNotifyReady); err != nil {
-		log.Warn("sd_notify READY failed", "err", err)
 	}
 	if interval, err := daemon.SdWatchdogEnabled(false); err == nil && interval > 0 {
 		go func() {
@@ -133,11 +166,13 @@ func run(args []string) int {
 			}
 		}()
 	}
-	log.Info("palm-gwd ready", "ctl_socket", cfg.Ctl.Socket)
 
-	<-ctx.Done()
-	log.Info("palm-gwd stopping")
+	err = d.Run(ctx)
 	_, _ = daemon.SdNotify(false, daemon.SdNotifyStopping)
-	srv.Close()
+	if err != nil {
+		log.Error("palm-gwd failed", "err", err)
+		fmt.Fprintln(os.Stderr, "palm-gwd:", err)
+		return 1
+	}
 	return 0
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,8 +15,13 @@ import (
 
 func startServer(t *testing.T) *Server {
 	t.Helper()
-	// Unix socket paths are limited to ~104 bytes on macOS; keep it short.
-	dir := t.TempDir()
+	// Unix socket paths are limited to ~104 bytes on macOS and t.TempDir()
+	// embeds the test name, so use a short temp directory instead.
+	dir, err := os.MkdirTemp("", "pgw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	path := filepath.Join(dir, "c.sock")
 	s := NewServer(path, "nonexistent-group-for-test", slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := s.Listen(); err != nil {

@@ -22,6 +22,16 @@ if command -v nmcli >/dev/null && nmcli -t -f NAME con show | grep -qx "$bridge"
   nmcli con delete "$bridge" >/dev/null && say "Removed NetworkManager connection $bridge"
 fi
 
+say "Restoring /etc/bluetooth/main.conf"
+if [ -x /usr/local/bin/palm-gwd ] && [ -f /etc/bluetooth/main.conf ]; then
+  if [ "$(/usr/local/bin/palm-gwd -main-conf-remove /etc/bluetooth/main.conf)" = changed ]; then
+    systemctl restart bluetooth 2>/dev/null || true
+    echo "    managed block removed, bluetooth restarted"
+  else
+    echo "    no managed block present"
+  fi
+fi
+
 say "Removing firewall table"
 nft delete table inet palm_gw 2>/dev/null || true
 if [ -f /etc/nftables.conf ]; then
@@ -31,7 +41,7 @@ fi
 say "Removing files"
 if [ -f "$TRACK" ]; then
   while IFS= read -r f; do
-    case "$f" in "$STATE"/*|"$ETC"/*) continue ;; esac
+    case "$f" in "$STATE"/*|"$ETC"/*|/etc/bluetooth/main.conf) continue ;; esac
     [ -e "$f" ] && rm -f "$f" && echo "    $f"
   done < "$TRACK"
 fi
