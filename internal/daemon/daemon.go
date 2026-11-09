@@ -232,7 +232,8 @@ func (d *Daemon) attach(ctx context.Context) (func(), error) {
 	d.mu.Unlock()
 	d.log.Info("adapter configured",
 		"hci", adapter.HCI, "address", adapter.Props.Address, "alias", adapter.Props.Alias,
-		"class", fmt.Sprintf("0x%06X", adapter.Props.Class), "modalias", adapter.Props.Modalias,
+		"class", fmt.Sprintf("0x%06X", adapter.Props.Class), "hw_bus", adapter.HWBus,
+		"modalias", adapter.Props.Modalias,
 		"powered", adapter.Props.Powered, "discoverable", adapter.Props.Discoverable,
 		"pairable", adapter.Props.Pairable, "selection", how)
 	if adapter.Props.Class&0x001F00 != d.cfg.Bluetooth.Class&0x001F00 {

@@ -455,7 +455,7 @@ AutoEnable = true
 | `Pairable` | `false` at start; `true` only inside a pairing window | Section 13 |
 | `PairableTimeout` | `0` | The daemon enforces the window itself and does not rely on BlueZ's timer |
 
-Finding the adapter: use `org.freedesktop.DBus.ObjectManager.GetManagedObjects` on `/` and pick the object whose interfaces include `org.bluez.Adapter1` and whose path ends with the configured `hciN`. For `auto`: if exactly one adapter exists, use it; if more than one, prefer the one whose `Adapter1.Modalias` starts with `usb:` (a dongle), else the lowest `hciN`. Log the choice with address and modalias. No device-tree parsing.
+Finding the adapter: use `org.freedesktop.DBus.ObjectManager.GetManagedObjects` on `/` and pick the object whose interfaces include `org.bluez.Adapter1` and whose path ends with the configured `hciN`. For `auto`: if exactly one adapter exists, use it; if more than one, prefer the one whose sysfs bus is USB (`/sys/class/bluetooth/hciN/device/subsystem` resolves to `usb`; a dongle), else the lowest `hciN`. Log the choice with address and bus. No device-tree parsing. (`Adapter1.Modalias` cannot be used: it is BlueZ's own DeviceID and identical for every adapter; see DECISIONS.md D-014.)
 
 ### 8.2 Agent (pairing and authorisation)
 
@@ -858,7 +858,7 @@ curl -fsSL https://github.com/<owner>/palm-gw/releases/latest/download/install.s
 
 Detection (`internal/setup/detect.go`), each with a unit test using fixture files:
 - Board: `/proc/device-tree/model` → pi4 | pi5 | other (warn, continue).
-- Adapters: BlueZ `ObjectManager` → list of `hciN` with `Address`, `Modalias` (usb vs onboard), `Powered`. If zero: check `config.txt` for `disable-bt`, check `dmesg` for firmware load failure, and explain.
+- Adapters: BlueZ `ObjectManager` → list of `hciN` with `Address`, sysfs bus (usb vs onboard), `Powered`. If zero: check `config.txt` for `disable-bt`, check `dmesg` for firmware load failure, and explain.
 - Uplink candidates: interfaces that are up with a default route (`ip -j route show default`), excluding `br-palm`, `bnep*`, `ppp*`, `lo`, `docker*`, `veth*`. One candidate → no question. Several → ask. For `wlan0`: read band via `iw dev wlan0 link` and warn on 2.4 GHz with the onboard adapter.
 - Pi 4 console UART conflict: grep `cmdline.txt`.
 - Pi 5 PSU: `vcgencmd get_throttled`, `/proc/device-tree/chosen/power/max_current` → warn if dongle mode and under 5 A.
@@ -1135,7 +1135,7 @@ Everything that an earlier draft of this plan left to be verified, and how it wa
 | Which dnsmasq package, and will it collide with an existing one? | `dnsmasq-base` (binary only, no system service) run as a project-owned `palm-gw-dnsmasq.service` with its own config, bound to `10.42.0.1` with `bind-dynamic`. It cannot collide with a system dnsmasq or `systemd-resolved`. | Debian packaging of dnsmasq |
 | NetworkManager vs systemd-networkd for the bridge? | NetworkManager (default on Pi OS since Bookworm). `bnep*` and `ppp*` are declared unmanaged. The networkd alternative is not shipped. | Raspberry Pi OS Bookworm release notes |
 | Which Pi firmware path for the Bluetooth controller? | Irrelevant to the project: the kernel driver loads it. The installer checks only that an adapter exists and otherwise points at `dtoverlay=disable-bt`. | Design change |
-| How to pick the adapter for `auto`? | One adapter: use it. Several: prefer `Modalias` starting `usb:`, else lowest `hciN`. No device-tree parsing. | Design change |
+| How to pick the adapter for `auto`? | One adapter: use it. Several: prefer the one on the USB bus per sysfs, else lowest `hciN`. No device-tree parsing. (Amended 2026-11-09, D-014.) | Design change |
 | Pi 5 USB current for a dongle? | 600 mA total unless a 5 A supply is negotiated or `usb_max_current_enable=1`; a dongle needs about 50 mA. The wizard reports `vcgencmd get_throttled` as a warning only. | Raspberry Pi 5 documentation |
 
 **The two residual hardware observations**, handled by design rather than left open:

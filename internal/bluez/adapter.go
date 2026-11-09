@@ -31,11 +31,13 @@ type Adapter struct {
 	bus   *Bus
 	Path  dbus.ObjectPath `json:"path"`
 	HCI   string          `json:"hci"`
+	HWBus string          `json:"hw_bus"` // "usb", "serial", ... from sysfs; see HWBus
 	Props AdapterProps    `json:"props"`
 }
 
 func adapterFromProps(b *Bus, p dbus.ObjectPath, m map[string]dbus.Variant) *Adapter {
-	return &Adapter{bus: b, Path: p, HCI: path.Base(string(p)), Props: propsFromMap(m)}
+	hci := path.Base(string(p))
+	return &Adapter{bus: b, Path: p, HCI: hci, HWBus: HWBus(hci), Props: propsFromMap(m)}
 }
 
 func propsFromMap(m map[string]dbus.Variant) AdapterProps {
@@ -70,8 +72,7 @@ func (b *Bus) Adapters() ([]*Adapter, error) {
 }
 
 // FindAdapter picks the controller for [bluetooth].adapter: "hciN" by name,
-// or "auto": one adapter → it; several → the one whose Modalias starts with
-// "usb:" (a dongle), else the lowest hciN (PLAN.md section 8.1).
+// or "auto": see chooseAuto.
 func (b *Bus) FindAdapter(want string) (*Adapter, string, error) {
 	adapters, err := b.Adapters()
 	if err != nil {
@@ -95,15 +96,8 @@ func (b *Bus) FindAdapter(want string) (*Adapter, string, error) {
 		}
 		return nil, "", fmt.Errorf("bluez: adapter %s not found; present: %s", want, strings.Join(names, ", "))
 	}
-	if len(adapters) == 1 {
-		return adapters[0], "auto: only adapter", nil
-	}
-	for _, a := range adapters {
-		if strings.HasPrefix(a.Props.Modalias, "usb:") {
-			return a, "auto: USB dongle preferred", nil
-		}
-	}
-	return adapters[0], "auto: lowest hciN", nil
+	a, how := chooseAuto(adapters)
+	return a, how, nil
 }
 
 // Refresh re-reads the adapter properties.

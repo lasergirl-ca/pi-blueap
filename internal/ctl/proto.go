@@ -59,6 +59,7 @@ type AdapterStatus struct {
 	HCI       string `json:"hci"`
 	Path      string `json:"path"`
 	Selection string `json:"selection"` // why this adapter: configured, auto: ...
+	HWBus     string `json:"hw_bus"`    // "usb", "serial", ... from sysfs
 	bluez.AdapterProps
 }
 

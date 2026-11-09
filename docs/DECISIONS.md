@@ -118,7 +118,7 @@ sets `Pairable` to whatever the pairing window says and reads it back, failing t
 not stick. Verified: `bluetoothctl show` reports `Pairable: no` after start and after three BlueZ
 restarts, `yes` only while `palm-gwctl pair` is open.
 
-### D-014: `adapter = "auto"` cannot use `Modalias` to spot a dongle (OPEN, plan unchanged)
+### D-014: `adapter = "auto"` spots a dongle by its sysfs bus, not `Modalias` (section 16 amended)
 
 Section 8.1 and section 16 say `auto` prefers the adapter whose `Adapter1.Modalias` starts with
 `usb:`. On the Pi 5 the onboard UART radio reports `Modalias = usb:v1D6Bp0246d0552`. That value is
@@ -129,6 +129,11 @@ in practice, not "the dongle". Section 16 is final under kickoff rule 2, so the 
 the plan and this is raised with Zoe instead of changed. The proposed fix is to read the bus from
 sysfs (`/sys/class/bluetooth/hciN/device` resolves under a `usb` path for a dongle, under the UART
 for the onboard radio), which is not device-tree parsing. Nothing in the current rig uses `auto`.
+
+Resolved 2026-11-09: Zoe approved the change. `bluez.HWBus` reads
+`/sys/class/bluetooth/hciN/device/subsystem` (`usb` for a dongle, `serial` for the Pi 5's onboard
+radio), `auto` prefers `usb`, and `status` and the `adapter configured` log line show the bus.
+PLAN.md sections 8.1, 8.11 and 16 are amended to match.
 
 ### D-015: Values the managed block overrides are parked in `main.conf`, not in install-info.json
 

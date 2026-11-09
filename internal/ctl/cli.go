@@ -198,8 +198,12 @@ func (c *cli) status() int {
 		fmt.Fprintln(w)
 	}
 	if a := st.Adapter; a != nil {
-		fmt.Fprintf(w, "adapter:   %s %s  alias %q  class 0x%06X  powered=%s discoverable=%s pairable=%s  (%s)\n",
-			a.HCI, a.Address, a.Alias, a.Class, yn(a.Powered), yn(a.Discoverable), yn(a.Pairable), a.Selection)
+		bus := a.HWBus
+		if bus == "" {
+			bus = "unknown bus"
+		}
+		fmt.Fprintf(w, "adapter:   %s %s (%s)  alias %q  class 0x%06X  powered=%s discoverable=%s pairable=%s  (%s)\n",
+			a.HCI, a.Address, bus, a.Alias, a.Class, yn(a.Powered), yn(a.Discoverable), yn(a.Pairable), a.Selection)
 	} else if st.Config != nil {
 		fmt.Fprintf(w, "adapter:   %s (not found yet)\n", st.Config.Bluetooth.Adapter)
 	}

@@ -44,7 +44,7 @@ func (d *Daemon) handleStatus(_ context.Context, _ ctl.Request, w *ctl.Writer) e
 	st.AllowAny = d.allow.AllowAny()
 	if adapter != nil {
 		if err := adapter.Refresh(); err == nil {
-			st.Adapter = &ctl.AdapterStatus{HCI: adapter.HCI, Path: string(adapter.Path), Selection: selection, AdapterProps: adapter.Props}
+			st.Adapter = &ctl.AdapterStatus{HCI: adapter.HCI, Path: string(adapter.Path), Selection: selection, HWBus: adapter.HWBus, AdapterProps: adapter.Props}
 		}
 		if devs, err := adapter.Devices(); err == nil {
 			st.Devices = devs
