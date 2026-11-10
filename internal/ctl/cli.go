@@ -90,8 +90,11 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 		}
 		return c.allow(cmdArgs[0])
 	case "disconnect":
-		fmt.Fprintf(stderr, "palm-gwctl %s: not implemented until Phase 2 (RFCOMM profiles and PPP)\n", cmd)
-		return 2
+		if len(cmdArgs) != 1 || !btAddrRe.MatchString(cmdArgs[0]) {
+			fmt.Fprintf(stderr, "palm-gwctl %s: expected one Bluetooth address XX:XX:XX:XX:XX:XX\n", cmd)
+			return 2
+		}
+		return c.disconnect(cmdArgs[0])
 	case "reload":
 		fmt.Fprintf(stderr, "palm-gwctl %s: not implemented until Phase 3 (routing, NAT and isolation)\n", cmd)
 		return 2
@@ -244,12 +247,41 @@ func (c *cli) status() int {
 			fmt.Fprintf(w, "  %s  %-20q class 0x%06X  %s\n", d.Address, d.DisplayName(), d.Class, strings.Join(flags, ","))
 		}
 	}
+	if len(st.Profiles) > 0 {
+		parts := make([]string, 0, len(st.Profiles))
+		for _, p := range st.Profiles {
+			switch {
+			case !p.Enabled:
+				parts = append(parts, fmt.Sprintf("%s off", p.Kind))
+			case p.Registered:
+				parts = append(parts, fmt.Sprintf("%s ch%d", p.Kind, p.Channel))
+			default:
+				parts = append(parts, fmt.Sprintf("%s ch%d NOT REGISTERED", p.Kind, p.Channel))
+			}
+		}
+		fmt.Fprintf(w, "profiles:  %s\n", strings.Join(parts, ", "))
+	}
 	if st.Config != nil {
 		cfg := st.Config
-		fmt.Fprintf(w, "profiles:  spp ch%d %s, lap ch%d %s, dun ch%d %s, pan %s (%s)   [Phase 2+]\n",
-			cfg.SPP.Channel, onOff(cfg.SPP.Enabled), cfg.LAP.Channel, onOff(cfg.LAP.Enabled),
-			cfg.DUN.Channel, onOff(cfg.DUN.Enabled), onOff(cfg.PAN.Enabled), cfg.PAN.Bridge)
-		fmt.Fprintf(w, "network:   %s gw %s uplink %s\n", cfg.Network.Subnet, cfg.Network.Gateway, cfg.Network.Uplink)
+		fmt.Fprintf(w, "sessions:  %d of %d, pool %d of %s-%s in use\n", len(st.Sessions), cfg.PPP.MaxSessions,
+			st.PoolInUse, cfg.Network.PPPPool[0], cfg.Network.PPPPool[1])
+	}
+	for _, s := range st.Sessions {
+		ifname := s.Ifname
+		if ifname == "" {
+			ifname = "-"
+		}
+		peer := s.Peer
+		if peer == "" {
+			peer = "-"
+		}
+		fmt.Fprintf(w, "  %s  %-20q %s %-6s %-9s %-14s %s  up %s\n", s.Addr, s.Name, s.Profile, ifname, s.State, peer,
+			s.Handshake, time.Since(s.Started).Round(time.Second))
+	}
+	if st.Config != nil {
+		cfg := st.Config
+		fmt.Fprintf(w, "network:   %s gw %s uplink %s, pan %s (%s)   [PAN: Phase 4]\n", cfg.Network.Subnet, cfg.Network.Gateway,
+			cfg.Network.Uplink, onOff(cfg.PAN.Enabled), cfg.PAN.Bridge)
 	}
 	for _, wn := range st.Warnings {
 		fmt.Fprintf(w, "warning:   %s\n", wn)
@@ -347,6 +379,23 @@ func (c *cli) forget(addr string) int {
 	if r.StaticEntry {
 		fmt.Fprintf(c.stdout, "note: %s is also listed in [bluetooth].allow in config.toml and stays allowed until removed there\n", r.Address)
 	}
+	return 0
+}
+
+func (c *cli) disconnect(addr string) int {
+	var r DisconnectReply
+	printed, err := c.call(Request{Cmd: "disconnect", Addr: addr}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	if r.Sessions == 0 {
+		fmt.Fprintf(c.stdout, "%s: no session\n", r.Address)
+		return 1
+	}
+	fmt.Fprintf(c.stdout, "%s: %d session(s) terminated\n", r.Address, r.Sessions)
 	return 0
 }
 

@@ -32,6 +32,7 @@ ms_null_modem        = true        # answer "CLIENT" with "CLIENTSERVER"
 ms_timeout_ms        = 3000        # how long to wait for CLIENT or PPP before starting pppd blind
 at_emulator          = true        # DUN channel: answer AT commands, CONNECT on ATD
 at_connect_banner    = "CONNECT 115200"
+at_timeout_ms        = 10000       # DUN channel: how long to wait for the first AT command (a Palm T|X waits 3.5 s)
 
 [network]
 subnet     = "10.42.0.0/24"

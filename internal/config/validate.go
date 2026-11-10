@@ -109,6 +109,9 @@ func (c *Config) Validate() error {
 	if c.Handshake.MSTimeoutMS < 0 {
 		add("handshake.ms_timeout_ms", "must not be negative")
 	}
+	if c.Handshake.ATTimeoutMS < 0 {
+		add("handshake.at_timeout_ms", "must not be negative")
+	}
 	if c.Handshake.ATEmulator && strings.TrimSpace(c.Handshake.ATConnectBanner) == "" {
 		add("handshake.at_connect_banner", "must not be empty when at_emulator is true")
 	}

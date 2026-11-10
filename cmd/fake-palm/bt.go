@@ -188,10 +188,6 @@ func (c *clientAgent) AuthorizeService(dbus.ObjectPath, string) *dbus.Error { re
 func (c *clientAgent) Cancel() *dbus.Error                                  { return nil }
 
 func cmdPair(adapter, addr, pin string) int {
-	if pin == "" {
-		fmt.Fprintln(os.Stderr, "fake-palm pair: --pin is required (read it from `palm-gwctl pair` on the gateway)")
-		return 2
-	}
 	bus, a, err := client(adapter)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fake-palm:", err)
@@ -203,15 +199,22 @@ func cmdPair(adapter, addr, pin string) int {
 		fmt.Fprintln(os.Stderr, "fake-palm:", err)
 		return 1
 	}
+	// With --pin, answer a legacy PIN request. Without, use SSP numeric
+	// comparison: the gateway's agent (DisplayYesNo) confirms inside its
+	// pairing window and this one confirms unconditionally.
+	capability := "DisplayYesNo"
+	if pin != "" {
+		capability = "KeyboardOnly"
+	}
 	mgr := bus.Object(bluez.RootPath)
-	if err := mgr.Call(bluez.IfaceAgentManager+".RegisterAgent", 0, path, "KeyboardOnly").Err; err != nil {
+	if err := mgr.Call(bluez.IfaceAgentManager+".RegisterAgent", 0, path, capability).Err; err != nil {
 		fmt.Fprintln(os.Stderr, "fake-palm: RegisterAgent:", err)
 		return 1
 	}
 	defer func() { _ = mgr.Call(bluez.IfaceAgentManager+".UnregisterAgent", 0, path).Err }()
-	if err := mgr.Call(bluez.IfaceAgentManager+".RequestDefaultAgent", 0, path).Err; err != nil {
-		fmt.Fprintln(os.Stderr, "fake-palm: RequestDefaultAgent:", err, "(another agent is default; continuing)")
-	}
+	// No RequestDefaultAgent: BlueZ uses the caller's own agent for a
+	// pairing it starts, and on the gateway host the default agent must stay
+	// palm-gwd's.
 	dev, err := findDevice(bus, a, addr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fake-palm:", err)

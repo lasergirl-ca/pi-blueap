@@ -164,12 +164,159 @@ PIN pairing (`RequestPinCode`), which a modern laptop would replace with Secure 
 What it did not exercise is the SSP path (`RequestConfirmation`), which only modern clients use;
 that path has unit coverage only until a laptop or phone pairs in a later phase.
 
+## Phase 2
+
+### D-018: Added scope: WireGuard client uplink in the last phase
+
+Zoe asked on 2026-11-09 for the ability to set up a WireGuard client on the gateway and connect
+the Palms and other devices through a NAT to a WireGuard concentrator. This is not in PLAN.md. It
+is recorded as added scope for the last phase (Phase 8, alongside the release work and the Pi
+images from D-002) so that Phases 2 to 7 keep their order. Expected shape, to be confirmed with
+Zoe before building: a `[wireguard]` config table, a `wg0` interface managed by the gateway,
+Palm-side traffic (PPP and PAN) policy-routed into the tunnel and masqueraded there instead of on
+`uplink`, and setup and status support in the wizard, `palm-gwctl` and the web UI. Open
+questions for then: full tunnel or split, behaviour when the tunnel is down (fail closed or fall
+back to the uplink), and whether the Pi's own traffic uses the tunnel. A design sketch with the
+full list of open questions is in docs/WIREGUARD.md (2026-11-09); nothing is built yet.
+
+### D-019: `NewConnection` checks the allowlist and the adapter itself
+
+Section 8.2 puts allowlist enforcement in `AuthorizeService`, and the profiles register with
+`RequireAuthorization=true`. BlueZ skips `AuthorizeService` for a device marked `Trusted`, which
+every device paired in a window is (`trust_on_pair`), so a device that was forgotten from the
+allowlist but is still trusted in BlueZ would get through. `NewConnection` therefore also refuses
+a device that is not allowed (`session_refused reason=not_allowed`), and refuses connections that
+arrived on another adapter (`reason=other_adapter`). The daemon's device-change handler likewise
+ignores devices under other adapters, so a test dongle on the same host cannot add entries.
+
+### D-020: The orphan tripwire reads `/proc` and matches `linkname palm-`
+
+Section 8.5 says the reaper cross-checks `pgrep -x pppd` against the table. A test client's pppd
+on the same host (fake-palm) would then always look like an orphan. The reaper instead reads
+`/proc/*/comm` and `cmdline`, counts only pppd processes carrying the gateway's own
+`linkname palm-<n>`, and compares their process group with the sessions' process groups (the
+`notty` shunt shares pppd's group). No subprocess is spawned every 10 s.
+
+### D-021: pppd's stderr is an `os.Pipe`, not `cmd.StderrPipe`
+
+Section 8.5 implies reading stderr until EOF and then calling `Wait`. If anything else in pppd's
+process group outlived pppd, it would hold the pipe open and `Wait` would never run, leaking the
+session and its address. The daemon now waits for pppd first, SIGKILLs the rest of the group,
+then drains the log with a 2 s cap. Found by a unit test with a fake pppd that exits while its
+child lives on.
+
+### D-022: `docs/PALM-SETUP.md` drafted in Phase 2, not Phase 8
+
+Section 10 puts `PALM-SETUP.md` in Phase 8. A first draft was written on 2026-11-09 while waiting
+for a USB Bluetooth adapter, so the Palm TX findings went in while fresh: the "PC" connection uses
+LAN Access with no `CLIENT` exchange, the Palm sometimes misses the gateway on one search, and
+the T|X will not save a network service with a blank user name and password. Steps not yet
+tried on hardware are marked "(not yet tested)". Phase 8 still owns the finished version
+(screen text or photos from a T|X and a LifeDrive, per section 10).
+
+### D-023: DUN waits `at_timeout_ms` (10 s) for the first AT command, not `ms_timeout_ms`
+
+Section 8.4 uses one deadline, `ms_timeout_ms` (3 s), for every profile before starting pppd
+blind. On 2026-11-09 a Palm T|X dialling the DUN channel ("Connect to: Modem") sent its first
+command, `ATQ0V1Z`, 3.5 s after the RFCOMM channel opened, in all three attempts. By then pppd
+was already running and sending LCP frames, so the Palm never got its `OK`, retried with `+++`
+and `ATQ0H0`, and reported "modem not found (0x1106)". A DUN terminal always speaks first, so
+nothing is lost by waiting longer on that channel. A new key, `handshake.at_timeout_ms`
+(default 10000), sets the first wait on the DUN channel when `at_emulator` is on. SPP and LAP
+keep `ms_timeout_ms`. PLAN.md section 7 and the 8.4 pseudocode are amended to match.
+
+### D-024: The AT emulator parses the whole command line to find the dial
+
+Section 8.4 says a line that matches `^ATD` is a dial. One AT command line can carry several
+commands, and a Palm T|X dials with `ATQ0E0&D0&C1V1S7=90L1DT0`: the dial `DT0` comes last. On
+2026-11-09, with D-023 deployed, the gateway answered that line with `OK`, waited for a dial
+that had already come, and timed out three times. The emulator now walks the line as V.250
+basic syntax: `&D0`, `S7=90` and similar settings are skipped, and a `D` command dials and takes
+the rest of the line. An `H` command anywhere in a line with no dial still hangs up (the T|X sends
+`ATQ0H0` when it gives up). The 8.4 pseudocode is amended to match.
+
+### D-025: Dial-up from a Palm T|X parked until Phase 5
+
+After D-023 and D-024 the T|X dials and gets `CONNECT`, but never starts PPP: it stays at
+"Connecting" and its View Log is empty (TESTING.md, Phase 2). The leading suspect is carrier
+detect. The Palm sends `&C1` (DCD follows carrier), and an incoming RFCOMM channel on Linux
+reports DV (DCD) as on from the first modem status message, so DCD never rises at `CONNECT`.
+Testing that means handing the DUN channel to an RFCOMM TTY (`RFCOMMCREATEDEV` with
+`RFCOMM_REUSE_DLC` on the socket, then `TIOCMBIC`/`TIOCMBIS` `TIOCM_CD` on `/dev/rfcommN`, with
+pppd on the TTY). That changes how pppd attaches on one channel for a guess, so it is parked as
+a Phase 5 hardening item rather than done now. Phase 2 acceptance does not depend on it: the
+real-Palm check uses the "PC" connection, which works over LAN Access, and DUN acceptance is
+`fake-palm --mode at`. `docs/PALM-SETUP.md` says Modem does not work on a T|X yet. Section 10's
+Phase 5 list gains the item.
+
+### D-026: Web UI also on the Bluetooth side, read-only (amends section 2)
+
+Section 2 says the web UI listens on the LAN only, never on `br-palm` or `ppp*`. On 2026-11-09 Zoe
+asked for the UI to be reachable from the LAN or from inside the Bluetooth network, with a
+username and password. Because section 2 is final, the conflict was put to her first, with the
+risk: Palms cannot use modern TLS in a browser, the radio uses legacy PIN pairing, and a
+captured admin password could open the firewall to the home LAN. She chose a read-only
+Bluetooth side. Palms use a native Palm OS app (`.prc`) against a small read API, and laptops
+get the normal htmx UI. The full UI, including pairing, forget, firewall and settings, stays
+LAN-only. A second listener on the gateway address has only the read-only routes registered
+(the mutating ones 404 there), the firewall accepts 8042 to the gateway address only, and the
+admin account gains a username. It is built in Phase 7 in phase order, and design-only for now.
+Sections 2, 7, 8.7, 8.12, 13 and the Phase 7 acceptance test are amended. The design and five
+open questions (the app, admin versus viewer login on the Bluetooth side, TLS in the app, what
+other devices are visible, more than one admin) are in `docs/WEB-UI.md`.
+
+### D-027: fake-palm runs on the gateway itself, with a second adapter and a network namespace
+
+Section 9 assumes `fake-palm` runs on a separate Linux machine. There is none here (the Mac
+cannot use Bluetooth from a terminal), so it runs on the Pi with its own USB adapter (`hci1`)
+while the gateway keeps its configured `hci0`. Both share one bluetoothd. fake-palm registers
+its own agent for its `Pair` call, and the daemon ignores devices under other adapters. The
+client pppd runs in a network namespace (`--netns`), so its `pppN`, address and default route do
+not collide with the gateway's. RFCOMM sockets work only in the initial namespace, so the socket
+is opened there and handed to pppd, and the probes re-run inside the namespace. Air-side
+behaviour is the same as with two machines, since the two controllers still talk over the
+radio. `scripts/phase2-accept.sh`, a test helper not in section 6's layout, runs the whole
+Phase 2 fake-palm acceptance this way and saves its output. fake-palm also gains
+`--mode at-tx`, which replays the Palm T|X's dial-up sequence and timing (D-023, D-024).
+With `--netns` the client pppd runs without section 9's `usepeerdns`. A namespace shares `/etc`,
+so Debian's `/etc/ppp/ip-up.d/0000usepeerdns` rewrote the Pi's own `/etc/resolv.conf` to
+`nameserver 10.42.0.1` for as long as fake-palm was connected. dnsmasq then ignored its own
+address, had no upstream, and answered SERVFAIL (first run, 2026-11-10). The probe resolves
+through the gateway address explicitly, so it tests the same thing without the option. The
+script also unblocks `hci1` if rfkill has it soft-blocked: systemd-rfkill restores a saved
+block per USB port, and the UB500 arrived blocked. fake-palm gains `--url` (default section 9's
+`http://neverssl.com/`) because that host was dropping half its TCP connections from the Pi's
+own uplink on 2026-11-10 while other sites answered in 10 ms; the script passes `$URL`.
+
+### D-028: the daemon shuts the RFCOMM socket down when a session ends
+
+Section 8.3 step 1 says BlueZ closes its own copy of the descriptor when `NewConnection` returns,
+and section 8.5 has the daemon close its copy once pppd has inherited it. On the Pi (BlueZ 5.82)
+bluetoothd keeps its copy for the life of the link: `/proc/<bluetoothd>/fd/40` was the session's
+socket, and its receive queue grew after the session ended. So when the gateway ended a session
+(`palm-gwctl disconnect`, forget, a handshake timeout or `ATH`), pppd exited and the session left
+the table, but the RFCOMM channel stayed up, and fake-palm's pppd held its link for the full
+60 s instead of seeing a hangup (2026-11-10). A real Palm would have kept showing "connected".
+pppd does not send LCP Terminate-Request either, because the group SIGTERM kills its `notty`
+shunt first. Now the daemon keeps its copy of the socket until the session ends and then calls
+`shutdown(SHUT_RDWR)`, which acts on the socket itself whoever else holds it, before closing
+(`ppp.HangUp`). The refusal path uses it too. Signals and the 3 s teardown are unchanged.
+`scripts/phase2-accept.sh` now also checks that fake-palm sees the link drop.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08
 
 - **Palm TX** (address 00:07:E0:3C:5E:FA, class 0x100114), added 2026-11-09. Pairs with a
-  legacy PIN. Its network wizard will not accept a blank user name and password.
+  legacy PIN. Its network wizard will not accept a blank user name and password. Its
+  Connection "Connect to: PC, via Bluetooth" searches SDP for LAN Access (0x1102), connects on the
+  LAP channel and starts PPP at once with no `CLIENT` (btmon, 2026-11-09), contrary to section
+  11's "PC uses SPP and the Microsoft handshake". docs/PALM-SETUP.md must say so.
+  Its Connection "Connect to: Modem, via Bluetooth" searches SDP for Dial-up Networking
+  (0x1103), waits 3.5 s after the RFCOMM channel opens, sends `ATQ0V1Z`, `ATQ0E0`, then dials
+  with `ATQ0E0&D0&C1V1S7=90L1DT0` (the dial last in a compound line), and after `CONNECT` sends
+  no PPP and gives up about 80 s later (D-023, D-024, D-025). With LAN Access switched off, no
+  attempt searched for Serial Port (2026-11-09).
 - **Pi 5 Model B Rev 1.0**, 8 GB, booting from a 64 GB card, Raspberry Pi OS Lite 64-bit Trixie
   (Debian 13.7), kernel 6.18.50+rpt-rpi-2712. `ssh sysadmin@10.4.0.241`, key auth, passwordless
   sudo. Hostname `piblueap`.

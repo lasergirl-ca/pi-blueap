@@ -91,7 +91,7 @@ Appendix D: pppd option rationale
 | Control plane | Unix domain socket `/run/palm-gw/ctl.sock`, newline-delimited JSON, used by `palm-gwctl` (same binary, subcommand) and by the web UI. The daemon is the only thing that touches BlueZ, pppd and nftables; CLI and web are thin clients. |
 | Packaging | **Debian package** (`palm-gw_<ver>_arm64.deb`, built with `nfpm`) as the primary install path, with a bootstrap `install.sh` that downloads the right release and installs it. `make install` from source remains for developers. Upgrades are `apt install ./newer.deb` or `palm-gwctl upgrade`. |
 | Setup wizard | `palm-gw setup`: interactive terminal wizard (Go, `charmbracelet/huh` for prompts, falls back to plain prompts when not a TTY) that writes `/etc/palm-gw/config.toml` and the templated system files. Fully scriptable with flags for unattended installs. |
-| Web UI | **Yes, in v1.** Go `net/http` with embedded templates and htmx; no JS build step, no Node. Listens on the Pi's LAN address(es) only (never on `br-palm`/`ppp*`, enforced by the firewall as well as by bind address), port 8042, password set during `setup`, session cookie, TLS optional via self-signed cert generated at setup. |
+| Web UI | **Yes, in v1.** Go `net/http` with embedded templates and htmx; no JS build step, no Node. Full UI on the Pi's LAN address(es), port 8042; **read-only** UI and API on the gateway address `10.42.0.1:8042` for the Bluetooth side (no pairing, forget, firewall or settings there; amended by D-026, design in `docs/WEB-UI.md`). Username and password set during `setup`, session cookie (bearer token for the Palm app's API), TLS optional via self-signed cert generated at setup. |
 | Licence | MIT. |
 
 ---
@@ -347,6 +347,7 @@ ms_null_modem        = true        # answer "CLIENT" with "CLIENTSERVER"
 ms_timeout_ms        = 3000        # how long to wait for CLIENT or PPP before starting pppd blind
 at_emulator          = true        # DUN channel: answer AT commands, CONNECT on ATD
 at_connect_banner    = "CONNECT 115200"
+at_timeout_ms        = 10000       # DUN channel: how long to wait for the first AT command (D-023)
 
 [network]
 subnet     = "10.42.0.0/24"
@@ -389,7 +390,12 @@ group  = "palm-gw"                 # socket is 0660 root:palm-gw so an operator 
 
 [web]
 enabled        = true
-listen         = ["0.0.0.0:8042"]   # bound to LAN addresses only at runtime: the daemon skips br-palm/ppp* and nftables drops 8042 from the Palm side anyway
+listen         = ["0.0.0.0:8042"]   # full UI: bound to LAN addresses only at runtime (the daemon skips br-palm/ppp*)
+username       = "admin"
+bluetooth_side = true               # read-only UI and API on the gateway address, port 8042 (D-026, docs/WEB-UI.md)
+bluetooth_plain_http = false        # allow http:// there; credentials then cross the radio unencrypted
+viewer_username      = ""           # optional read-only account
+viewer_password_hash = ""
 tls            = "self-signed"      # "off" | "self-signed" | "file"
 tls_cert_file  = ""
 tls_key_file   = ""
@@ -493,7 +499,7 @@ Three `org.bluez.Profile1` objects at `/palm/spp`, `/palm/lap`, `/palm/dun`, reg
 
 `NewConnection(device ObjectPath, fd UnixFD, fd_properties map[string]Variant) *dbus.Error`:
 
-1. Convert `fd` to `*os.File` via `os.NewFile(uintptr(fd), "rfcomm")`. godbus has already received the descriptor over SCM_RIGHTS; **this process owns it** and must close it when the session ends. BlueZ closes its own copy immediately after the call returns.
+1. Convert `fd` to `*os.File` via `os.NewFile(uintptr(fd), "rfcomm")`. godbus has already received the descriptor over SCM_RIGHTS; **this process owns it** and must close it when the session ends. bluetoothd keeps its own reference until the link drops, so ending a session must `shutdown(SHUT_RDWR)` the socket, not just close it (D-028).
 2. `unix.SetNonblock(fd, false)`. BlueZ may hand over a non-blocking socket; pppd expects blocking stdin/stdout.
 3. Read the device address and name. Check `per_device_max`: if a live session exists for this address, terminate it (SIGTERM, 2 s, SIGKILL) and log `session_replaced`.
 4. Check `max_sessions`; if full, close the fd, return `org.bluez.Error.Rejected`, log `session_refused reason=max_sessions`.
@@ -521,6 +527,7 @@ Algorithm (`internal/profile/handshake.go`), operating on the raw fd with `unix.
 
 ```
 deadline = now + cfg.handshake.ms_timeout_ms
+          (DUN with at_emulator: cfg.handshake.at_timeout_ms instead; D-023)
 loop:
   wait readable until deadline (poll/select on fd)
   if timeout: log "handshake_timeout, starting pppd blind"; return
@@ -535,7 +542,8 @@ loop:
       continue
   if at_emulator and profile == DUN and buf startswith "AT" or "at":
       read one line up to '\r' (consume it); strip '\n'
-      if line matches ^ATD: write "\r\n" + at_connect_banner + "\r\n"; log "handshake=at dial=<line>"; return
+      if line contains a D (dial) command: write "\r\n" + at_connect_banner + "\r\n"; log "handshake=at dial=<line>"; return
+          # parse the whole command line, not just ^ATD: "ATQ0E0&D0&C1V1S7=90L1DT0" dials (D-024)
       else: write "\r\nOK\r\n"; deadline = now + 5000ms; continue
   otherwise:
       log "handshake=unknown first_bytes=<hex>"; return   # let pppd try; it will log LCP garbage if wrong
@@ -561,7 +569,7 @@ Also honour `ATE0` loosely: the emulator never echoes anyway. Respond `OK` to ev
 
 - `Stdin = f`, `Stdout = f` (the RFCOMM `*os.File`), `Stderr =` a pipe that the daemon reads line by line and logs at INFO with `addr=`, `ifname=` tags. pppd with `nodetach` and `logfd 2` writes its connection log to stderr.
 - `SysProcAttr = &syscall.SysProcAttr{Setpgid: true}` so that pppd **and the character-shunt child that `notty` forks** can be killed together with `syscall.Kill(-pid, SIGTERM)`. Without this the shunt lingers holding the RFCOMM socket and the channel never frees.
-- After `Start()`, the daemon closes its own copy of `f`. pppd has inherited it; the daemon does not need it. (Keep the fd number out of `ExtraFiles`; it is stdin/stdout.)
+- The daemon keeps its copy of `f` and, when the session ends for any reason, calls `shutdown(SHUT_RDWR)` on it and then closes it, so the Palm sees the link drop (D-028). (Keep the fd number out of `ExtraFiles`; it is stdin/stdout.)
 - `Wait()` in a goroutine; on exit release the pool address, remove the session, log `session_end addr=… ifname=… duration=… exit=…`.
 
 Learning the interface name: pppd prints `Using interface pppN` to its log (stderr, thanks to `logfd 2`) as soon as the unit is created, before LCP finishes. The stderr reader goroutine parses that line (regex `^Using interface (ppp\d+)$`) and records the name; it also parses `local  IP address`, `remote IP address`, `LCP terminated by peer`, `No response to \d+ echo-requests` and `Connect time` lines into structured session fields. The `/run/ppp-palm-<n>.pid` file (pid, then interface name on line two) is read as a fallback if the log line has not appeared within 5 s. The `ip-up.d`/`ip-down.d` hooks are not required and are not shipped in v1; the daemon owns the lifecycle.
@@ -718,7 +726,8 @@ table inet palm_gw {
         udp dport 67 accept                                   # DHCP from PAN clients
         tcp dport 80 accept                                   # the /palm status page (section 8.12)
         icmp type { echo-request, destination-unreachable, time-exceeded } accept
-        tcp dport 8042 counter drop comment "palm->webui"     # explicit, for the counter
+        ip daddr {{GATEWAY}} tcp dport 8042 accept            # read-only web UI and API (D-026); omitted when web.bluetooth_side = false
+        tcp dport 8042 counter drop comment "palm->webui"     # explicit, for the counter: the LAN listener stays unreachable
         counter drop comment "palm->pi"                       # no SSH, no ctl socket, nothing else
     }
 }
@@ -902,9 +911,9 @@ Reboot required: no
 
 Served by `palm-gwd` itself (same process, so it reads the session table directly and does not need a second service account for the ctl socket). Go `net/http`, `html/template`, `embed.FS`, htmx for partial refresh; no build tooling. Total front-end footprint target: under 60 KB.
 
-**Binding and exposure.** The daemon enumerates addresses at start and binds `[web].listen` only on interfaces that are not `br-palm`, `bnep*`, or `ppp*`; it re-evaluates on `InterfacesAdded`/netlink changes. Independently, the nftables `input` chain drops port 8042 from Palm interfaces (section 8.7 `input` chain's final `counter drop` already does this; add an explicit `tcp dport 8042 counter drop` line above it for clarity). The UI is therefore reachable from the home LAN and never from a Palm.
+**Binding and exposure.** The daemon enumerates addresses at start and binds `[web].listen` only on interfaces that are not `br-palm`, `bnep*`, or `ppp*`; it re-evaluates on `InterfacesAdded`/netlink changes. Independently, the nftables `input` chain drops port 8042 from Palm interfaces (section 8.7 `input` chain's final `counter drop` already does this; add an explicit `tcp dport 8042 counter drop` line above it for clarity). The full UI is therefore reachable from the home LAN and never from a Palm. **Amended by D-026:** a second listener on the gateway address (`10.42.0.1:8042`) serves a read-only route set (dashboard, devices list, "this device", and the `/api/v1/` read API for the Palm app) to the Bluetooth side, with the mutating routes not registered there; the firewall accepts 8042 to the gateway address only. Details in `docs/WEB-UI.md`.
 
-**Auth.** Single admin account, password hashed with argon2id (`golang.org/x/crypto/argon2`), HttpOnly Secure SameSite=Strict session cookie, CSRF token on every mutating form, rate limit of 5 failed logins per minute per source IP. `palm-gw web set-password` resets it from the shell. With `tls = "self-signed"`, a cert for the Pi's hostname and current IPs is generated at setup into `/var/lib/palm-gw/tls/` and its fingerprint is printed so the user can pin it; the login page shows the same fingerprint.
+**Auth.** Single admin account with a username (D-026; optional read-only viewer account in `docs/WEB-UI.md`), password hashed with argon2id (`golang.org/x/crypto/argon2`), HttpOnly Secure SameSite=Strict session cookie, CSRF token on every mutating form, rate limit of 5 failed logins per minute per source IP. `palm-gw web set-password` resets it from the shell. With `tls = "self-signed"`, a cert for the Pi's hostname and current IPs is generated at setup into `/var/lib/palm-gw/tls/` and its fingerprint is printed so the user can pin it; the login page shows the same fingerprint.
 
 **Pages.**
 
@@ -952,7 +961,7 @@ Subcommands:
   - `client`: send `CLIENT`, expect `CLIENTSERVER` within 3 s, then run pppd.
   - `ppp`: run pppd immediately.
   - `at`: send `ATZ\r`, expect `OK`; `ATDT0\r`, expect `CONNECT`; then run pppd.
-  - "run pppd" = `pppd notty noauth nodetach noipdefault ipcp-accept-local ipcp-accept-remote usepeerdns nodefaultroute novj noccp file /dev/null` with the socket as stdin/stdout, same `Setpgid` handling as the server. Then the test asserts a `pppN` interface appears with a `10.42.0.x` peer, pings `10.42.0.1`, resolves a name through `10.42.0.1`, and (if `--internet`) fetches `http://neverssl.com/` bound to that interface.
+  - "run pppd" = `pppd notty noauth nodetach noipdefault ipcp-accept-local ipcp-accept-remote usepeerdns nodefaultroute novj noccp file /dev/null` with the socket as stdin/stdout, same `Setpgid` handling as the server. With `--netns` (fake-palm on the gateway itself) it drops `usepeerdns` and uses `defaultroute` instead (D-027). Then the test asserts a `pppN` interface appears with a `10.42.0.x` peer, pings `10.42.0.1`, resolves a name through `10.42.0.1`, and (if `--internet`) fetches `http://neverssl.com/` bound to that interface.
 - `fake-palm storm <addr> --count 20 --interval 500ms`: connect/disconnect rapidly to exercise `per_device_max`, pool reuse and process-group cleanup. Asserts afterwards that `pgrep pppd` on the server (via `palm-gwctl status` over SSH, or just inspection) shows exactly zero sessions.
 - `fake-palm pan <addr>`: connect as PANU via `org.bluez.Network1.Connect("nap")`, assert DHCP lease in `10.42.0.100–199`, ping, DNS, internet.
 
@@ -985,7 +994,7 @@ Bridge polling, `NetworkServer1.Register`, NM unmanaged config, DHCP for PANU.
 **Accept:** `fake-palm pan` gets a lease in the DHCP range and reaches the internet with the same isolation. An Android phone paired through a window and toggled "Internet access" on the Pi entry also works. `brctl show`/`bridge link` shows `bnep0` enslaved; NetworkManager does not list `bnep0` as a managed device.
 
 ### Phase 5: Robustness and both boards
-Reconnect storms with the real Palm (toggle Connect/Disconnect 20 times), BlueZ restart mid-session, `systemctl restart palm-gwd` mid-session, power-cycle the Pi with a Palm connected, USB dongle mode on both boards, Wi-Fi uplink mode, 24-hour soak with a Palm connected and `lcp-echo` keeping the link up.
+Reconnect storms with the real Palm (toggle Connect/Disconnect 20 times), T|X dial-up carrier detect on an RFCOMM TTY (D-025), BlueZ restart mid-session, `systemctl restart palm-gwd` mid-session, power-cycle the Pi with a Palm connected, USB dongle mode on both boards, Wi-Fi uplink mode, 24-hour soak with a Palm connected and `lcp-echo` keeping the link up.
 **Accept:** No orphans, no fd leaks (`ls /proc/$(pidof palm-gwd)/fd | wc -l` stable across 100 sessions), all units active after each disruption, soak link survives or reconnects on first tap. Both Pi 4 and Pi 5 pass identically; differences recorded.
 
 ### Phase 6: Setup wizard and packaging
@@ -993,8 +1002,8 @@ Reconnect storms with the real Palm (toggle Connect/Disconnect 20 times), BlueZ 
 **Accept:** On a freshly flashed Pi OS Lite image on each board: the one-liner installs, the wizard detects board and uplink correctly without asking, asks only for name/adapter/password, pairs a Palm during setup, and the Palm has internet before the wizard exits. Unattended mode (`PALM_GW_UNATTENDED=1` with env answers) produces the same result with no prompts. `apt install` of a newer .deb over an older one preserves config and the paired-device state and leaves the gateway running. `apt purge` leaves `/etc` clean (diff against a pre-install snapshot). Running `palm-gw setup` a second time pre-fills and changes only what the user changes.
 
 ### Phase 7: Web UI
-Server, auth, all pages in section 8.12, `/palm` page on the Palm side, nftables rule for 8042.
-**Accept:** From a LAN browser: log in, open a pairing window, see the PIN, pair a Palm and watch the event feed; disconnect and forget devices; add a firewall allow entry and verify a Palm can reach it immediately; change the gateway name and see the Palm's device list show the new name after a re-scan; download a btmon capture and open it in Wireshark; download a support bundle and confirm the password hash is redacted. From the Palm: `http://10.42.0.1/` in Blazer shows the connected page; `http://10.42.0.1:8042/` times out (dropped). `nmap` from the Palm side confirms only 53/67/80 and ICMP are reachable on the Pi.
+Server, auth, all pages in section 8.12, `/palm` page on the Palm side, nftables rule for 8042, the read-only Bluetooth-side listener and `/api/v1/` (D-026, `docs/WEB-UI.md`).
+**Accept:** From a LAN browser: log in, open a pairing window, see the PIN, pair a Palm and watch the event feed; disconnect and forget devices; add a firewall allow entry and verify a Palm can reach it immediately; change the gateway name and see the Palm's device list show the new name after a re-scan; download a btmon capture and open it in Wireshark; download a support bundle and confirm the password hash is redacted. From the Palm: `http://10.42.0.1/` in Blazer shows the connected page. From the Bluetooth side (fake-palm, a PAN laptop, and the Palm app once it exists): `https://10.42.0.1:8042/` logs in to the read-only UI and API, every mutating route returns 404, and the Pi's LAN address on 8042 is dropped (D-026). `nmap` from the Palm side confirms only 53/67/80/8042 and ICMP are reachable on the Pi, 8042 only on `10.42.0.1`.
 
 ### Phase 8: Documentation and release
 `PALM-SETUP.md` (section 11) with photos or exact screen text from a T|X and a LifeDrive; `TROUBLESHOOTING.md` populated with real log excerpts from every failure induced in Phase 5; `TESTING.md`; `DECISIONS.md` complete; `README.md` with a 60-second quick start (the one-liner, the wizard, the web URL); `make release` artefact installed from scratch on a clean image of each board as the final test.
@@ -1074,6 +1083,7 @@ Controls, and what each defends against:
 | No `ktune`, no `defaultroute`, no `proxyarp` towards the LAN, `rp_filter` | PPP peers injecting routes or ARP into the Pi |
 | Logging with device address for every pairing, authorisation and session event; `btmon` capture on demand | Forensics |
 | Daemon-owned, `0660 root:palm-gw` ctl socket; no network listener | Local privilege boundary for operators |
+| Web UI on the Bluetooth side is read-only: mutating routes are not registered on that listener, and it is TLS-only unless `bluetooth_plain_http` is set (D-026) | A password captured over the weak radio link cannot pair devices, change the firewall or reach the LAN |
 | systemd hardening to the extent pppd and BlueZ allow | Blast radius of a daemon bug |
 
 What the gateway deliberately does **not** claim: confidentiality or integrity of the Bluetooth hop. Applications on the Palm that need that use TLS (the user's wolfSSL port on Palm OS provides TLS 1.3). Stock Palm apps (Blazer, VersaMail) use SSL 3.0/TLS 1.0 at best and should be treated as cleartext for threat-modelling purposes; the firewall's isolation is what protects the rest of the house from them, not the radio.

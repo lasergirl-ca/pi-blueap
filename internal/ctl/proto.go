@@ -17,6 +17,8 @@ import (
 	"palm-gw/internal/allow"
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
+	"palm-gw/internal/ppp"
+	"palm-gw/internal/profile"
 )
 
 // DefaultSocket is the control socket path when none is configured.
@@ -64,7 +66,7 @@ type AdapterStatus struct {
 }
 
 // StatusReply is the answer to {"cmd":"status"} (PLAN.md section 8.8).
-// Sessions and PAN clients arrive in Phases 2 and 4.
+// PAN clients arrive in Phase 4.
 type StatusReply struct {
 	Version       string             `json:"version"`
 	Phase         string             `json:"phase"`
@@ -79,6 +81,9 @@ type StatusReply struct {
 	Allowlist     []allow.Entry      `json:"allowlist"`
 	AllowAny      bool               `json:"allow_any"`
 	Devices       []bluez.DeviceInfo `json:"devices"` // every device BlueZ knows under the adapter
+	Profiles      []profile.Status   `json:"profiles"`
+	Sessions      []ppp.Info         `json:"sessions"`
+	PoolInUse     int                `json:"ppp_pool_in_use"`
 	Config        *config.Config     `json:"config"`
 }
 
@@ -103,6 +108,13 @@ type ForgetReply struct {
 	StaticEntry   bool   `json:"static_entry"` // still allowed by [bluetooth].allow in config
 	RemovedBlueZ  bool   `json:"removed_from_bluez"`
 	KilledSession bool   `json:"killed_session"`
+}
+
+// DisconnectReply reports what `disconnect` ended.
+type DisconnectReply struct {
+	OK       bool   `json:"ok"`
+	Address  string `json:"address"`
+	Sessions int    `json:"sessions"` // how many sessions were terminated
 }
 
 // AllowReply reports what `allow` did.

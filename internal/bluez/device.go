@@ -2,6 +2,7 @@ package bluez
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -90,4 +91,24 @@ func (b *Bus) OnDeviceChange(h func(DeviceChange)) func() {
 		changed, _ := s.Body[1].(map[string]dbus.Variant)
 		h(DeviceChange{Path: s.Path, Changed: changed})
 	})
+}
+
+// AddrFromPath turns /org/bluez/hciN/dev_00_07_E0_12_34_56 into
+// 00:07:E0:12:34:56, or "" if the path is not a device path.
+func AddrFromPath(p dbus.ObjectPath) string {
+	s := string(p)
+	i := strings.LastIndex(s, "/dev_")
+	if i < 0 {
+		return ""
+	}
+	a := strings.ReplaceAll(s[i+len("/dev_"):], "_", ":")
+	if len(a) != 17 {
+		return ""
+	}
+	return strings.ToUpper(a)
+}
+
+// UnderAdapter reports whether device path p belongs to adapter path a.
+func UnderAdapter(p, a dbus.ObjectPath) bool {
+	return a != "" && strings.HasPrefix(string(p), string(a)+"/")
 }

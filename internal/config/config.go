@@ -63,6 +63,7 @@ type Handshake struct {
 	MSTimeoutMS     int    `toml:"ms_timeout_ms" json:"ms_timeout_ms"`
 	ATEmulator      bool   `toml:"at_emulator" json:"at_emulator"`
 	ATConnectBanner string `toml:"at_connect_banner" json:"at_connect_banner"`
+	ATTimeoutMS     int    `toml:"at_timeout_ms" json:"at_timeout_ms"`
 }
 
 // Network is the [network] table.
@@ -149,6 +150,7 @@ func Default() *Config {
 			MSTimeoutMS:     3000,
 			ATEmulator:      true,
 			ATConnectBanner: "CONNECT 115200",
+			ATTimeoutMS:     10000,
 		},
 		Network: Network{
 			Subnet:      "10.42.0.0/24",

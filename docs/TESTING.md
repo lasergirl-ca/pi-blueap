@@ -459,3 +459,280 @@ asked for them; to confirm in Phase 2.
 
 Not available; untested.
 
+
+## Phase 2: RFCOMM profiles and PPP
+
+**Accept:** `fake-palm connect --mode client` on channel 1 gets `CLIENTSERVER`, a `pppN`, a
+`10.42.0.1x` address, and pings `10.42.0.1`. `--mode ppp` on channel 2 and `--mode at` on channel 3
+both succeed. `fake-palm storm` leaves zero sessions and zero `pppd` processes. `palm-gwctl
+disconnect` tears a session down within 3 s. Then the **real Palm T|X**: with the connection set up
+per section 11, tapping Connect reaches "Established" and Blazer loads `http://10.42.0.1/` and
+`http://neverssl.com/`.
+
+### Development machine, 2026-11-09
+
+`go test ./...`, `go test -race ./internal/ppp ./internal/profile`, `golangci-lint run` (also with
+`GOOS=linux`) all clean. New tests:
+
+- `internal/profile` handshake, driven over a socketpair: PPP flag first, `CLIENT`, `CLIENT` split
+  across two writes, `CLIENTCLIENT`, a repeated `CLIENT`, `CLIENT` followed at once by a PPP frame
+  (left in the socket for pppd), CR before `CLIENT` (the Palm OS 4 login script), AT commands
+  ending in an `ATDT0` dial, lowercase `at` with CRLF, `ATZ\rATDT0\r` in one read, an AT line split
+  mid-command, `ATH` hang-up, AT on SPP (not emulated), garbage, silence (timeout), peer close,
+  cancellation, and both handshakes switched off.
+- `internal/profile` SDP: each Appendix C record parses with `encoding/xml` and carries the channel
+  in its RFCOMM element.
+- `internal/ppp`: pool order, exhaustion and reuse; a fake pppd script that starts a child in its
+  process group (like the `notty` shunt): disconnect kills both within 3 s; `per_device_max`
+  replacement; `max_sessions` refusal (and replacement still allowed when full); termination during
+  the handshake; a pppd that ignores SIGTERM is SIGKILLed after 2 s; a pppd that exits by itself
+  releases its address; the orphan tripwire over a fake `/proc`.
+- `internal/bluez`: sysfs bus detection and `auto` adapter choice (D-014).
+- Added after the real-Palm dial-up runs: the T|X's slow first AT command (D-023: a 600 ms pause
+  that outlasts `ms_timeout_ms` but not `at_timeout_ms`; DUN silence times out at
+  `at_timeout_ms`), the T|X's compound dial line, `&D2` not taken as a dial, and
+  `TestParseATLine` (D-024); `handshake.at_timeout_ms` validation in `internal/config`.
+
+### Raspberry Pi 5, 2026-11-09
+
+Same tests pass natively on the Pi (`go test ./...` in `~/palm-gw`). Deployed `palm-gwd`
+(phase 2):
+
+```
+$ palm-gwctl status
+palm-gwd f202472-dirty, up 3s (phase 2)
+profiles:  spp ch1, lap ch2, dun ch3
+sessions:  0 of 8, pool 0 of 10.42.0.10-10.42.0.99 in use
+$ bluetoothctl show | grep -E "UUID: (Serial|LAN|Dial)"
+	UUID: Dialup Networking         (00001103-0000-1000-8000-00805f9b34fb)
+	UUID: Serial Port               (00001101-0000-1000-8000-00805f9b34fb)
+	UUID: LAN Access Using PPP      (00001102-0000-1000-8000-00805f9b34fb)
+```
+
+With the profiles registered BlueZ adds the Networking service bit, so the adapter class is now
+0x420300 (was 0x400300 in Phase 1).
+
+**Real Palm TX.** Set up per section 11 (Connection `Palm GW`: Connect to PC, via Bluetooth,
+device Palm Gateway; Network service `Palm GW`: PPP, Query DNS, automatic IP; Palm Wi-Fi off).
+The test page was served with `python3 -m http.server 80 --bind 10.42.0.1` as a transient unit;
+`palm_input` already accepts tcp/80, so no temporary firewall rule was needed. Tapping Connect
+reached "Established", and Blazer loaded both `http://10.42.0.1/` and `http://neverssl.com/`.
+
+```
+08:21:41.334 connection    profile=lap channel=2 addr=00:07:E0:3C:5E:FA
+08:21:41.351 handshake     mode=none profile=lap
+08:21:41.351 session_start profile=lap handshake=none peer=10.42.0.10 pid=10076
+             pppd: Using interface ppp0
+             pppd: local  IP address 10.42.0.1
+             pppd: remote IP address 10.42.0.10
+08:21:41.417 session_up    ifname=ppp0 local=10.42.0.1 peer=10.42.0.10
+$ journalctl -u palm-test-http
+10.42.0.10 - - [09/Nov/2026 08:22:55] "GET / HTTP/1.1" 200 -
+$ palm-gwctl status
+sessions:  1 of 8, pool 1 of 10.42.0.10-10.42.0.99 in use
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"      lap ppp0   up        10.42.0.10     none  up 3m17s
+```
+
+From RFCOMM connect to PPP up took 83 ms. DNS went through dnsmasq on 10.42.0.1 from `ppp0`
+(neverssl.com resolved) although dnsmasq has `interface=br-palm`; `listen-address=10.42.0.1`
+covers it.
+
+**The Palm TX's "PC" connection uses LAP, not SPP.** `btmon` shows its SDP Service Search for
+UUID 0x1102 ("LAN Access Using PPP"), then RFCOMM on channel 2, then PPP with no `CLIENT`.
+Section 11 expected SPP with the Microsoft handshake. The gateway serves all three, so this
+works; it is recorded in DECISIONS.md (hardware observations) and section 11 will be corrected
+in `docs/PALM-SETUP.md`.
+
+**`palm-gwctl disconnect`** on the Palm's live session:
+
+```
+$ t0=$(date +%s%N); palm-gwctl disconnect 00:07:E0:3C:5E:FA; echo "disconnect returned after $(( ($(date +%s%N)-t0)/1000000 )) ms"
+00:07:E0:3C:5E:FA: 1 session(s) terminated
+disconnect returned after 64 ms
+$ palm-gwctl status | grep sessions
+sessions:  0 of 8, pool 0 of 10.42.0.10-10.42.0.99 in use
+$ pgrep -a pppd; ip -br link | grep ppp
+$
+08:25:11.852 session_end addr=00:07:E0:3C:5E:FA profile=lap ifname=ppp0 duration=3m31s exit=16 reason=disconnect
+```
+
+pppd's own syslog lines also land in the palm-gwd journal next to the structured copies the
+daemon logs from its stderr; harmless duplication.
+
+**Real Palm TX, dial-up (DUN).** Run to try the Modem set-up from `docs/PALM-SETUP.md`. LAN
+Access was switched off in `/etc/palm-gw/config.toml` (`[lap] enabled = false`) and palm-gwd
+restarted, so SDP offered only Serial Port and Dial-up Networking; `btmon` ran as a transient unit
+writing to `/var/tmp/phase2-palm2-btmon.txt`. A new Connection `Palm GW DUN` (Connect to: Modem,
+via Bluetooth, device Palm Gateway) and Network service (phone `0`, PPP, Query DNS, automatic IP)
+were created on the Palm. Every attempt, whichever connection was tapped, searched SDP for
+Dial-up Networking (0x1103) and opened RFCOMM channel 3. None searched for Serial Port.
+
+Attempt 1 (09:42, 11:08, 11:09; Palm: "modem not found (0x1106)"). The Palm sends its first AT
+command 3.5 s after the channel opens; the handshake gave up at `ms_timeout_ms` (3 s) and started
+pppd blind, so the Palm's `ATQ0V1Z` got LCP frames instead of `OK`:
+
+```
+11:08:13.446 connection profile=dun channel=3
+11:08:16.447 handshake  mode=timeout profile=dun         # 3.000 s later
+btmon  11:08:16.949  > ATQ0V1Z\r                          # 3.503 s after the channel opened
+       then +++ , ATQ0H0\r , ATQ0V1Z\r ... DISC
+```
+
+Fixed by D-023 (`at_timeout_ms`, 10 s on the DUN channel), deployed, retried.
+
+Attempt 2 (11:19, 11:37, 14:11). All three AT commands were answered `OK`, then the handshake
+timed out 5 s after the last one with no dial:
+
+```
+btmon  11:19:10.335  > ATQ0V1Z\r                     < \r\nOK\r\n
+       11:19:12.404  > ATQ0E0\r                      < \r\nOK\r\n
+       11:19:13.091  > ATQ0E0&D0&C1V1S7=90L1DT0\r    < \r\nOK\r\n
+11:19:18.092 handshake mode=timeout at_commands=3 dial=""
+```
+
+The dial `DT0` is the last command in a compound line; the emulator only matched `^ATD`. Fixed by
+D-024 (the line is parsed as V.250 basic syntax), deployed, retried.
+
+Attempt 3 (14:24, then 14:28 with `at_connect_banner = "CONNECT"`; Palm: stuck at "Connecting",
+View Log empty). The dial is recognised and answered, pppd starts, and the Palm never sends a
+byte of PPP. It only returns RFCOMM credits for the LCP Configure-Requests it receives:
+
+```
+14:24:24.895 handshake     mode=at at_commands=3 dial=ATQ0E0&D0&C1V1S7=90L1DT0
+14:24:24.895 session_start profile=dun handshake=at peer=10.42.0.10 pid=14502
+btmon  14:24:24.895  < \r\nCONNECT 115200\r\n
+       14:24:24.903  < 7e ff 7d 23 c0 21 7d 21 ...   (LCP Configure-Request, repeated every 3 s)
+       14:24:33.918  > credits only, no data, until the Palm hangs up
+14:25:45.912 session_end   profile=dun duration=1m27s exit=16 reason=pppd_exit
+```
+
+The bare `CONNECT` banner made no difference (the Palm sent `+++` when cancelled at 14:28:42).
+RFCOMM modem status from the gateway is `rtc 1 rtr 1 dv 1` from the moment the channel opens, so
+the Palm never sees carrier (DV) rise at `CONNECT`, although its `&C1` asks for DCD to follow
+carrier. That is the leading suspect, unconfirmed. **Dial-up from a T|X does not work yet and is
+parked (D-025).** It is not part of this phase's acceptance: the real-Palm check uses the "PC"
+connection (passed above over LAN Access), and DUN acceptance is `fake-palm --mode at`.
+
+Not run: tapping the "PC" connection with LAN Access off, to see whether it falls back to Serial
+Port or to dial-up. The 09:42 attempt was probably that test (it searched for 0x1103), but which
+connection was tapped was not recorded.
+
+Afterwards `/etc/palm-gw/config.toml` was restored from `/var/tmp/config.toml.before-lap-test`
+(LAN Access on, banner `CONNECT 115200`), palm-gwd restarted (`profiles: spp ch1, lap ch2, dun
+ch3`), and the `palm-test-http` and `palm-test-btmon` units stopped.
+
+### fake-palm acceptance on the Pi, 2026-11-10
+
+**Rig (D-027).** A TP-Link UB500 (USB `2357:0604`, Realtek RTL8761BU, firmware
+`rtl8761bu_fw.bin` 0xdfc6d922) on the Pi's USB 3 port became `hci1` (`60:15:6F:E9:EB:03`,
+bus usb). The gateway stays on the onboard `hci0` (`2C:CF:67:2F:29:F5`, serial). fake-palm was
+rebuilt on the Pi from the working tree and run by `scripts/phase2-accept.sh`.
+
+**What the first runs found, each fixed and redeployed before the final run:**
+
+1. `hci1` would not power on (`Set Powered ... status 0x03`). It was soft-blocked:
+   `/sys/class/rfkill/rfkill17` (`hci1`) had `soft=1`, because systemd-rfkill restores a saved
+   block for that USB port path (`/var/lib/systemd/rfkill/platform-xhci-hcd.1-usb-0:1:1.0:bluetooth`
+   was `1`). The script now unblocks the client adapter and waits for it to power up. Right after
+   an unblock, bluetoothd powers the adapter itself and a parallel `power on` answers `Busy`
+   (0x0a), so it retries.
+2. Pairing then passed (SSP, `paired ... in 3.913s (paired=true bonded=true)`, gateway logged
+   `paired, added to allowlist`, window closed after one device). All four connects reached PPP and
+   pinged `10.42.0.1`, but DNS through the gateway answered SERVFAIL ("server misbehaving"). Cause:
+   fake-palm's client pppd ran with section 9's `usepeerdns`, and Debian's
+   `/etc/ppp/ip-up.d/0000usepeerdns` rewrote the Pi's own `/etc/resolv.conf` to
+   `nameserver 10.42.0.1` (a namespace shares `/etc`). The dnsmasq log showed `ignoring
+   nameserver 10.42.0.1 - local interface` with no other upstream. fake-palm no longer passes
+   `usepeerdns` with `--netns` (D-027). The Pi's resolv.conf was restored by the ip-down hook and
+   is unchanged.
+3. With DNS working, `GET http://neverssl.com/` timed out on 2 of 4 channels. It was neverssl.com:
+   from the Pi itself, 3 of 5 `curl -4 http://neverssl.com/` timed out and the rest took 2 to 5 s
+   to connect, `ping 34.223.124.45` lost 4 of 4, while `example.com` and
+   `detectportal.firefox.com` answered in about 10 ms and `ping 1.1.1.1` lost none. fake-palm
+   gained `--url` (default unchanged), and the script takes `URL=` (D-027). The final run uses
+   `http://example.com/`.
+4. `palm-gwctl disconnect` ended the gateway's session in 32 ms, but fake-palm's pppd held its
+   link for the full 60 s. bluetoothd keeps its own reference to every connected RFCOMM socket
+   (`/proc/<bluetoothd>/fd/40` was the session's socket, its receive queue growing from 92 to 337
+   bytes after the session ended), so pppd exiting did not close the channel. Fixed by D-028: the
+   daemon keeps its copy and calls `shutdown(SHUT_RDWR)` when a session ends. The script now
+   also checks that fake-palm sees the link drop.
+5. One run tested an old daemon: `install.sh` prefers `dist/linux-arm64/` over `bin/`, and the
+   rsync had copied a stale `dist/` (2026-11-09 07:57) from the Mac. That run's DUN handshake timed
+   out after 3 s, because that binary had no D-023. `dist/` was deleted on the Pi and is now
+   excluded from the sync. After `sudo make install`, `cmp ~/palm-gw/bin/palm-gwd
+   /usr/local/bin/palm-gwd` matched.
+6. A later run flagged `orphan_pppd`. It was the reaper correctly catching the `ppp` package's
+   test binary, run on the Pi at 07:24, whose fake pppd was not in the session table. The script
+   now reads the journal only from its own start.
+
+**Final run**, palm-gwd built from the working tree (`f202472-dirty`, with D-023, D-024 and
+D-028), fake-palm already paired by the earlier run:
+
+```
+$ URL=http://example.com/ ~/palm-gw/scripts/phase2-accept.sh
+==> Preconditions (2026-11-10 07:29:08)
+gateway hci0 2C:CF:67:2F:29:F5; fake-palm hci1 60:15:6F:E9:EB:03 (bus usb)
+    PASS: two adapters
+==> Pair fake-palm with the gateway (once)
+    PASS: 60:15:6F:E9:EB:03 already in the allowlist
+==> Connect: channel 1, mode client
+07:29:11.883 fake-palm: RFCOMM connected 60:15:6F:E9:EB:03 -> 2C:CF:67:2F:29:F5 channel 1 in 3.42s
+07:29:12.033 fake-palm: PPP up: ppp0 local 10.42.0.10 remote 10.42.0.1 (3.57s after connect)
+07:29:14.075 fake-palm: ping 10.42.0.1 ok: 3 packets transmitted, 3 received, 0% packet loss
+07:29:14.115 fake-palm: DNS through 10.42.0.1 ok: neverssl.com = 34.223.124.45, 2600:1f13:...
+07:29:14.191 fake-palm: GET http://example.com/ ok: 200 OK, 577 bytes in 76ms
+    PASS: channel 1 client
+==> Connect: channel 2, mode ppp
+07:29:16.473 fake-palm: PPP up: ppp0 local 10.42.0.10 remote 10.42.0.1 (244ms after connect)
+07:29:18.647 fake-palm: GET http://example.com/ ok: 200 OK, 577 bytes in 108ms
+    PASS: channel 2 ppp
+==> Connect: channel 3, mode at
+07:29:21.066 fake-palm: PPP up: ppp0 local 10.42.0.10 remote 10.42.0.1 (360ms after connect)
+07:29:23.207 fake-palm: GET http://example.com/ ok: 200 OK, 577 bytes in 76ms
+    PASS: channel 3 at
+==> Connect: channel 3, mode at-tx
+07:29:29.058 fake-palm: PPP up: ppp0 local 10.42.0.10 remote 10.42.0.1 (3.807s after connect)
+07:29:31.215 fake-palm: GET http://example.com/ ok: 200 OK, 577 bytes in 80ms
+    PASS: channel 3 at-tx
+==> Disconnect within 3 s
+  60:15:6F:E9:EB:03  "piblueap #2"        lap ppp0   up        10.42.0.10     none  up 1s
+$ palm-gwctl disconnect 60:15:6F:E9:EB:03
+60:15:6F:E9:EB:03: 1 session(s) terminated
+disconnect returned after 37 ms
+    PASS: disconnect in 37 ms, 0 sessions left
+07:29:36.528 fake-palm: FAIL: DNS through 10.42.0.1: ... connect: network is unreachable
+07:29:36.529 fake-palm: pppd exited: the gateway ended the link
+    PASS: fake-palm saw the link drop within 3049 ms
+==> Storm
+07:30:05.109 fake-palm: storm done: 20 iterations, 0 client-side failures; waiting 6 s for the gateway to settle
+07:30:11.116 fake-palm: gateway: 0 sessions, 0 pool addresses in use, 0 gateway pppd processes
+    PASS: storm
+==> Afterwards
+sessions 0, pppd processes 0
+    PASS: zero sessions and zero pppd
+    PASS: no orphan_pppd
+==> Result: 0 failed step(s). Log: /var/tmp/phase2-accept-20261110-072908.log
+```
+
+The `FAIL: DNS` line inside the disconnect step is expected: the gateway cut the link while
+fake-palm's probe was still running. The journal for the run shows the four handshakes as
+`ms_null_modem` (spp, `clients=1`), `none` (lap), `at` (`dial=ATDT0`) and `at` (`at_commands=3`,
+`dial=ATQ0E0&D0&C1V1S7=90L1DT0`). The 3.4 s RFCOMM connect on channel 1 (first connection of a
+run, and also seen at 07:10 and 07:15) is page and connection setup between two controllers in
+one box; later connections take 110 to 170 ms. Full logs:
+`/var/tmp/phase2-accept-20261110-072908.log` (final), `-070710.log` (first pairing, DNS failure),
+`-071030.log` (neverssl.com), `-072521.log` (stale binary).
+
+**Development machine:** `go test ./...`, `go vet ./...` (also `GOOS=linux`) and
+`golangci-lint run ./...` green after these changes. The new `TestHangUpDropsLinkDespiteOtherHolders`
+(a socketpair with a second descriptor standing in for bluetoothd) passed 300 times on macOS and
+300 times on the Pi. It failed once on macOS, on its first run, by timing out after 2 s, and that
+could not be reproduced in the 600 runs since. Recorded here in case it recurs.
+
+**Not covered here:** the real Palm against D-028. The "PC" connection passed before the change
+(above). Ending a session from the gateway side should now make the T|X show the link dropped at
+once. To check with the Palm during Phase 5's real-Palm runs.
+
+**Phase 2 accepted** on fake-palm, all channels, storm and disconnect, plus the real Palm T|X
+over LAN Access. T|X dial-up is parked (D-025).

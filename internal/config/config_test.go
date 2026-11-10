@@ -134,6 +134,7 @@ func TestValidationRules(t *testing.T) {
 		{"duplicate channel", func(c *Config) { c.DUN.Channel = 1 }, "dun.channel"},
 		{"bridge too long", func(c *Config) { c.PAN.Bridge = "a-very-long-bridge-name" }, "pan.bridge"},
 		{"negative ms timeout", func(c *Config) { c.Handshake.MSTimeoutMS = -1 }, "handshake.ms_timeout_ms"},
+		{"negative at timeout", func(c *Config) { c.Handshake.ATTimeoutMS = -1 }, "handshake.at_timeout_ms"},
 		{"empty banner", func(c *Config) { c.Handshake.ATConnectBanner = "" }, "handshake.at_connect_banner"},
 		{"subnet garbage", func(c *Config) { c.Network.Subnet = "10.42.0.0" }, "network.subnet"},
 		{"subnet not masked", func(c *Config) { c.Network.Subnet = "10.42.0.1/24" }, "network.subnet"},

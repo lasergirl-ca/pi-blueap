@@ -17,9 +17,19 @@ func (d *Daemon) registerHandlers() {
 	d.ctl.Handle("pair", d.handlePair)
 	d.ctl.Handle("forget", d.handleForget)
 	d.ctl.Handle("allow", d.handleAllow)
-	d.ctl.Handle("disconnect", func(context.Context, ctl.Request, *ctl.Writer) error {
-		return errors.New("disconnect: not implemented until Phase 2")
-	})
+	d.ctl.Handle("disconnect", d.handleDisconnect)
+}
+
+// handleDisconnect terminates the device's sessions (SIGTERM to pppd's
+// process group, SIGKILL after 2 s) and answers once they have ended.
+func (d *Daemon) handleDisconnect(_ context.Context, req ctl.Request, w *ctl.Writer) error {
+	addr := state.Norm(req.Addr)
+	if addr == "" {
+		return errors.New("disconnect: addr is required")
+	}
+	n := d.ppp.Disconnect(addr, "disconnect")
+	d.log.Info("disconnect requested", "event", "disconnect", "addr", addr, "sessions", n)
+	return w.Send(ctl.DisconnectReply{OK: true, Address: addr, Sessions: n})
 }
 
 func (d *Daemon) handleStatus(_ context.Context, _ ctl.Request, w *ctl.Writer) error {
@@ -40,6 +50,9 @@ func (d *Daemon) handleStatus(_ context.Context, _ ctl.Request, w *ctl.Writer) e
 	d.mu.Unlock()
 
 	st.PairingWindow = d.window.State()
+	st.Profiles = d.profiles.Status()
+	st.Sessions = d.ppp.Sessions()
+	st.PoolInUse = d.ppp.PoolInUse()
 	st.Allowlist = d.allow.Entries()
 	st.AllowAny = d.allow.AllowAny()
 	if adapter != nil {
@@ -113,7 +126,7 @@ func (d *Daemon) handlePair(ctx context.Context, req ctl.Request, w *ctl.Writer)
 }
 
 // handleForget removes a device everywhere: allowlist, BlueZ (link key and
-// trust), and later its live session (PLAN.md section 8.2, "Trusted vs
+// trust), and its live session (PLAN.md section 8.2, "Trusted vs
 // allowlist").
 func (d *Daemon) handleForget(_ context.Context, req ctl.Request, w *ctl.Writer) error {
 	addr := state.Norm(req.Addr)
@@ -127,6 +140,7 @@ func (d *Daemon) handleForget(_ context.Context, req ctl.Request, w *ctl.Writer)
 	}
 	r.RemovedAllow = removed
 	r.StaticEntry = isStatic
+	r.KilledSession = d.ppp.Disconnect(addr, "forgotten") > 0
 	if a := d.currentAdapter(); a != nil {
 		dev, err := a.DeviceByAddress(addr)
 		if err != nil {

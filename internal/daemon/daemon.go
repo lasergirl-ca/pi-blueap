@@ -1,8 +1,10 @@
 // Package daemon is palm-gwd's run loop (PLAN.md section 5, "Lifecycle"):
 // control socket first, then wait for org.bluez, pick the adapter, set its
 // properties, register the agent, serve until BlueZ disappears or we are told
-// to stop, and start over when BlueZ comes back. Profiles, PAN and the
-// firewall join this loop in later phases.
+// to stop, and start over when BlueZ comes back. The RFCOMM profiles are
+// registered alongside the agent; PPP sessions outlive a BlueZ restart
+// because their sockets belong to the kernel. PAN and the firewall join this
+// loop in later phases.
 package daemon
 
 import (
@@ -13,12 +15,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/godbus/dbus/v5"
+
 	"palm-gw/internal/agent"
 	"palm-gw/internal/allow"
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
 	"palm-gw/internal/ctl"
 	"palm-gw/internal/event"
+	"palm-gw/internal/ppp"
+	"palm-gw/internal/profile"
 	"palm-gw/internal/state"
 )
 
@@ -47,10 +53,12 @@ type Daemon struct {
 	ctl     *ctl.Server
 	started time.Time
 
-	bus     *bluez.Bus
-	agent   *agent.Agent
-	window  *agent.Window
-	adapter *bluez.Adapter // nil while BlueZ is absent
+	bus      *bluez.Bus
+	agent    *agent.Agent
+	window   *agent.Window
+	adapter  *bluez.Adapter // nil while BlueZ is absent
+	ppp      *ppp.Manager
+	profiles *profile.Server
 
 	mu        sync.Mutex
 	present   bool
@@ -85,6 +93,20 @@ func New(opts Options) (*Daemon, error) {
 		reattach: make(chan struct{}, 1),
 	}
 	d.allow = allow.New(opts.Config.Bluetooth.Allow, st, opts.Config.Bluetooth.AllowAny)
+	c := opts.Config
+	d.ppp, err = ppp.NewManager(ppp.Config{
+		OptionsFile:  c.PPP.OptionsFile,
+		Gateway:      c.Network.Gateway,
+		PoolFirst:    c.Network.PPPPool[0],
+		PoolLast:     c.Network.PPPPool[1],
+		Debug:        c.PPP.Debug,
+		IdleSeconds:  c.PPP.IdleSeconds,
+		MaxSessions:  c.PPP.MaxSessions,
+		PerDeviceMax: c.PPP.PerDeviceMax,
+	}, opts.Log, d.events)
+	if err != nil {
+		return nil, err
+	}
 	d.window = agent.NewWindow(d.setPairable, func(reason string) {
 		d.log.Info("pairing window closed", "event", "window_closed", "reason", reason)
 		d.events.Emit("window_closed", "", "", "reason", reason)
@@ -113,6 +135,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.agent.Export(); err != nil {
 		return err
 	}
+	d.profiles = profile.New(bus, d.cfg, d.ppp, d.allow, d.events, d.opts.Log, d.adapterPath)
+	d.profiles.OnReleased = d.onProfileReleased
+	if err := d.profiles.Export(); err != nil {
+		return err
+	}
+	// Runs on every way out, including a stop while BlueZ is absent:
+	// unregister from BlueZ if we can, and end every PPP session.
+	defer d.shutdown()
+	go d.ppp.RunReaper(ctx, 10*time.Second)
 
 	// Log every event once, centrally, with its stable name.
 	evCh, unsub := d.events.Subscribe()
@@ -137,7 +168,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 		lost := d.serveBlueZ(ctx, watch)
 		if ctx.Err() != nil {
-			d.shutdown()
 			return nil
 		}
 		if lost {
@@ -173,7 +203,7 @@ func (d *Daemon) serveBlueZ(ctx context.Context, watch <-chan bool) bool {
 				return true
 			}
 		case <-d.reattach:
-			d.log.Warn("re-attaching to BlueZ after the agent was released")
+			d.log.Warn("re-attaching to BlueZ after it released the agent or a profile")
 			attached = false
 			if stopDevWatch != nil {
 				stopDevWatch()
@@ -247,6 +277,9 @@ func (d *Daemon) attach(ctx context.Context) (func(), error) {
 	if err := d.reassertPairable(adapter); err != nil {
 		return nil, err
 	}
+	if err := d.profiles.Register(); err != nil {
+		return nil, err
+	}
 	d.mu.Lock()
 	d.regd = true
 	d.since = time.Now()
@@ -281,9 +314,14 @@ func (d *Daemon) reassertPairable(a *bluez.Adapter) error {
 
 func (d *Daemon) shutdown() {
 	d.window.Close(agent.ReasonCancelled)
-	if d.regd {
+	d.mu.Lock()
+	present := d.present
+	d.mu.Unlock()
+	if present {
+		d.profiles.Unregister()
 		d.agent.Unregister()
 	}
+	d.ppp.Shutdown()
 	d.log.Info("palm-gwd stopping")
 }
 
@@ -299,7 +337,18 @@ func (d *Daemon) setPresent(p bool) {
 	} else {
 		d.regd = false
 		d.adapter = nil
+		if d.profiles != nil {
+			d.profiles.MarkUnregistered()
+		}
 	}
+}
+
+// adapterPath is the gateway adapter's object path, or "" without BlueZ.
+func (d *Daemon) adapterPath() dbus.ObjectPath {
+	if a := d.currentAdapter(); a != nil {
+		return a.Path
+	}
+	return ""
 }
 
 func (d *Daemon) currentAdapter() *bluez.Adapter {
@@ -323,12 +372,25 @@ func (d *Daemon) setPairable(on bool) error {
 func (d *Daemon) onAgentReleased() {
 	d.mu.Lock()
 	d.regd = false
+	d.mu.Unlock()
+	d.scheduleReattach(func() bool { return !d.regd })
+}
+
+// onProfileReleased is the same for Profile1.Release.
+func (d *Daemon) onProfileReleased() {
+	d.scheduleReattach(func() bool { return !d.profiles.Registered() })
+}
+
+// scheduleReattach asks the main loop to attach again in 3 s if BlueZ is
+// still the same instance and stillNeeded (called with d.mu held) says so.
+func (d *Daemon) scheduleReattach(stillNeeded func() bool) {
+	d.mu.Lock()
 	gen := d.gen
 	d.mu.Unlock()
 	go func() {
 		time.Sleep(3 * time.Second)
 		d.mu.Lock()
-		same := d.present && d.gen == gen && !d.regd
+		same := d.present && d.gen == gen && stillNeeded()
 		d.mu.Unlock()
 		if !same {
 			return
@@ -343,6 +405,10 @@ func (d *Daemon) onAgentReleased() {
 // onDeviceChange watches Device1.Paired and Connected (PLAN.md section 8.2,
 // "Pairing window").
 func (d *Daemon) onDeviceChange(c bluez.DeviceChange) {
+	// Other adapters on the host (a test dongle) are none of our business.
+	if !bluez.UnderAdapter(c.Path, d.adapterPath()) {
+		return
+	}
 	paired, flipped := c.Paired()
 	connV, connChanged := c.Changed["Connected"]
 	if !flipped && !connChanged {
