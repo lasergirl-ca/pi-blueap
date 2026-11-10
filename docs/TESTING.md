@@ -732,7 +732,8 @@ could not be reproduced in the 600 runs since. Recorded here in case it recurs.
 
 **Not covered here:** the real Palm against D-028. The "PC" connection passed before the change
 (above). Ending a session from the gateway side should now make the T|X show the link dropped at
-once. To check with the Palm during Phase 5's real-Palm runs.
+once. To check with the Palm during Phase 5's real-Palm runs. (Checked on 2026-11-10 on the
+Phase 3 build: see "D-028 with the real Palm" under Phase 3.)
 
 **Phase 2 accepted** on fake-palm, all channels, storm and disconnect, plus the real Palm T|X
 over LAN Access. T|X dial-up is parked (D-025).
@@ -900,3 +901,32 @@ firewall:  0 allow rule(s) (0 port, 0 icmp), 3 palm_to_pi, applied 08:04:26
 ```
 
 **Phase 3 accepted** on fake-palm (stand-in LAN host, D-031) and the real Palm T|X.
+
+### D-028 with the real Palm, 2026-11-10
+
+The Phase 2 item left open: ending a session from the gateway side with the real T|X. Zoe
+connected `Palm GW` (LAN Access), then on the Pi:
+
+```
+$ palm-gwctl status | grep ppp
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"      lap ppp0   up        10.42.0.10     none  up 15s
+$ palm-gwctl disconnect 00:07:E0:3C:5E:FA      # sent 09:55:20.902
+00:07:E0:3C:5E:FA: 1 session(s) terminated     # returned 09:55:20.945
+$ palm-gwctl status | grep sessions
+sessions:  0 of 8, pool 0 of 10.42.0.10-10.42.0.99 in use
+```
+
+Journal (palm-gwd and bluetoothd, pppd lines shortened):
+
+```
+09:55:20.904 pppd          Terminating on signal 15
+09:55:20.906 pppd          Modem hangup
+09:55:20.944 session_end   profile=lap ifname=ppp0 duration=15s exit=16 reason=disconnect
+09:55:20.950 bluetoothd    ext_io_disconnected() Unable to get io data for LAN Access using PPP:
+                           getpeername: Transport endpoint is not connected (107)
+09:55:25.062 device_disconnected  addr=00:07:E0:3C:5E:FA
+```
+
+The RFCOMM channel closed 6 ms after the session ended, even though bluetoothd still held its own
+reference (its `getpeername` fails because the socket was shut down under it), and the ACL followed
+about 4 s later. Zoe: the T|X showed the connection dropped right away. D-028 confirmed on the Palm.
