@@ -82,7 +82,21 @@ func childPID(t *testing.T, dir string, pppdPID int) int {
 	return pid
 }
 
-func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+// alive reports whether pid still runs. A zombie answers kill(pid, 0) too and
+// counts as gone: in a CI container PID 1 is not an init, so a killed orphan
+// (the fake pppd's child) is never reaped.
+func alive(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return true // no procfs (macOS); kill(0) is all there is
+	}
+	// The state follows the parenthesised command name: "pid (comm) S ...".
+	i := strings.LastIndexByte(string(b), ')')
+	return i < 0 || i+2 >= len(b) || b[i+2] != 'Z'
+}
 
 func start(t *testing.T, m *Manager, addr string) *Session {
 	t.Helper()
