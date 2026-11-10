@@ -15,7 +15,7 @@
 
 set -u
 
-CLIENT_HCI=${CLIENT_HCI:-hci1}
+CLIENT_HCI=${CLIENT_HCI:-}   # default: the adapter the gateway is not using
 NETNS=${NETNS:-fakepalm}
 FAKE_PALM=${FAKE_PALM:-$HOME/fake-palm}
 CTL=${CTL:-/run/palm-gw/ctl.sock}
@@ -43,6 +43,14 @@ step "Preconditions ($(date '+%F %T'))"
 run palm-gwctl status | sed -n '1,4p'
 gw_hci=$(palm-gwctl status | sed -n 's/^adapter: *\(hci[0-9]*\).*/\1/p')
 GW=${GW:-$(palm-gwctl status | sed -n 's/^adapter: *hci[0-9]* \([0-9A-F:]\{17\}\).*/\1/p')}
+# fake-palm's adapter: the first one the gateway is not using (hciN order can change at boot).
+if [ -z "$CLIENT_HCI" ]; then
+	for h in /sys/class/bluetooth/hci*; do
+		h=$(basename "$h")
+		case "$h" in *:*) continue ;; esac
+		[ "$h" != "$gw_hci" ] && { CLIENT_HCI=$h; break; }
+	done
+fi
 if [ -z "$GW" ] || [ -z "$gw_hci" ]; then
 	bad "cannot read the gateway adapter from palm-gwctl status"
 	exit 1

@@ -382,6 +382,47 @@ alone (BlueZ as the PANU, on its own adapter, with SSP pairing in a window). The
 (an Android phone, or another non-BlueZ PANU such as Windows) stays in the section 14 test matrix
 and is to be run during Phase 5 if a device is available, with the result in docs/TESTING.md.
 
+### D-034: PAN connections survive a `palm-gwd` restart; PPP sessions do not
+
+PLAN.md 8.6 has the daemon `Unregister("nap")` on shutdown, and Phase 5 restarts the daemon
+mid-session. Unregistering the NAP server does not end BlueZ's existing PAN sessions: the kernel
+BNEP session and bluetoothd's L2CAP socket stay, `bnepN` stays on the bridge, and traffic keeps
+flowing. The new daemon finds the connection in the kernel's BNEP list at start, checks it
+against the allowlist like any other, and lists it (`pan_connected` at start). PPP sessions are
+the daemon's children and end with it (systemd stops the unit's control group). The daemon does
+not drop PAN clients on purpose at shutdown: a restart (an upgrade, a `reload` that needs one)
+should disturb as little as possible, and a PANU that is not wanted is still refused by the new
+daemon. `scripts/phase5-robust.sh` checks that the connection carries on and still passes traffic.
+
+### D-035: `[bluetooth].adapter` may be the adapter's Bluetooth address
+
+Section 7 allows `"hciN"` or `"auto"`. On the Pi 5 with the onboard radio and a USB dongle, the
+kernel numbered them differently on two boots of the same day (onboard `hci0` and dongle `hci1`,
+then the other way round), so `adapter = "hci0"` moved the gateway onto the dongle after a
+reboot, where the Palm's pairing is not. `adapter` now also takes the adapter's address
+(`"2C:CF:67:2F:29:F5"`), matched against `Adapter1.Address`; `status` shows `configured by
+address`. With one adapter, the common case and dongle mode with the onboard radio disabled,
+`hci0` stays stable and remains the installer's default. The test rig's config is pinned by
+address. The acceptance scripts now pick fake-palm's adapter as whichever one the gateway is not
+using, instead of assuming `hci1`.
+
+### D-036: Carrier detect cannot be driven from user space; T|X dial-up stays unsupported
+
+D-025 parked T|X dial-up on the theory that the Palm waits for carrier (RFCOMM DV) to rise at
+`CONNECT`, and proposed moving the DUN channel onto an RFCOMM TTY to hold DV off until the dial.
+Built and tried on 2026-11-10: the TTY works (`RFCOMMCREATEDEV` with `RFCOMM_REUSE_DLC`, which
+needs the socket's addresses and channel in the request because the kernel checks the channel
+again when the TTY opens), and the AT emulator and pppd run on it. But the kernel's generic
+`tty_tiocmset` masks every `TIOCMSET`/`TIOCMBIS`/`TIOCMBIC` request down to the output lines DTR
+and RTS (plus OUT1, OUT2, LOOP) before the RFCOMM driver sees it, so `TIOCM_CD` never reaches
+`rfcomm_tty_tiocmset` and DV stays on. fake-palm's `--dcd` check (an RFCOMM TTY on the client side
+reading `TIOCMGET`) confirmed carrier on before the dial. The RFCOMM socket API has no way to set
+the V.24 signals either; the kernel sets RTC, RTR and DV when it allocates the DLC. So the
+D-025 theory cannot be tested without a kernel change, and the TTY code was removed rather than
+kept unused. T|X dial-up (Connect to: Modem) stays unsupported; the T|X uses the "PC" connection
+over LAN Access, which works. DUN remains for clients that do not wait for a DV transition
+(fake-palm `--mode at`, and possibly other Palms; to be tried with the LifeDrive if one turns up).
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

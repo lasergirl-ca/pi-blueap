@@ -14,7 +14,7 @@
 
 set -u
 
-CLIENT_HCI=${CLIENT_HCI:-hci1}
+CLIENT_HCI=${CLIENT_HCI:-}   # default: the adapter the gateway is not using
 NETNS=${NETNS:-fakepalm}
 LANNS=${LANNS:-palmlan}
 LAN_PI=${LAN_PI:-192.168.77.1}     # the Pi's end of the stand-in LAN
@@ -69,6 +69,15 @@ scan() {
 
 step "Preconditions ($(date '+%F %T'))"
 GW=$(palm-gwctl status | sed -n 's/^adapter: *hci[0-9]* \([0-9A-F:]\{17\}\).*/\1/p')
+gw_hci=$(palm-gwctl status | sed -n 's/^adapter: *\(hci[0-9]*\).*/\1/p')
+# fake-palm's adapter: the first one the gateway is not using (hciN order can change at boot).
+if [ -z "$CLIENT_HCI" ]; then
+	for h in /sys/class/bluetooth/hci*; do
+		h=$(basename "$h")
+		case "$h" in *:*) continue ;; esac
+		[ "$h" != "$gw_hci" ] && { CLIENT_HCI=$h; break; }
+	done
+fi
 run palm-gwctl status | grep -E '^(palm-gwd|adapter|firewall)'
 for t in nmap dig; do command -v "$t" > /dev/null || { bad "$t not installed"; exit 1; }; done
 if ! palm-gwctl status | grep -q '^firewall: .*applied'; then bad "firewall sets not applied"; exit 1; fi
@@ -131,7 +140,7 @@ rc=$?
 ms=$((($(date +%s%N) - t0) / 1000000))
 echo "nc -z -w 3 10.42.0.1 22: exit $rc after $ms ms"
 if [ "$rc" != 0 ] && [ "$ms" -ge 2900 ]; then ok "ssh to 10.42.0.1 dropped (timed out, not refused)"; else bad "ssh to 10.42.0.1 not dropped"; fi
-pi_lan=$(ip -4 -o addr show "$(palm-gwctl status | sed -n 's/^network:.* uplink \([^,]*\),.*/\1/p')" | awk '{print $4}' | cut -d/ -f1 | head -1)
+pi_lan=$(ip -4 -o addr show "$(palm-gwctl status | sed -n 's/^network:.* uplink \([^ ,]*\).*/\1/p')" | awk '{print $4}' | cut -d/ -f1 | head -1)
 echo "gateway address: $(scan 10.42.0.1 22,80,443,8042)"
 echo "Pi LAN address $pi_lan: $(scan "$pi_lan" 22,80,443,8042)"
 in1=$(counter palm_input 'palm->pi')

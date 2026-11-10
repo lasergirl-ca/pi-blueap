@@ -1085,3 +1085,211 @@ gateway's BlueZ: 60:15:6F:E9:EB:03 Trusted = b false
 PAN client, so per D-033 the Android (or Windows) check is carried into Phase 5.
 
 **Phase 4 accepted** on fake-palm (D-033).
+
+## Phase 5: Robustness and both boards (in progress)
+
+**Accept:** No orphans, no fd leaks (`ls /proc/$(pidof palm-gwd)/fd | wc -l` stable across 100
+sessions), all units active after each disruption, soak link survives or reconnects on first tap.
+Both Pi 4 and Pi 5 pass identically; differences recorded.
+
+Zoe's answers on 2026-11-10: a Pi 4 will come later (Phase 5 stays open until it is done), and the
+Pi joins a 5 GHz Wi-Fi network for the Wi-Fi uplink runs.
+
+### Pi 5 with fake-palm, 2026-11-10
+
+`scripts/phase5-robust.sh` (new): fd counts across a 100-session `fake-palm storm` and 10 PAN
+sessions, then `systemctl restart bluetooth` and `systemctl restart palm-gwd`, each with fake-palm
+holding a PPP link (channel 2) and a PAN connection. After each: the clients see the drop (PPP) or
+carry on (PAN after a daemon restart, D-034), the daemon is attached with NAP registered, every
+unit is active, nothing is left over, and fresh PPP and PAN connections reach the internet. Run
+detached (`nohup ... < /dev/null &`), log read afterwards.
+
+Issues found on the way:
+
+1. One PAN reconnect in ten failed with `Input/output error`: fake-palm reconnected 40 ms after
+   disconnecting, while the kernel still had the previous BNEP session for that address
+   (bluetoothd: `bnep_connadd() Failed to add device bnep%d: File exists`). The next attempt
+   worked. The script now waits 1 s between PAN sessions; no real client reconnects that fast.
+2. After `systemctl restart palm-gwd` the PAN connection stayed up. That is BlueZ keeping the
+   session when NAP is unregistered; the new daemon adopts it and traffic still flows (D-034). The
+   script now expects that.
+3. Killing a held `fake-palm pan` left the link up: the client's bluetoothd could not bring down
+   the bnep interface fake-palm had moved into its namespace (`bnep_if_down() ... No such device`).
+   fake-palm now disconnects on SIGTERM and Ctrl-C.
+4. After a reboot the gateway came up on the USB dongle: the kernel had numbered the dongle `hci0`
+   and the onboard radio `hci1`, the reverse of the boot before, and the config said `adapter =
+   "hci0"`. Fixed by D-035 (pin by address); the scripts now find fake-palm's adapter themselves.
+   A second reboot (onboard `hci1` again) kept the gateway on the onboard radio, and
+   `scripts/phase4-accept.sh` passed 22 of 22 straight after it.
+
+Final run (gateway on `hci1` by address, fake-palm on `hci0`, Wi-Fi uplink):
+
+```
+==> Preconditions (2026-11-10 11:29:07) (11:29:07)
+palm-gwd dev, up 10s (phase 4)
+bluez:     ok, agent registered since 11:28:57
+adapter:   hci1 2C:CF:67:2F:29:F5 (serial)  alias "Palm Gateway"  class 0x420300  powered=yes discoverable=yes pairable=no  (configured by address)
+bluez devices: 2
+sessions:  0 of 8, pool 0 of 10.42.0.10-10.42.0.99 in use
+pan:       NAP on br-palm since 11:28:58, 0 client(s), DHCP 10.42.0.100-10.42.0.199
+gateway hci1 2C:CF:67:2F:29:F5; fake-palm hci0 60:15:6F:E9:EB:03; palm-gwd pid 2004
+    PASS: daemon attached, NAP registered
+    PASS: all units active (bluetooth palm-gwd palm-gw-dnsmasq palm-gwd-nm-bridge nftables NetworkManager)
+sessions 0, gateway pppd 0, PAN clients 0
+    PASS: start: nothing left over
+palm-gwd open fds: 7
+      1 anon_inode:[eventfd]
+      1 anon_inode:[eventpoll]
+      1 /dev/null
+      4 socket:[N]
+
+==> fd leaks: 100 PPP sessions (fake-palm storm) (11:29:07)
+11:30:47.425 fake-palm: [99] ch1: connect, hang up at once
+11:30:47.726 fake-palm: storm done: 100 iterations, 0 client-side failures; waiting 6 s for the gateway to settle
+11:30:53.734 fake-palm: gateway: 0 sessions, 0 pool addresses in use, 0 gateway pppd processes
+11:30:53.734 fake-palm: PASS: zero sessions and zero pppd left
+sessions 0, gateway pppd 0, PAN clients 0
+    PASS: storm: nothing left over
+palm-gwd open fds: 7 before, 7 after 100 sessions
+    PASS: no fd growth across 100 sessions
+
+==> fd leaks: 10 PAN sessions (11:30:53)
+10 of 10 PAN sessions completed (lease, ping, DNS)
+    PASS: every PAN session worked
+sessions 0, gateway pppd 0, PAN clients 0
+    PASS: PAN cycles: nothing left over
+palm-gwd open fds: 7 at start, 7 after the PAN cycles
+    PASS: no fd growth across 10 PAN sessions
+
+==> BlueZ restart with a PPP link and a PAN connection up (11:31:28)
+sessions:  1 of 8, pool 1 of 10.42.0.10-10.42.0.99 in use
+  60:15:6F:E9:EB:03  "Palm Gateway"       lap ppp0   up        10.42.0.10     none  up 6s
+pan:       NAP on br-palm since 11:28:58, 1 client(s), DHCP 10.42.0.100-10.42.0.199
+  60:15:6F:E9:EB:03  "Palm Gateway"       pan bnep0  10.42.0.103    up 4s
+    PASS: PPP link and PAN connection up
+$ sudo systemctl restart bluetooth
+    PASS: bluetooth restart: fake-palm's PPP link ended
+    PASS: bluetooth restart: fake-palm's PAN connection ended
+11:31:34.418 fake-palm: pppd exited: the gateway ended the link
+11:31:34.571 fake-palm: disconnected
+    PASS: bluetooth restart: daemon attached again, NAP registered
+    PASS: all units active (bluetooth palm-gwd palm-gw-dnsmasq palm-gwd-nm-bridge nftables NetworkManager)
+sessions 0, gateway pppd 0, PAN clients 0
+    PASS: bluetooth restart: nothing left over
+    PASS: bluetooth restart: new PPP connection with internet
+    PASS: bluetooth restart: new PAN connection with internet
+sessions 0, gateway pppd 0, PAN clients 0
+    PASS: bluetooth restart, after the new connections: nothing left over
+{"time":"2026-11-10T11:31:34.350400408-07:00","level":"INFO","msg":"session ended","component":"ppp","event":"session_end","addr":"60:15:6F:E9:EB:03","name":"Palm Gateway","profile":"lap","ifname":"pp
+{"time":"2026-11-10T11:31:34.431434772-07:00","level":"WARN","msg":"BlueZ went away","component":"daemon","event":"bluez_lost"}
+{"time":"2026-11-10T11:31:34.492151361-07:00","level":"INFO","msg":"BlueZ is present","component":"daemon","event":"bluez_found"}
+{"time":"2026-11-10T11:31:35.211628615-07:00","level":"INFO","msg":"PAN client disconnected","component":"pan","event":"pan_disconnected","addr":"60:15:6F:E9:EB:03","name":"Palm Gateway","ifname":"bne
+{"time":"2026-11-10T11:31:36.212146233-07:00","level":"INFO","msg":"NAP server registered","component":"pan","event":"pan_registered","hci":"hci1","bridge":"br-palm"}
+{"time":"2026-11-10T11:31:42.190556389-07:00","level":"INFO","msg":"session ended","component":"ppp","event":"session_end","addr":"60:15:6F:E9:EB:03","name":"Palm Gateway","profile":"lap","ifname":"pp
+{"time":"2026-11-10T11:31:45.211198408-07:00","level":"INFO","msg":"PAN client disconnected","component":"pan","event":"pan_disconnected","addr":"60:15:6F:E9:EB:03","name":"Palm Gateway","ifname":"bne
+palm-gwd open fds: 7 at start, 7 after the BlueZ restart
+    PASS: no fd growth across the BlueZ restart
+
+==> palm-gwd restart with a PPP link and a PAN connection up (11:31:45)
+sessions:  1 of 8, pool 1 of 10.42.0.10-10.42.0.99 in use
+  60:15:6F:E9:EB:03  "Palm Gateway"       lap ppp0   up        10.42.0.10     none  up 6s
+pan:       NAP on br-palm since 11:31:36, 1 client(s), DHCP 10.42.0.100-10.42.0.199
+  60:15:6F:E9:EB:03  "Palm Gateway"       pan bnep0  10.42.0.103    up 5s
+    PASS: PPP link and PAN connection up
+$ sudo systemctl restart palm-gwd
+    PASS: palm-gwd restart: fake-palm's PPP link ended
+    PASS: palm-gwd restart: daemon attached again, NAP registered
+pan:       NAP on br-palm since 11:31:52, 1 client(s), DHCP 10.42.0.100-10.42.0.199
+  60:15:6F:E9:EB:03  "Palm Gateway"       pan bnep0  10.42.0.103    up 3s
+    PASS: palm-gwd restart: the PAN connection carried on and the new daemon lists it
+    PASS: palm-gwd restart: traffic still flows over it
+11:31:51.919 fake-palm: pppd exited: the gateway ended the link
+11:31:49.118 fake-palm: holding the connection for 10m0s (Ctrl-C to stop)
+    PASS: palm-gwd restart: daemon attached again, NAP registered
+    PASS: all units active (bluetooth palm-gwd palm-gw-dnsmasq palm-gwd-nm-bridge nftables NetworkManager)
+sessions 0, gateway pppd 0, PAN clients 0
+    PASS: palm-gwd restart: nothing left over
+    PASS: palm-gwd restart: new PPP connection with internet
+    PASS: palm-gwd restart: new PAN connection with internet
+sessions 0, gateway pppd 0, PAN clients 0
+    PASS: palm-gwd restart, after the new connections: nothing left over
+palm-gwd pid 2004 -> 4385
+{"time":"2026-11-10T11:31:51.882453343-07:00","level":"INFO","msg":"session ended","component":"ppp","event":"session_end","addr":"60:15:6F:E9:EB:03","name":"Palm Gateway","profile":"lap","ifname":"pp
+{"time":"2026-11-10T11:31:51.882509713-07:00","level":"INFO","msg":"palm-gwd stopping","component":"daemon"}
+{"time":"2026-11-10T11:31:51.939026388-07:00","level":"INFO","msg":"palm-gwd starting","version":"dev","phase":"4","config":"/etc/palm-gw/config.toml","state":"/var/lib/palm-gw"}
+{"time":"2026-11-10T11:31:51.965934859-07:00","level":"INFO","msg":"palm-gwd ready","ctl_socket":"/run/palm-gw/ctl.sock"}
+{"time":"2026-11-10T11:31:52.942100495-07:00","level":"INFO","msg":"NAP server registered","component":"pan","event":"pan_registered","hci":"hci1","bridge":"br-palm"}
+{"time":"2026-11-10T11:31:56.94165303-07:00","level":"INFO","msg":"PAN client disconnected","component":"pan","event":"pan_disconnected","addr":"60:15:6F:E9:EB:03","name":"Palm Gateway","ifname":"bnep
+{"time":"2026-11-10T11:32:02.654490715-07:00","level":"INFO","msg":"session ended","component":"ppp","event":"session_end","addr":"60:15:6F:E9:EB:03","name":"Palm Gateway","profile":"lap","ifname":"pp
+{"time":"2026-11-10T11:32:05.941650928-07:00","level":"INFO","msg":"PAN client disconnected","component":"pan","event":"pan_disconnected","addr":"60:15:6F:E9:EB:03","name":"Palm Gateway","ifname":"bne
+palm-gwd open fds: 7 at start (old process), 7 now
+    PASS: the new daemon has no more fds than the old one did
+
+==> Journal since the start (11:32:06)
+    PASS: no orphan_pppd
+    PASS: no errors in the journal
+
+==> Result: 0 failed check(s). Log: /var/tmp/phase5-robust-20261110-112907.log (11:32:06)
+```
+
+**Reboots.** `systemctl reboot` twice, with the Wi-Fi uplink: all six units active about a minute
+after boot, the daemon attached, NAP registered, default route on `wlan0`, palm-gwd at 7 open fds,
+no ERROR lines in the boot's journal. (A real power cut with the Palm connected is still to do.)
+
+### Wi-Fi uplink, 2026-11-10
+
+Zoe added the Pi to the 5 GHz network `WarpCore`; NetworkManager had Wi-Fi switched off, so
+`nmcli radio wifi on`. `wlan0` joined on channel 48 (5240 MHz), signal 81. Then:
+
+```
+$ sudo sed -i 's/^uplink .*/uplink = "wlan0" .../' /etc/palm-gw/config.toml      # backup in /var/tmp
+$ sudo nmcli con mod "Wired connection 1" ipv4.never-default yes ipv6.never-default yes
+$ sudo nmcli dev reapply eth0                       # eth0 keeps 10.4.0.241 for SSH, no default route
+$ ip route show default
+default via 10.4.0.1 dev wlan0 proto dhcp src 10.4.0.243 metric 600
+$ sudo make install && sudo systemctl restart palm-gwd
+$ sudo nft list chain inet palm_gw postrouting | grep masq
+		ip saddr 10.42.0.0/24 oifname "wlan0" masquerade
+```
+
+With the gateway on the onboard radio and Wi-Fi busy on 5 GHz: `scripts/phase3-accept.sh` 14 of
+14 (internet, DNS, isolation, allow rule and reload; the Pi's LAN address is now `10.4.0.243`) and
+`scripts/phase4-accept.sh` 22 of 22. The robustness run above was also on the Wi-Fi uplink.
+
+Fixed on the way: the installer's 2.4 GHz warning used `iw`, which Pi OS Lite does not ship, so it
+could never fire; it now falls back to `nmcli` (reads 5240 MHz here). `scripts/phase3-accept.sh`
+read the uplink from the `network:` status line with a trailing comma that Phase 4 removed; fixed.
+One `phase4-accept.sh` run started straight after `phase3-accept.sh` hung in `fake-palm pan` with
+no output; it did not recur in three later runs.
+
+### T|X dial-up and carrier detect (D-025), 2026-11-10
+
+Built the RFCOMM TTY path from D-025 (DUN channel moved to `/dev/rfcommN` with
+`RFCOMMCREATEDEV`/`RFCOMM_REUSE_DLC`, carrier cleared with `TIOCMBIC TIOCM_CD`, raised before
+`CONNECT`, pppd on the TTY) and a fake-palm `--dcd` check (its own RFCOMM TTY, reading
+`TIOCMGET`). First run: `open /dev/rfcomm0: invalid argument`, because the request carried
+channel 0 and the kernel checks the channel when the TTY opens; fixed by copying the socket's
+addresses and channel into the request. Second run:
+
+```
+$ sudo fake-palm connect 2C:CF:67:2F:29:F5 --adapter hci1 --channel 3 --mode at-tx --dcd --netns fakepalm --internet
+11:17:49.736 fake-palm: client side on /dev/rfcomm1
+11:17:53.263 fake-palm: sent "ATQ0V1Z\r", got "\r\nOK\r\n"
+11:17:53.299 fake-palm: sent "ATQ0E0\r", got "\r\nOK\r\n"
+11:17:54.302 fake-palm: handshake (at-tx) failed: carrier is on before the dial (the gateway should hold it off)
+palm-gwd: "DUN on an RFCOMM TTY, carrier off until the dial" tty=/dev/rfcomm0
+```
+
+The kernel's `tty_tiocmset` keeps only DTR, RTS, OUT1, OUT2 and LOOP from a modem-line request, so
+carrier cannot be set from user space on any TTY, and the RFCOMM socket has no call for it. The
+change was reverted; D-036 records why T|X dial-up stays unsupported.
+
+### Still to do for Phase 5
+
+- With the real T|X: 20 Connect/Disconnect toggles; a BlueZ restart and a `palm-gwd` restart
+  mid-session (reconnect on first tap); a power cut with the Palm connected; a session over the
+  Wi-Fi uplink; the 24-hour soak.
+- USB dongle mode on the Pi 5 (`make install ADAPTER=dongle`, reboot, the Palm pairs with the
+  dongle).
+- Everything above on a Pi 4 (Zoe will get one).
+- Android or Windows as a PAN client if one turns up (D-033).

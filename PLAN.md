@@ -318,7 +318,7 @@ File: `/etc/palm-gw/config.toml`. Every key has a default; an empty file is vali
 # /etc/palm-gw/config.toml
 
 [bluetooth]
-adapter          = "hci0"          # "hci0", "hci1", or "auto" (section 3)
+adapter          = "hci0"          # "hci0", "hci1", the adapter's address, or "auto" (section 3; address form per D-035)
 name             = "Palm Gateway"  # Adapter Alias; this is what the Palm shows in its device list
 class            = 0x000300        # major/minor Class of Device only (BlueZ sets the service bits itself); see section 8.1
 class_fallback   = 0x000104        # used by `palm-gwctl class toggle` when a Palm cannot see the gateway
@@ -611,7 +611,7 @@ ipcp-accept-remote
 `org.bluez.NetworkServer1` lives on the adapter object (`/org/bluez/hciN`).
 
 - At startup, after the bridge exists (poll `/sys/class/net/br-palm` for up to 30 s, since NetworkManager brings it up asynchronously): `Register("nap", "br-palm")`.
-- On shutdown: `Unregister("nap")`.
+- On shutdown: `Unregister("nap")`. Existing PAN connections survive this and a restarted daemon adopts them (D-034).
 - BlueZ creates `bnepN` interfaces for each PANU client and enslaves them to the bridge itself. NetworkManager must be told not to manage `bnep*` (8.7) or it will try to DHCP on them and fight.
 - Kernel module `bnep` must be loaded (`deploy/modules-load.d/palm-gw.conf`: `bnep`, `rfcomm`).
 - PANU clients are also subject to `AuthorizeService` (BlueZ passes the BNEP UUID `0000000f-…`, not NAP's), so the allowlist applies to them too.
@@ -1003,7 +1003,7 @@ Bridge polling, `NetworkServer1.Register`, NM unmanaged config, DHCP for PANU.
 **Accept:** `fake-palm pan` gets a lease in the DHCP range and reaches the internet with the same isolation. An Android phone paired through a window and toggled "Internet access" on the Pi entry also works. (D-033: accepted on fake-palm alone; the Android check moves to Phase 5.) `brctl show`/`bridge link` shows `bnep0` enslaved; NetworkManager does not list `bnep0` as a managed device.
 
 ### Phase 5: Robustness and both boards
-Reconnect storms with the real Palm (toggle Connect/Disconnect 20 times), T|X dial-up carrier detect on an RFCOMM TTY (D-025), BlueZ restart mid-session, `systemctl restart palm-gwd` mid-session, power-cycle the Pi with a Palm connected, USB dongle mode on both boards, Wi-Fi uplink mode, 24-hour soak with a Palm connected and `lcp-echo` keeping the link up.
+Reconnect storms with the real Palm (toggle Connect/Disconnect 20 times), T|X dial-up carrier detect on an RFCOMM TTY (D-025; not possible from user space, D-036), BlueZ restart mid-session, `systemctl restart palm-gwd` mid-session, power-cycle the Pi with a Palm connected, USB dongle mode on both boards, Wi-Fi uplink mode, 24-hour soak with a Palm connected and `lcp-echo` keeping the link up.
 **Accept:** No orphans, no fd leaks (`ls /proc/$(pidof palm-gwd)/fd | wc -l` stable across 100 sessions), all units active after each disruption, soak link survives or reconnects on first tap. Both Pi 4 and Pi 5 pass identically; differences recorded.
 
 ### Phase 6: Setup wizard and packaging

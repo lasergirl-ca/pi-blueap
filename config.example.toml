@@ -3,7 +3,7 @@
 # This file lists every key at its default. The [[firewall.allow]] examples are commented out.
 
 [bluetooth]
-adapter          = "hci0"          # "hci0", "hci1", or "auto" (PLAN.md section 3)
+adapter          = "hci0"          # "hci0", "hci1", the adapter's address, or "auto" (PLAN.md section 3, D-035)
 name             = "Palm Gateway"  # Adapter Alias; this is what the Palm shows in its device list
 class            = 0x000300        # major/minor Class of Device only (BlueZ sets the service bits itself)
 class_fallback   = 0x000104        # used by `palm-gwctl class toggle` when a Palm cannot see the gateway

@@ -13,7 +13,7 @@
 
 set -u
 
-CLIENT_HCI=${CLIENT_HCI:-hci1}
+CLIENT_HCI=${CLIENT_HCI:-}   # default: the adapter the gateway is not using
 NETNS=${NETNS:-fakepalm}
 LANNS=${LANNS:-palmlan}
 LAN_PI=${LAN_PI:-192.168.77.1}
@@ -89,6 +89,14 @@ step "Preconditions ($started)"
 run palm-gwctl status | grep -E '^(palm-gwd|adapter|pan|firewall)'
 gw_hci=$(palm-gwctl status | sed -n 's/^adapter: *\(hci[0-9]*\).*/\1/p')
 GW=$(palm-gwctl status | sed -n 's/^adapter: *hci[0-9]* \([0-9A-F:]\{17\}\).*/\1/p')
+# fake-palm's adapter: the first one the gateway is not using (hciN order can change at boot).
+if [ -z "$CLIENT_HCI" ]; then
+	for h in /sys/class/bluetooth/hci*; do
+		h=$(basename "$h")
+		case "$h" in *:*) continue ;; esac
+		[ "$h" != "$gw_hci" ] && { CLIENT_HCI=$h; break; }
+	done
+fi
 for t in busybox nmap dig python3; do command -v "$t" > /dev/null || { bad "$t not installed"; exit 1; }; done
 if [ -z "$GW" ] || [ "$gw_hci" = "$CLIENT_HCI" ] || [ ! -e "/sys/class/bluetooth/$CLIENT_HCI" ]; then
 	bad "need the gateway on one adapter and $CLIENT_HCI present for fake-palm"

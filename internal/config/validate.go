@@ -54,8 +54,8 @@ func (c *Config) Validate() error {
 
 	// [bluetooth]
 	b := &c.Bluetooth
-	if b.Adapter != "auto" && !adapterRe.MatchString(b.Adapter) {
-		add("bluetooth.adapter", `must be "auto" or match ^hci[0-9]+$, got %q`, b.Adapter)
+	if b.Adapter != "auto" && !adapterRe.MatchString(b.Adapter) && !btAddrRe.MatchString(b.Adapter) {
+		add("bluetooth.adapter", `must be "auto", hciN, or the adapter's address XX:XX:XX:XX:XX:XX, got %q`, b.Adapter)
 	}
 	if strings.TrimSpace(b.Name) == "" {
 		add("bluetooth.name", "must not be empty")

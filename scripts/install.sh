@@ -204,11 +204,21 @@ if [ "$BOARD" = pi4 ] && [ -f "$BOOT_CMDLINE" ] && grep -qE 'console=(serial0|tt
 fi
 case "$UPLINK" in
   wlan*)
+    # iw is not installed on Pi OS Lite; NetworkManager knows the frequency too.
+    freq=""
     if command -v iw >/dev/null; then
       freq=$(iw dev "$UPLINK" link 2>/dev/null | sed -n 's/.*freq: *\([0-9]*\).*/\1/p' | head -1)
-      if [ -n "$freq" ] && [ "$freq" -lt 3000 ] && [ "$ADAPTER" = onboard ]; then
+    fi
+    if [ -z "$freq" ] && command -v nmcli >/dev/null; then
+      freq=$(nmcli -t -f IN-USE,FREQ dev wifi list ifname "$UPLINK" --rescan no 2>/dev/null | sed -n 's/^\*:\([0-9]*\).*/\1/p' | head -1)
+    fi
+    if [ -n "$freq" ]; then
+      note "uplink $UPLINK is on $freq MHz"
+      if [ "$freq" -lt 3000 ] && [ "$ADAPTER" = onboard ]; then
         warn "uplink $UPLINK is on 2.4 GHz ($freq MHz) with the onboard adapter; Bluetooth 1.1 Palms will suffer. Prefer Ethernet, 5 GHz, or a USB dongle."
       fi
+    else
+      warn "could not read the Wi-Fi frequency of $UPLINK (no iw, no nmcli); check it is 5 GHz"
     fi ;;
 esac
 

@@ -6,8 +6,10 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -147,10 +149,23 @@ func cmdPan(o panOpts) int {
 		rc = code
 	}
 	if o.hold > 0 {
+		// Disconnect on SIGTERM too: when this process just dies, BlueZ on the
+		// client side tries to bring down a bnep interface that is in another
+		// namespace, fails, and leaves the link up.
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(sigs)
 		logf("holding the connection for %s (Ctrl-C to stop)", o.hold)
 		deadline := time.Now().Add(o.hold)
+		tick := time.NewTicker(500 * time.Millisecond)
+		defer tick.Stop()
 		for time.Now().Before(deadline) {
-			time.Sleep(500 * time.Millisecond)
+			select {
+			case s := <-sigs:
+				logf("%s: disconnecting", s)
+				return rc
+			case <-tick.C:
+			}
 			if !connected(bus, dev.Path) {
 				logf("PAN connection dropped: the gateway ended it")
 				return rc

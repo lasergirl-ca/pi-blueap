@@ -10,7 +10,10 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-var hciRe = regexp.MustCompile(`^hci[0-9]+$`)
+var (
+	hciRe  = regexp.MustCompile(`^hci[0-9]+$`)
+	addrRe = regexp.MustCompile(`^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$`)
+)
 
 // AdapterProps are the org.bluez.Adapter1 properties the daemon reads.
 type AdapterProps struct {
@@ -72,7 +75,7 @@ func (b *Bus) Adapters() ([]*Adapter, error) {
 }
 
 // FindAdapter picks the controller for [bluetooth].adapter: "hciN" by name,
-// or "auto": see chooseAuto.
+// a Bluetooth address, or "auto": see chooseAuto.
 func (b *Bus) FindAdapter(want string) (*Adapter, string, error) {
 	adapters, err := b.Adapters()
 	if err != nil {
@@ -82,11 +85,18 @@ func (b *Bus) FindAdapter(want string) (*Adapter, string, error) {
 		return nil, "", fmt.Errorf("bluez: no Bluetooth adapter found (is dtoverlay=disable-bt set, or the dongle unplugged?)")
 	}
 	if want != "auto" {
-		if !hciRe.MatchString(want) {
+		// By address (D-035): hciN numbers follow the order the kernel
+		// registers adapters in, which can change between boots when
+		// there are several.
+		byAddr := addrRe.MatchString(want)
+		if !byAddr && !hciRe.MatchString(want) {
 			return nil, "", fmt.Errorf("bluez: bad adapter name %q", want)
 		}
 		for _, a := range adapters {
-			if a.HCI == want {
+			if byAddr && strings.EqualFold(a.Props.Address, want) {
+				return a, "configured by address", nil
+			}
+			if !byAddr && a.HCI == want {
 				return a, "configured", nil
 			}
 		}

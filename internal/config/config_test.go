@@ -122,6 +122,7 @@ func TestValidationRules(t *testing.T) {
 	}{
 		{"adapter garbage", func(c *Config) { c.Bluetooth.Adapter = "hci" }, "bluetooth.adapter"},
 		{"adapter usb", func(c *Config) { c.Bluetooth.Adapter = "usb0" }, "bluetooth.adapter"},
+		{"adapter short address", func(c *Config) { c.Bluetooth.Adapter = "2C:CF:67:2F:29" }, "bluetooth.adapter"},
 		{"empty name", func(c *Config) { c.Bluetooth.Name = "  " }, "bluetooth.name"},
 		{"class too wide", func(c *Config) { c.Bluetooth.Class = 0x1000000 }, "bluetooth.class"},
 		{"pin letters", func(c *Config) { c.Bluetooth.PIN = "12ab" }, "bluetooth.pin"},
@@ -192,6 +193,7 @@ func TestValidationAccepts(t *testing.T) {
 	}{
 		{"adapter auto", func(c *Config) { c.Bluetooth.Adapter = "auto" }},
 		{"adapter hci12", func(c *Config) { c.Bluetooth.Adapter = "hci12" }},
+		{"adapter by address", func(c *Config) { c.Bluetooth.Adapter = "2C:CF:67:2F:29:F5" }},
 		{"fixed pin", func(c *Config) { c.Bluetooth.PIN = "1234" }},
 		{"disabled profile may share channel", func(c *Config) { c.DUN.Enabled = false; c.DUN.Channel = 1 }},
 		{"disabled profile may have channel 0", func(c *Config) { c.LAP.Enabled = false; c.LAP.Channel = 0 }},
