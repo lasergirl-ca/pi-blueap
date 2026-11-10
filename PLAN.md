@@ -614,7 +614,8 @@ ipcp-accept-remote
 - On shutdown: `Unregister("nap")`.
 - BlueZ creates `bnepN` interfaces for each PANU client and enslaves them to the bridge itself. NetworkManager must be told not to manage `bnep*` (8.7) or it will try to DHCP on them and fight.
 - Kernel module `bnep` must be loaded (`deploy/modules-load.d/palm-gw.conf`: `bnep`, `rfcomm`).
-- PANU clients are also subject to `AuthorizeService` with UUID `00001116-…` (NAP), so the allowlist applies to them too.
+- PANU clients are also subject to `AuthorizeService` (BlueZ passes the BNEP UUID `0000000f-…`, not NAP's), so the allowlist applies to them too.
+- **Amended by D-032:** trusted devices skip `AuthorizeService`, so the daemon also clears `Trusted` on devices the allowlist no longer accepts (at attach and on `reload`), follows PANU clients through the kernel's BNEP connection list (only NAP-role connections), and drops any that are not allowed. Ending a PAN connection is `BNEPCONNDEL` plus `Device1.Disconnect`, because bluetoothd keeps the L2CAP socket open (the PAN side of D-028).
 
 ### 8.7 Network plumbing
 
@@ -971,7 +972,7 @@ Subcommands:
   - `at`: send `ATZ\r`, expect `OK`; `ATDT0\r`, expect `CONNECT`; then run pppd.
   - "run pppd" = `pppd notty noauth nodetach noipdefault ipcp-accept-local ipcp-accept-remote usepeerdns nodefaultroute novj noccp file /dev/null` with the socket as stdin/stdout, same `Setpgid` handling as the server. With `--netns` (fake-palm on the gateway itself) it drops `usepeerdns` and uses `defaultroute` instead (D-027). Then the test asserts a `pppN` interface appears with a `10.42.0.x` peer, pings `10.42.0.1`, resolves a name through `10.42.0.1`, and (if `--internet`) fetches `http://neverssl.com/` bound to that interface.
 - `fake-palm storm <addr> --count 20 --interval 500ms`: connect/disconnect rapidly to exercise `per_device_max`, pool reuse and process-group cleanup. Asserts afterwards that `pgrep pppd` on the server (via `palm-gwctl status` over SSH, or just inspection) shows exactly zero sessions.
-- `fake-palm pan <addr>`: connect as PANU via `org.bluez.Network1.Connect("nap")`, assert DHCP lease in `10.42.0.100–199`, ping, DNS, internet.
+- `fake-palm pan <addr>`: connect as PANU via `org.bluez.Network1.Connect("nap")`, assert DHCP lease in `10.42.0.100–199`, ping, DNS, internet. With `--netns` (fake-palm on the gateway itself) it moves the `bnepN` interface into the namespace first; DHCP is one `busybox udhcpc` exchange. BlueZ ends a `Network1` connection when its caller leaves the bus, so `--hold` keeps the process (and the connection) alive.
 
 `docs/TESTING.md` records the exact invocations and expected output for each acceptance test in section 10.
 
@@ -999,7 +1000,7 @@ Daemon-managed `lan_allow` set, MSS clamp, dnsmasq templating, `reload`.
 
 ### Phase 4: PAN
 Bridge polling, `NetworkServer1.Register`, NM unmanaged config, DHCP for PANU.
-**Accept:** `fake-palm pan` gets a lease in the DHCP range and reaches the internet with the same isolation. An Android phone paired through a window and toggled "Internet access" on the Pi entry also works. `brctl show`/`bridge link` shows `bnep0` enslaved; NetworkManager does not list `bnep0` as a managed device.
+**Accept:** `fake-palm pan` gets a lease in the DHCP range and reaches the internet with the same isolation. An Android phone paired through a window and toggled "Internet access" on the Pi entry also works. (D-033: accepted on fake-palm alone; the Android check moves to Phase 5.) `brctl show`/`bridge link` shows `bnep0` enslaved; NetworkManager does not list `bnep0` as a managed device.
 
 ### Phase 5: Robustness and both boards
 Reconnect storms with the real Palm (toggle Connect/Disconnect 20 times), T|X dial-up carrier detect on an RFCOMM TTY (D-025), BlueZ restart mid-session, `systemctl restart palm-gwd` mid-session, power-cycle the Pi with a Palm connected, USB dongle mode on both boards, Wi-Fi uplink mode, 24-hour soak with a Palm connected and `lcp-echo` keeping the link up.
@@ -1108,7 +1109,7 @@ What the gateway deliberately does **not** claim: confidentiality or integrity o
 | Uplink | `eth0`, `wlan0` 5 GHz, `wlan0` 2.4 GHz (expected degraded with onboard adapter; record) |
 | Palm client | T|X (OS 5.4.9), LifeDrive (OS 5.4.1), plus any Tungsten/Treo available; `fake-palm` for every automated run |
 | Palm connection type | PC (SPP + MS handshake), Local Network (LAP), Mobile Phone (DUN + AT) |
-| PAN client | `fake-palm pan` (Linux), Android phone |
+| PAN client | `fake-palm pan` (Linux), Android phone (or another non-BlueZ PANU; outstanding from Phase 4, D-033) |
 | Scenarios | first pair, re-pair after Palm hard reset, 20× reconnect storm, BlueZ restart mid-session, daemon restart mid-session, Pi reboot with Palm connected, 24 h soak, two Palms simultaneously, Palm + PANU simultaneously, `reload` with new firewall rule mid-session |
 
 Minimum to call v1 done: every row of the matrix exercised on both boards with onboard adapter and Ethernet uplink; dongle mode exercised on both boards; Wi-Fi uplink exercised on at least one board; all Palm connection types exercised on the T|X; results in `TESTING.md`.

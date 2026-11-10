@@ -66,7 +66,6 @@ type AdapterStatus struct {
 }
 
 // StatusReply is the answer to {"cmd":"status"} (PLAN.md section 8.8).
-// PAN clients arrive in Phase 4.
 type StatusReply struct {
 	Version       string             `json:"version"`
 	Phase         string             `json:"phase"`
@@ -85,6 +84,7 @@ type StatusReply struct {
 	Sessions      []ppp.Info         `json:"sessions"`
 	PoolInUse     int                `json:"ppp_pool_in_use"`
 	Firewall      FirewallStatus     `json:"firewall"`
+	PAN           PANStatus          `json:"pan"`
 	Config        *config.Config     `json:"config"`
 }
 
@@ -97,6 +97,27 @@ type FirewallStatus struct {
 	PalmToPi   int       `json:"palm_to_pi"`           // firewall.palm_to_pi entries
 	AppliedAt  time.Time `json:"applied_at,omitempty"` // last successful apply
 	Error      string    `json:"error,omitempty"`      // last apply failed with this
+}
+
+// PANStatus is the NAP server and its clients (PLAN.md section 8.6).
+type PANStatus struct {
+	Enabled    bool        `json:"enabled"`
+	Bridge     string      `json:"bridge"`
+	Registered bool        `json:"registered"`
+	Since      time.Time   `json:"since,omitempty"`
+	Error      string      `json:"error,omitempty"`
+	Ports      []string    `json:"ports"` // interfaces enslaved to the bridge
+	Clients    []PANClient `json:"clients"`
+}
+
+// PANClient is one connected PANU.
+type PANClient struct {
+	Addr     string    `json:"addr"`
+	Name     string    `json:"name"`
+	Ifname   string    `json:"ifname"`
+	IP       string    `json:"ip,omitempty"` // from the dnsmasq lease, once there is one
+	Hostname string    `json:"hostname,omitempty"`
+	Since    time.Time `json:"since"`
 }
 
 // ReloadReply reports what `reload` changed (D-030).
@@ -129,6 +150,7 @@ type ForgetReply struct {
 	StaticEntry   bool   `json:"static_entry"` // still allowed by [bluetooth].allow in config
 	RemovedBlueZ  bool   `json:"removed_from_bluez"`
 	KilledSession bool   `json:"killed_session"`
+	DroppedPAN    bool   `json:"dropped_pan"`
 }
 
 // DisconnectReply reports what `disconnect` ended.
@@ -136,6 +158,7 @@ type DisconnectReply struct {
 	OK       bool   `json:"ok"`
 	Address  string `json:"address"`
 	Sessions int    `json:"sessions"` // how many sessions were terminated
+	PAN      bool   `json:"pan"`      // a PAN connection was dropped
 }
 
 // AllowReply reports what `allow` did.

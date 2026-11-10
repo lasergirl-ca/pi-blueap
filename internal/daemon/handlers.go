@@ -31,16 +31,18 @@ func (d *Daemon) handleReload(ctx context.Context, _ ctl.Request, w *ctl.Writer)
 	return w.Send(r)
 }
 
-// handleDisconnect terminates the device's sessions (SIGTERM to pppd's
-// process group, SIGKILL after 2 s) and answers once they have ended.
+// handleDisconnect terminates the device's PPP sessions (SIGTERM to pppd's
+// process group, SIGKILL after 2 s) and its PAN connection, and answers once
+// they have ended.
 func (d *Daemon) handleDisconnect(_ context.Context, req ctl.Request, w *ctl.Writer) error {
 	addr := state.Norm(req.Addr)
 	if addr == "" {
 		return errors.New("disconnect: addr is required")
 	}
 	n := d.ppp.Disconnect(addr, "disconnect")
-	d.log.Info("disconnect requested", "event", "disconnect", "addr", addr, "sessions", n)
-	return w.Send(ctl.DisconnectReply{OK: true, Address: addr, Sessions: n})
+	panDropped := d.disconnectPAN(addr, "disconnect", true)
+	d.log.Info("disconnect requested", "event", "disconnect", "addr", addr, "sessions", n, "pan", panDropped)
+	return w.Send(ctl.DisconnectReply{OK: true, Address: addr, Sessions: n, PAN: panDropped})
 }
 
 func (d *Daemon) handleStatus(_ context.Context, _ ctl.Request, w *ctl.Writer) error {
@@ -62,6 +64,7 @@ func (d *Daemon) handleStatus(_ context.Context, _ ctl.Request, w *ctl.Writer) e
 	d.fwMu.Lock()
 	st.Firewall = d.fw
 	d.fwMu.Unlock()
+	st.PAN = d.panStatus()
 
 	st.PairingWindow = d.window.State()
 	st.Profiles = d.profiles.Status()
@@ -155,6 +158,7 @@ func (d *Daemon) handleForget(_ context.Context, req ctl.Request, w *ctl.Writer)
 	r.RemovedAllow = removed
 	r.StaticEntry = isStatic
 	r.KilledSession = d.ppp.Disconnect(addr, "forgotten") > 0
+	r.DroppedPAN = d.disconnectPAN(addr, "forgotten", false)
 	if a := d.currentAdapter(); a != nil {
 		dev, err := a.DeviceByAddress(addr)
 		if err != nil {

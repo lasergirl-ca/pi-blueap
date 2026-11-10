@@ -352,6 +352,36 @@ side to it takes the same path as to a real LAN host (`palm_forward`, the RFC 19
 scans the Pi's own LAN address from the Palm side. A scan of the real LAN can be added with
 Zoe's go-ahead.
 
+### D-032: PAN clients are checked against the allowlist by the daemon too
+
+Section 8.6 relies on `AuthorizeService` to apply the allowlist to PANU clients. As with RFCOMM
+(D-019), BlueZ skips that call for a device marked `Trusted`, which every device paired in a
+window is, and the NAP server has no `NewConnection`-style hook where the daemon could check
+again. Three things close the gap. (1) When the daemon attaches to BlueZ and after every
+`reload`, it clears `Trusted` on any device under its adapter that the allowlist no longer
+accepts (event `untrusted`), so BlueZ asks the agent, which refuses, before the connection is set
+up. Such a device exists only if the allowlist changed behind BlueZ's back (a static entry removed
+from config.toml, or the state file edited); `forget` already removes the device from BlueZ.
+(2) As a backstop, a loop reads the kernel's BNEP connection list (`BNEPGETCONNLIST`) every
+second, logs `pan_connected`/`pan_lease`/`pan_disconnected`, and drops a server-side connection
+from a device that is not allowed (`pan_refused`). Only connections with the NAP role (0x1116)
+count: on a host running fake-palm the kernel list also holds fake-palm's own outgoing PANU
+connection. (3) Ending a PAN connection takes two steps. `BNEPCONNDEL` stops the traffic and
+removes `bnepN`, but bluetoothd keeps its own descriptor for the L2CAP socket (the PAN side of
+D-028), so the channel stays open and the client still believes it is connected. The daemon
+therefore also calls `Device1.Disconnect` on the device, which drops its Bluetooth link and with
+it any RFCOMM session it has. `palm-gwctl disconnect` and a `pan_refused` do this; `forget`
+removes the device anyway. Also observed: BlueZ's network server authorizes an incoming PAN
+connection with the BNEP UUID `0000000f-…`, not NAP's `00001116-…` as section 8.6 says.
+
+### D-033: Phase 4 accepted on fake-palm alone; the Android check moves to Phase 5
+
+Phase 4's acceptance includes an Android phone joining the NAP. Zoe has no Android device, and
+macOS 27 no longer offers a Bluetooth PAN client, so Zoe chose to accept Phase 4 on fake-palm
+alone (BlueZ as the PANU, on its own adapter, with SSP pairing in a window). The real-client check
+(an Android phone, or another non-BlueZ PANU such as Windows) stays in the section 14 test matrix
+and is to be run during Phase 5 if a device is available, with the result in docs/TESTING.md.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

@@ -930,3 +930,158 @@ Journal (palm-gwd and bluetoothd, pppd lines shortened):
 The RFCOMM channel closed 6 ms after the session ended, even though bluetoothd still held its own
 reference (its `getpeername` fails because the socket was shut down under it), and the ACL followed
 about 4 s later. Zoe: the T|X showed the connection dropped right away. D-028 confirmed on the Palm.
+
+## Phase 4: PAN
+
+**Accept:** `fake-palm pan` gets a lease in the DHCP range and reaches the internet with the same
+isolation. An Android phone paired through a window and toggled "Internet access" on the Pi
+entry also works. `brctl show`/`bridge link` shows `bnep0` enslaved; NetworkManager does not list
+`bnep0` as a managed device. (D-033: accepted on fake-palm alone; the Android check moves to
+Phase 5.)
+
+### Development machine, 2026-11-10
+
+`go test ./...`, `go vet ./...` (also `GOOS=linux GOARCH=arm64`) and `golangci-lint run ./...`
+green. New tests in `internal/pan`: `TestParseLeases` (dnsmasq lease lines, `*` hostnames, the
+`duid` line), `TestReadLeasesMissingFile`, `TestBridgeAndPorts` (bridge and `brif/` ports from a
+fake `/sys/class/net`). The BNEP ioctls are Linux only and are exercised on the Pi.
+
+### Raspberry Pi 5, 2026-11-10
+
+Deployed as before (rsync without `.git` and `dist`, `make build`, `sudo make install
+UPLINK=eth0`, `cmp` of the installed daemon, `systemctl restart palm-gwd`). At start:
+
+```
+{"msg":"NAP server registered","component":"pan","event":"pan_registered","hci":"hci0","bridge":"br-palm"}
+$ palm-gwctl status | grep ^pan
+pan:       NAP on br-palm since 10:03:17, 0 client(s), DHCP 10.42.0.100-10.42.0.199
+```
+
+Issues found on the way, each fixed before the final run:
+
+1. `fake-palm pan` found no `org.bluez.Network1` on the gateway's device object under `hci1`:
+   fake-palm had paired before NAP was registered, and BlueZ only refreshes a device's cached
+   service records when it pairs. Pairing again inside a window (`palm-gwctl pair 2 --one`,
+   `fake-palm pair 2C:CF:67:2F:29:F5 --adapter hci1`) brought `Network1` in. fake-palm now says
+   so, and the script pairs again when `Network1` is missing.
+2. The daemon refused fake-palm's own outgoing connection: on the gateway host the kernel's BNEP
+   list holds both ends, and fake-palm's side (role PANU, `dst` = the gateway) looked like an
+   unknown client. Only NAP-role (0x1116) connections count now (D-032).
+3. `palm-gwctl disconnect` removed the gateway's `bnep0`, but fake-palm still showed
+   `Network1.Connected = true`: bluetoothd keeps the L2CAP socket open. The daemon now also
+   calls `Device1.Disconnect` (D-032), and fake-palm sees the drop within about 2 s.
+4. A refused device got through for up to one poll tick: in one run, fake-palm (trusted, removed
+   from the allowlist) got a lease and one ping reply before `pan_refused` at 10:09:30.8, 1 s
+   after it connected. This run did exercise the poll backstop:
+
+   ```
+   10:09:29.852 fake-palm: PAN connected 60:15:6F:E9:EB:03 -> 2C:CF:67:2F:29:F5: bnep1 in 3.642s
+   10:09:30.040 fake-palm: DHCP lease after 3.829s: ip=10.42.0.103 ...
+   10:09:33.071 fake-palm: ping 10.42.0.1 ok: 3 packets transmitted, 1 received, 66.6667% packet loss
+   10:09:38.072 fake-palm: FAIL: DNS through 10.42.0.1: ... i/o timeout
+   {"msg":"PAN client refused","component":"pan","event":"pan_refused","addr":"60:15:6F:E9:EB:03","name":"piblueap #2","ifname":"bnep0","reason":"not_allowed"}
+   ```
+
+   To close that window the daemon now clears `Trusted` on non-allowlisted devices at attach and
+   on reload, so BlueZ asks the agent first (D-032). The final run below shows that path.
+5. BlueZ authorizes PAN with the BNEP UUID `0000000f-…`, not NAP's `00001116-…` (PLAN.md 8.6
+   amended).
+6. Script fixes: `btmgmt` waits forever without a terminal (the script uses `busctl` for the
+   client adapter now), and `pkill -f "fake-palm pan"` matched the SSH command that started the
+   script (now anchored to the binary's path).
+
+### Acceptance run, 2026-11-10
+
+`URL=http://example.com/ scripts/phase4-accept.sh` on the Pi (run detached with `nohup`, log read
+afterwards):
+
+```
+
+==> Preconditions (2026-11-10 10:14:54)
+palm-gwd dev, up 3s (phase 4)
+adapter:   hci0 2C:CF:67:2F:29:F5 (serial)  alias "Palm Gateway"  class 0x420300  powered=yes discoverable=yes pairable=no  (configured)
+pan:       NAP on br-palm since 10:14:52, 0 client(s), DHCP 10.42.0.100-10.42.0.199
+firewall:  0 allow rule(s) (0 port, 0 icmp), 3 palm_to_pi, applied 10:14:51
+gateway hci0 2C:CF:67:2F:29:F5; fake-palm hci1 60:15:6F:E9:EB:03
+    PASS: NAP registered on the bridge
+
+==> fake-palm knows the gateway's NAP and is allowlisted (pair again if not)
+    PASS: Network1 present on /org/bluez/hci1/dev_2C_CF_67_2F_29_F5, 60:15:6F:E9:EB:03 allowlisted
+
+==> Stand-in LAN host 192.168.77.2 in namespace palmlan
+    PASS: listeners on 22, 80, 443
+
+==> fake-palm pan: lease, ping, DNS, HTTP (held for the checks)
+10:15:09.070 fake-palm: PAN connected 60:15:6F:E9:EB:03 -> 2C:CF:67:2F:29:F5: bnep1 in 3.696s
+10:15:09.102 fake-palm: bnep1 moved into namespace fakepalm
+10:15:09.272 fake-palm: DHCP lease after 3.898s: ip=10.42.0.103 mask=24 router=10.42.0.1 dns=10.42.0.1 server=10.42.0.1 lease=43200
+10:15:09.272 fake-palm: leased address 10.42.0.103 is in 10.42.0.100-10.42.0.199
+10:15:11.303 fake-palm: ping 10.42.0.1 ok: 3 packets transmitted, 3 received, 0% packet loss, time 2002ms; rtt min/avg/max/mdev = 16.996/29.083/46.287/12.493 ms
+10:15:11.327 fake-palm: DNS through 10.42.0.1 ok: neverssl.com = 34.223.124.45, 2600:1f13:37c:1400:ba21:7165:5fc7:736e
+10:15:11.455 fake-palm: GET http://example.com/ ok: 200 OK, 577 bytes in 128ms
+10:15:11.456 fake-palm: holding the connection for 10m0s (Ctrl-C to stop)
+    PASS: lease in 10.42.0.100-10.42.0.199, ping, DNS and GET http://example.com/
+pan:       NAP on br-palm since 10:14:52, 1 client(s), DHCP 10.42.0.100-10.42.0.199
+  60:15:6F:E9:EB:03  "piblueap #2"        pan bnep0  10.42.0.103    up 4s
+firewall:  0 allow rule(s) (0 port, 0 icmp), 3 palm_to_pi, applied 10:14:51
+  60:15:6F:E9:EB:03  "piblueap #2"        pan bnep0  10.42.0.103    up 4s
+    PASS: status lists 60:15:6F:E9:EB:03 on a bnep port with 10.42.0.103
+
+==> bnep enslaved to the bridge, not managed by NetworkManager
+$ /usr/sbin/bridge link show dev bnep0
+157: bnep0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br-palm state forwarding priority 32 cost 100 
+    PASS: bnep0 is a port of br-palm
+$ nmcli -t -f DEVICE,TYPE,STATE device
+eth0:ethernet:connected
+br-palm:bridge:connected
+lo:loopback:connected (externally)
+2C\:CF\:67\:2F\:29\:F5:bt:disconnected
+wlan0:wifi:unavailable
+lan-pi:ethernet:unmanaged
+    PASS: NetworkManager does not manage bnep0 (not listed)
+
+==> Isolation over PAN (same rules as PPP)
+nc -z -w 3 10.42.0.1 22: exit 1 after 3017 ms
+    PASS: ssh to 10.42.0.1 dropped
+    PASS: 22 filtered on the Pi's LAN address 10.4.0.241
+palm_input 'palm->pi' counter: 0 -> 5
+    PASS: palm->pi counter increments
+192.168.77.2: 22/tcp/filtered 80/tcp/filtered 443/tcp/filtered ; palm->rfc1918 counter: 0 -> 6
+    PASS: nothing open on 192.168.77.2
+    PASS: palm->rfc1918 counter increments
+
+==> palm-gwctl disconnect ends the PAN connection
+$ palm-gwctl disconnect 60:15:6F:E9:EB:03
+60:15:6F:E9:EB:03: PAN connection dropped
+10:15:24.481 fake-palm: PAN connection dropped: the gateway ended it
+10:15:24.482 fake-palm: disconnected
+    PASS: fake-palm saw the connection drop
+pan:       NAP on br-palm since 10:14:52, 0 client(s), DHCP 10.42.0.100-10.42.0.199
+    PASS: no PAN clients left
+{"time":"2026-11-10T10:15:22.162919022-07:00","level":"INFO","msg":"PAN client dropped","component":"pan","event":"pan_drop","addr":"60:15:6F:E9:EB:03","ifname":"bnep0","reason":"disconnect","err":""}
+{"time":"2026-11-10T10:15:22.505649508-07:00","level":"INFO","msg":"PAN client disconnected","component":"pan","event":"pan_disconnected","addr":"60:15:6F:E9:EB:03","name":"piblueap #2","ifname":"bnep0","ip":"10.42.0.103","duration":"13s"}
+    PASS: pan_disconnected logged
+
+==> D-032: a trusted device that drops off the allowlist is refused
+gateway's BlueZ: 60:15:6F:E9:EB:03 Trusted = b true (BlueZ skips AuthorizeService for it)
+    PASS: 60:15:6F:E9:EB:03 removed from the allowlist behind the daemon's back
+{"time":"2026-11-10T10:15:26.952710036-07:00","level":"WARN","msg":"trusted device is not allowlisted; trust cleared","component":"daemon","event":"untrusted","addr":"60:15:6F:E9:EB:03","name":"piblueap #2","why":"attach","err":""}
+gateway's BlueZ: 60:15:6F:E9:EB:03 Trusted = b false
+    PASS: trust cleared at start (untrusted)
+10:15:32.035 fake-palm: Network1.Connect(nap): Input/output error
+{"time":"2026-11-10T10:15:32.026756818-07:00","level":"WARN","msg":"service rejected","component":"agent","event":"service_rejected","addr":"60:15:6F:E9:EB:03","name":"piblueap #2","uuid":"0000000f-0000-1000-8000-00805f9b34fb"}
+    PASS: AuthorizeService refused NAP for 60:15:6F:E9:EB:03
+    PASS: never accepted as a client
+    PASS: fake-palm got no lease
+    PASS: state and trust restored, NAP registered again
+
+==> Journal since the start
+    PASS: no errors in the journal
+
+==> Result: 0 failed check(s). Log: /var/tmp/phase4-accept-20261110-101454.log
+```
+
+**Not covered:** a non-BlueZ PAN client. Zoe has no Android device and macOS 27 has no Bluetooth
+PAN client, so per D-033 the Android (or Windows) check is carried into Phase 5.
+
+**Phase 4 accepted** on fake-palm (D-033).

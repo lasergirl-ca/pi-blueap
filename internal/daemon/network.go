@@ -203,6 +203,7 @@ func (d *Daemon) reload(ctx context.Context) (ctl.ReloadReply, error) {
 	r := ctl.ReloadReply{OK: true, Applied: diffKeys(cur, merged), NeedsRestart: diffKeys(merged, next)}
 	d.cfgp.Store(merged)
 	d.allow.Reconfigure(merged.Bluetooth.Allow, merged.Bluetooth.AllowAny)
+	d.untrustDisallowed("reload")
 	if err := d.applyFirewall(ctx, merged, "reload"); err != nil {
 		r.OK = false
 		r.Errors = append(r.Errors, err.Error())

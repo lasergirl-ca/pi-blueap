@@ -3,8 +3,8 @@
 // properties, register the agent, serve until BlueZ disappears or we are told
 // to stop, and start over when BlueZ comes back. The RFCOMM profiles are
 // registered alongside the agent; PPP sessions outlive a BlueZ restart
-// because their sockets belong to the kernel. PAN and the firewall join this
-// loop in later phases.
+// because their sockets belong to the kernel. The firewall and the PAN NAP server
+// (pan.go) run alongside.
 package daemon
 
 import (
@@ -42,6 +42,8 @@ type Options struct {
 	// unit it restarts when that file changes ("" = the installed defaults).
 	DnsmasqConf string
 	DnsmasqUnit string
+	// DnsmasqLeases is dnsmasq's lease file, read to show PAN clients' addresses.
+	DnsmasqLeases string
 	// OnReady is called once, the first time the agent is registered
 	// (sd_notify READY=1 lives in main).
 	OnReady func()
@@ -52,6 +54,7 @@ type Daemon struct {
 	cfgp    atomic.Pointer[config.Config] // replaced, never mutated, by reload
 	opts    Options
 	log     *slog.Logger
+	panLog  *slog.Logger
 	events  *event.Bus
 	store   *state.Store
 	allow   *allow.List
@@ -77,6 +80,9 @@ type Daemon struct {
 	fwMu sync.Mutex
 	fw   ctl.FirewallStatus
 
+	panMu sync.Mutex
+	pan   panState
+
 	// reattach asks the main loop to redo adapter and agent setup without
 	// BlueZ having gone away (BlueZ released our agent while staying up).
 	reattach chan struct{}
@@ -100,15 +106,20 @@ func New(opts Options) (*Daemon, error) {
 	if opts.DnsmasqUnit == "" {
 		opts.DnsmasqUnit = defaultDnsmasqUnit
 	}
+	if opts.DnsmasqLeases == "" {
+		opts.DnsmasqLeases = defaultDnsmasqLeases
+	}
 	d := &Daemon{
 		opts:     opts,
 		log:      opts.Log.With("component", "daemon"),
+		panLog:   opts.Log.With("component", "pan"),
 		events:   event.New(),
 		store:    st,
 		started:  time.Now(),
 		reattach: make(chan struct{}, 1),
 	}
 	d.cfgp.Store(opts.Config)
+	d.pan.clients = map[string]*ctl.PANClient{}
 	d.allow = allow.New(opts.Config.Bluetooth.Allow, st, opts.Config.Bluetooth.AllowAny)
 	c := opts.Config
 	d.ppp, err = ppp.NewManager(ppp.Config{
@@ -163,6 +174,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.ppp.RunReaper(ctx, 10*time.Second)
 	// Network plumbing (section 8.7) does not depend on BlueZ.
 	go d.keepFirewall(ctx)
+	// PAN registers itself once BlueZ and the bridge are there (section 8.6).
+	go d.keepPAN(ctx)
 	if _, err := d.syncDnsmasq(ctx, d.config()); err != nil {
 		d.log.Error("dnsmasq configuration not written", "err", err)
 	}
@@ -302,6 +315,7 @@ func (d *Daemon) attach(ctx context.Context) (func(), error) {
 	if err := d.profiles.Register(); err != nil {
 		return nil, err
 	}
+	d.untrustDisallowed("attach")
 	d.mu.Lock()
 	d.regd = true
 	d.since = time.Now()
@@ -340,6 +354,7 @@ func (d *Daemon) shutdown() {
 	present := d.present
 	d.mu.Unlock()
 	if present {
+		d.unregisterNAP()
 		d.profiles.Unregister()
 		d.agent.Unregister()
 	}
@@ -359,6 +374,7 @@ func (d *Daemon) setPresent(p bool) {
 	} else {
 		d.regd = false
 		d.adapter = nil
+		d.markNAPGone()
 		if d.profiles != nil {
 			d.profiles.MarkUnregistered()
 		}

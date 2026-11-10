@@ -103,8 +103,20 @@ func run(args []string) int {
 		}
 		return probe(*gw, *internet, *url)
 	case "pan":
-		fmt.Fprintln(os.Stderr, "fake-palm pan: not implemented until Phase 4")
-		return 2
+		fs := flag.NewFlagSet("fake-palm pan", flag.ContinueOnError)
+		var o panOpts
+		fs.StringVar(&o.adapter, "adapter", "", "client adapter hciN (default: auto)")
+		fs.StringVar(&o.netns, "netns", "", "move the bnep interface into this network namespace (needed on the gateway host itself)")
+		fs.BoolVar(&o.internet, "internet", false, "also fetch --url through the link")
+		fs.StringVar(&o.url, "url", defaultURL, "plain-HTTP page that --internet fetches")
+		fs.StringVar(&o.pool, "pool", "10.42.0.100-10.42.0.199", "the lease must fall in this range ([network].dhcp_pool)")
+		fs.DurationVar(&o.hold, "hold", 0, "keep the connection up this long after the checks")
+		if err := parseAnywhere(fs, rest); err != nil || fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "usage: fake-palm pan <addr> [--netns NS] [--internet [--url U]] [--pool FIRST-LAST] [--hold D]")
+			return 2
+		}
+		o.addr = fs.Arg(0)
+		return cmdPan(o)
 	default:
 		fmt.Fprintf(os.Stderr, "fake-palm: unknown command %q\n", cmd)
 		usage()
@@ -124,11 +136,13 @@ func usage() {
                                            rapid connect/hang-up; asserts the gateway cleans up
   probe [--gateway IP] [--internet [--url U]]
                                            the link checks on their own (connect runs them in --netns)
-  pan <addr>                               (Phase 4)
+  pan <addr> [--netns NS] [--internet [--url U]] [--pool FIRST-LAST] [--hold D]
+                                           PAN (PANU to the gateway's NAP), DHCP, then ping, DNS, HTTP
 
 Runs on Linux with BlueZ as root. The client adapter is picked like adapter = "auto"
 (a USB dongle if there is one) unless --adapter is given. When the gateway runs on the
-same host, use the dongle and --netns so the client's PPP interface lives apart.
+same host, use the dongle and --netns so the client's PPP or bnep interface lives apart.
+pan needs busybox (udhcpc).
 `)
 }
 

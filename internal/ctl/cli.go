@@ -283,8 +283,28 @@ func (c *cli) status() int {
 	}
 	if st.Config != nil {
 		cfg := st.Config
-		fmt.Fprintf(w, "network:   %s gw %s uplink %s, pan %s (%s)   [PAN: Phase 4]\n", cfg.Network.Subnet, cfg.Network.Gateway,
-			cfg.Network.Uplink, onOff(cfg.PAN.Enabled), cfg.PAN.Bridge)
+		fmt.Fprintf(w, "network:   %s gw %s uplink %s\n", cfg.Network.Subnet, cfg.Network.Gateway, cfg.Network.Uplink)
+	}
+	switch p := st.PAN; {
+	case !p.Enabled:
+		fmt.Fprintf(w, "pan:       off ([pan].enabled = false)\n")
+	case p.Error != "":
+		fmt.Fprintf(w, "pan:       NAP NOT REGISTERED on %s: %s\n", p.Bridge, p.Error)
+	case !p.Registered:
+		fmt.Fprintf(w, "pan:       NAP not registered yet (bridge %s)\n", p.Bridge)
+	default:
+		pool := ""
+		if st.Config != nil {
+			pool = fmt.Sprintf(", DHCP %s-%s", st.Config.Network.DHCPPool[0], st.Config.Network.DHCPPool[1])
+		}
+		fmt.Fprintf(w, "pan:       NAP on %s since %s, %d client(s)%s\n", p.Bridge, p.Since.Format("15:04:05"), len(p.Clients), pool)
+	}
+	for _, c := range st.PAN.Clients {
+		ip := c.IP
+		if ip == "" {
+			ip = "(no lease yet)"
+		}
+		fmt.Fprintf(w, "  %s  %-20q pan %-6s %-14s up %s\n", c.Addr, c.Name, c.Ifname, ip, time.Since(c.Since).Round(time.Second))
 	}
 	switch f := st.Firewall; {
 	case !f.Managed:
@@ -387,6 +407,9 @@ func (c *cli) forget(addr string) int {
 	if r.KilledSession {
 		fmt.Fprint(c.stdout, ", session terminated")
 	}
+	if r.DroppedPAN {
+		fmt.Fprint(c.stdout, ", PAN connection dropped")
+	}
 	fmt.Fprintln(c.stdout)
 	if r.StaticEntry {
 		fmt.Fprintf(c.stdout, "note: %s is also listed in [bluetooth].allow in config.toml and stays allowed until removed there\n", r.Address)
@@ -403,11 +426,17 @@ func (c *cli) disconnect(addr string) int {
 	if printed {
 		return 0
 	}
-	if r.Sessions == 0 {
+	switch {
+	case r.Sessions == 0 && !r.PAN:
 		fmt.Fprintf(c.stdout, "%s: no session\n", r.Address)
 		return 1
+	case r.PAN && r.Sessions == 0:
+		fmt.Fprintf(c.stdout, "%s: PAN connection dropped\n", r.Address)
+	case r.PAN:
+		fmt.Fprintf(c.stdout, "%s: %d session(s) terminated, PAN connection dropped\n", r.Address, r.Sessions)
+	default:
+		fmt.Fprintf(c.stdout, "%s: %d session(s) terminated\n", r.Address, r.Sessions)
 	}
-	fmt.Fprintf(c.stdout, "%s: %d session(s) terminated\n", r.Address, r.Sessions)
 	return 0
 }
 
@@ -465,13 +494,6 @@ func (c *cli) allow(addr string) int {
 		fmt.Fprintf(c.stdout, "%s was already in the allowlist\n", r.Address)
 	}
 	return 0
-}
-
-func onOff(b bool) string {
-	if b {
-		return "on"
-	}
-	return "off"
 }
 
 func yn(b bool) string {
