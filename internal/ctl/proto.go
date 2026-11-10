@@ -84,7 +84,28 @@ type StatusReply struct {
 	Profiles      []profile.Status   `json:"profiles"`
 	Sessions      []ppp.Info         `json:"sessions"`
 	PoolInUse     int                `json:"ppp_pool_in_use"`
+	Firewall      FirewallStatus     `json:"firewall"`
 	Config        *config.Config     `json:"config"`
+}
+
+// FirewallStatus is the state of the daemon-managed nftables sets.
+type FirewallStatus struct {
+	Managed    bool      `json:"managed"`              // [firewall].manage_nftables
+	AllowRules int       `json:"allow_rules"`          // [[firewall.allow]] blocks
+	LANPorts   int       `json:"lan_ports"`            // proto/port entries across them
+	LANICMP    int       `json:"lan_icmp"`             // "icmp" entries across them
+	PalmToPi   int       `json:"palm_to_pi"`           // firewall.palm_to_pi entries
+	AppliedAt  time.Time `json:"applied_at,omitempty"` // last successful apply
+	Error      string    `json:"error,omitempty"`      // last apply failed with this
+}
+
+// ReloadReply reports what `reload` changed (D-030).
+type ReloadReply struct {
+	OK               bool     `json:"ok"`
+	Applied          []string `json:"applied"`       // keys now in effect
+	NeedsRestart     []string `json:"needs_restart"` // changed keys that take effect when palm-gwd restarts
+	DnsmasqRestarted bool     `json:"dnsmasq_restarted"`
+	Errors           []string `json:"errors,omitempty"`
 }
 
 // PairEvent is one line of the `pair` stream (PLAN.md section 8.8).

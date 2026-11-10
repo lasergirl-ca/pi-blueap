@@ -28,7 +28,7 @@ import (
 var version = "dev"
 
 // phase is the PLAN.md section 10 phase this build has completed.
-const phase = "2"
+const phase = "3"
 
 func main() { os.Exit(run(os.Args[1:])) }
 

@@ -52,7 +52,8 @@ per_device_max = 1                 # a new connection from an address with a liv
 
 [firewall]
 manage_nftables = true             # false = daemon never touches nft (you own the rules)
-palm_to_pi      = ["udp/53", "udp/67", "icmp"]   # what Palms may send to the Pi itself
+palm_to_pi      = ["udp/53", "udp/67", "icmp"]   # extra services Palms may reach on the Pi itself; DNS, DHCP,
+                                                 # port 80 and ping are always open (D-029). Applied by palm-gwctl reload.
 
 # LAN hosts Palms may reach; everything else RFC1918 is dropped. Examples:
 #

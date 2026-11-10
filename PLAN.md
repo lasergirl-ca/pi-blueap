@@ -367,7 +367,7 @@ per_device_max = 1                 # a new connection from an address with a liv
 
 [firewall]
 manage_nftables = true             # false = daemon never touches nft (you own the rules)
-palm_to_pi      = ["udp/53", "udp/67", "icmp"]   # what Palms may send to the Pi itself
+palm_to_pi      = ["udp/53", "udp/67", "icmp"]   # extra services Palms may reach on the Pi itself; DNS, DHCP, port 80 and ping are always open (D-029)
 
 [[firewall.allow]]                 # LAN hosts Palms may reach; everything else RFC1918 is dropped
 host    = "192.168.1.20"
@@ -692,6 +692,10 @@ table inet palm_gw {
         type ipv4_addr
         flags interval
     }
+    # Filled by palm-gwd from firewall.palm_to_pi (D-029)
+    set pi_allow {
+        type inet_proto . inet_service
+    }
 
     # Classifier chains: the base chains only decide "did this come from the Palm side?"
     chain forward {
@@ -726,6 +730,7 @@ table inet palm_gw {
         udp dport 67 accept                                   # DHCP from PAN clients
         tcp dport 80 accept                                   # the /palm status page (section 8.12)
         icmp type { echo-request, destination-unreachable, time-exceeded } accept
+        meta l4proto . th dport @pi_allow accept              # firewall.palm_to_pi (D-029)
         ip daddr {{GATEWAY}} tcp dport 8042 accept            # read-only web UI and API (D-026); omitted when web.bluetooth_side = false
         tcp dport 8042 counter drop comment "palm->webui"     # explicit, for the counter: the LAN listener stays unreachable
         counter drop comment "palm->pi"                       # no SSH, no ctl socket, nothing else
@@ -735,11 +740,14 @@ table inet palm_gw {
 
 `{{UPLINK}}` and `{{SUBNET}}` are rendered at setup. Because the base chains have `policy accept` and only `jump` for Palm-side interfaces, this table coexists with any other firewall the user has (Docker, ufw, a hand-written ruleset) without hijacking it; the `palm_*` chains are still default-deny for Palm traffic because their last rule is `counter drop`. The `mss_clamp` line is omitted from the render when the option is false.
 
-The daemon's generated element script, from the example config:
+The daemon's generated element script, from the example config (all three sets are replaced in one transaction; hosts are written as masked prefixes and a host already covered by a wider entry for the same port is dropped, because nft rejects overlapping elements; the daemon re-applies it every 30 s so a `systemctl reload nftables` does not leave the sets empty):
 
 ```nft
 flush set inet palm_gw lan_allow
-add element inet palm_gw lan_allow { 192.168.1.20 . tcp . 14237, 192.168.1.20 . tcp . 14238, 192.168.1.0/24 . udp . 5353 }
+flush set inet palm_gw lan_allow_icmp
+flush set inet palm_gw pi_allow
+add element inet palm_gw lan_allow { 192.168.1.20/32 . tcp . 14237, 192.168.1.20/32 . tcp . 14238, 192.168.1.0/24 . udp . 5353 }
+add element inet palm_gw pi_allow { udp . 53, udp . 67 }
 ```
 
 Unit test `internal/fw/nft_test.go` checks the generated text for several configs, including CIDR hosts and `icmp` (which has no port and therefore goes into `lan_allow_icmp`). A second test runs `nft -c -f` on the rendered template plus the generated elements when `nft` is present on the test host (skipped otherwise), so syntax errors are caught in CI's arm64 job, which runs on a Debian container with nftables installed.
@@ -755,7 +763,7 @@ Unix socket `/run/palm-gw/ctl.sock`, mode `0660`, owner `root:palm-gw`. Protocol
 | `disconnect` | `{"cmd":"disconnect","addr":"…"}` | `{"ok":true}` |
 | `forget` | `{"cmd":"forget","addr":"…"}` | removes from dynamic allowlist, `RemoveDevice` in BlueZ, kills session |
 | `allow` | `{"cmd":"allow","addr":"…"}` | add to dynamic allowlist without pairing (device paired some other way) |
-| `reload` | `{"cmd":"reload"}` | re-reads config, re-applies nft set, rewrites dnsmasq conf and reloads it, re-registers profiles if channels changed |
+| `reload` | `{"cmd":"reload"}` | re-reads config, re-applies the nft sets, rewrites the dnsmasq conf and restarts dnsmasq if it changed; applies the allowlist and pairing settings; lists every other changed key as needing a restart (D-030) |
 | `btmon` | `{"cmd":"btmon","seconds":60}` | runs `btmon -w /var/lib/palm-gw/captures/<ts>.btsnoop` for N seconds; response has the path |
 | `events` | `{"cmd":"events"}` | streams every daemon event as it happens until the client disconnects (used by the web UI's SSE and by `palm-gwctl events`) |
 | `config.get` / `config.set` | `{"cmd":"config.set","path":"firewall.allow","value":[…]}` | typed edits to `config.toml` through the daemon, validated with `config.Validate()` before writing, followed by an implicit `reload`; this is how the web UI and `palm-gwctl set` change settings without anyone hand-editing TOML |

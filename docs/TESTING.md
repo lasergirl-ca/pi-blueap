@@ -736,3 +736,167 @@ once. To check with the Palm during Phase 5's real-Palm runs.
 
 **Phase 2 accepted** on fake-palm, all channels, storm and disconnect, plus the real Palm T|X
 over LAN Access. T|X dial-up is parked (D-025).
+
+## Phase 3: Routing, NAT and isolation
+
+**Accept:** From `fake-palm` (and the T|X): internet works; `nmap -sT -Pn 192.168.1.0/24 -p
+22,80,443 -e pppN` from the fake-Palm side shows nothing open except hosts/ports in
+`[[firewall.allow]]`; `dig @10.42.0.1 example.com` answers; `ssh 10.42.0.1` from the Palm side is
+dropped (not refused); `nft list counters` shows the drop rule incrementing. Add a
+`[[firewall.allow]]` block, `palm-gwctl reload`, and the new host is reachable without restarting
+anything.
+
+### Development machine, 2026-11-10
+
+`go test ./...`, `go vet ./...` (also `GOOS=linux`) and `golangci-lint run ./...` green. New tests:
+- `internal/fw`: `TestScript` (the plan's example, an empty config, and a config with `icmp`, a CIDR
+  with host bits, a /32 inside a /23 and duplicates) and `TestNftAcceptsTemplateAndScript`
+  (`nft -c` over the rendered table plus the elements, with and without `mss_clamp`; skipped
+  without nft or without CAP_NET_ADMIN).
+- `internal/daemon`: `TestLiveMergeSplitsAppliedFromRestart` (D-030).
+
+### Raspberry Pi 5, 2026-11-10
+
+`go test ./...` in `~/palm-gw` green. `sudo /var/tmp/fw.test -test.v` (the `fw` tests as root, so
+`nft -c` runs against nftables 1.1.3): both PASS. `sudo make install UPLINK=eth0` re-rendered
+`/etc/nftables.d/palm-gw.nft` (new `pi_allow` set) and restarted the units, and the installed
+binary matched the build (`cmp`). Status after the restart:
+
+```
+palm-gwd dev, up 4s (phase 3)
+firewall:  0 allow rule(s) (0 port, 0 icmp), 3 palm_to_pi, applied 07:54:59
+$ sudo nft list set inet palm_gw pi_allow
+		elements = { udp . 53,
+			     udp . 67 }
+```
+
+`nmap` 7.95 and `dig` (bind9-dnsutils 9.20) were installed on the Pi for this phase.
+
+**Acceptance with fake-palm** (`scripts/phase3-accept.sh`, D-031: a stand-in LAN host
+`192.168.77.2` in namespace `palmlan`, because the real LAN was not scanned). The first run had two
+script bugs, both fixed:
+- The listener check ran before `python3 -m http.server` was up.
+- `curl` in the namespace resolved through the Pi's own LAN resolver `10.4.0.1`, which the
+  firewall rightly drops from the Palm side (`palm->rfc1918`). It now resolves through
+  `10.42.0.1`, as a Palm does.
+
+Final run:
+
+```
+$ URL=http://example.com/ ~/palm-gw/scripts/phase3-accept.sh
+==> Preconditions (2026-11-10 07:58:01)
+firewall:  0 allow rule(s) (0 port, 0 icmp), 3 palm_to_pi, applied 07:57:59
+    PASS: gateway 2C:CF:67:2F:29:F5, firewall managed, no allow rules
+==> Stand-in LAN host 192.168.77.2 in namespace palmlan
+from inside palmlan: 22/tcp/open 80/tcp/open 443/tcp/open
+    PASS: listeners on 22, 80, 443
+==> fake-palm link (channel 2), held for the checks
+07:58:15.485 fake-palm: PPP up: ppp0 local 10.42.0.10 remote 10.42.0.1 (3.229s after connect)
+07:58:17.663 fake-palm: GET http://example.com/ ok: 200 OK, 577 bytes in 100ms
+  60:15:6F:E9:EB:03  "piblueap #2"        lap ppp0   up        10.42.0.10     none  up 9s
+==> Internet and DNS from the Palm side
+GET http://example.com/ via 104.20.23.154: 200
+    PASS: GET http://example.com/
+$ inns dig +short +time=3 +tries=1 @10.42.0.1 example.com
+172.66.147.243
+104.20.23.154
+    PASS: dig @10.42.0.1 example.com answers
+==> The Pi itself from the Palm side
+nc -z -w 3 10.42.0.1 22: exit 1 after 3016 ms
+    PASS: ssh to 10.42.0.1 dropped (timed out, not refused)
+gateway address: 22/tcp/filtered 80/tcp/closed 443/tcp/filtered 8042/tcp/filtered
+Pi LAN address 10.4.0.241: 22/tcp/filtered 80/tcp/closed 443/tcp/filtered 8042/tcp/filtered
+palm_input 'palm->pi' counter: 18 -> 31
+    PASS: palm->pi drop counter increments
+    PASS: 22 filtered on 10.42.0.1
+    PASS: 22 filtered on the Pi's LAN address
+==> LAN host without an allow rule
+192.168.77.2: 22/tcp/filtered 80/tcp/filtered 443/tcp/filtered
+palm_forward 'palm->rfc1918' counter: 23 -> 32
+    PASS: nothing open on 192.168.77.2
+    PASS: palm->rfc1918 drop counter increments
+==> Add [[firewall.allow]] for 192.168.77.2 tcp/80, then palm-gwctl reload
+$ palm-gwctl reload
+reloaded: firewall.allow
+$ sudo nft list set inet palm_gw lan_allow
+		elements = { 192.168.77.2 . tcp . 80 }
+192.168.77.2: 22/tcp/filtered 80/tcp/open 443/tcp/filtered
+    PASS: only the allowed port is reachable
+    PASS: GET http://192.168.77.2/ through the allow rule
+    PASS: same PPP session throughout (nothing restarted)
+==> Remove the rule, reload again
+$ palm-gwctl reload
+reloaded: firewall.allow
+192.168.77.2: 22/tcp/filtered 80/tcp/filtered 443/tcp/filtered
+    PASS: closed again
+==> Result: 0 failed check(s). Log: /var/tmp/phase3-accept-20261110-075801.log
+```
+
+Port 80 on the Pi shows `closed` (an RST), not `filtered`: `palm_input` accepts it for the status
+page (section 8.12), and nothing listens there until Phase 7. Afterwards the script restored
+`config.toml` and removed `palmlan` and the veth pair (checked: `ip netns list` shows only
+`fakepalm`, no `lan-pi` link).
+
+**The rest of Phase 3, checked by hand on the Pi:**
+
+```
+$ sudo nft list chain inet palm_gw palm_forward | grep maxseg       # MSS clamp
+		oifname "eth0" tcp flags syn tcp option maxseg size set rt mtu
+$ sudo systemctl reload nftables          # reloads the table from disk: sets empty
+$ sudo nft list set inet palm_gw pi_allow | grep -c elements
+0
+refilled after ~6s                         # by the daemon's 30 s re-apply (D-030)
+		elements = { udp . 53,
+			     udp . 67 }
+```
+
+`reload` with `dns_upstream = ["1.1.1.1", "9.9.9.9"]` and `name = "Palm Gateway 2"` in
+`config.toml`:
+
+```
+$ palm-gwctl reload
+reloaded: network.dns_upstream
+dnsmasq configuration rewritten and dnsmasq restarted
+not applied until palm-gwd restarts (sudo systemctl restart palm-gwd): bluetooth.name
+$ sudo grep -E "^(no-resolv|server=)" /etc/palm-gw/dnsmasq.conf
+no-resolv
+server=1.1.1.1
+server=9.9.9.9
+$ dig +short +time=3 @10.42.0.1 example.com
+104.20.23.154
+172.66.147.243
+adapter:   hci0 ... alias "Palm Gateway" ...          # name unchanged until a restart, as listed
+```
+
+Restoring the file and reloading again put dnsmasq back on the Pi's resolv.conf (no `server=`
+lines), and DNS kept answering. A reload with nothing changed prints `reloaded: no live settings
+changed`. (That run printed the installer hint for any restart-only key. It now prints it only
+for the rendered keys: subnet, gateway, uplink, mss_clamp, pan.bridge.)
+
+**Real Palm T|X on the Phase 3 build.** Zoe had deleted the T|X's pairing on the Palm, so the
+gateway side was cleared too and the Palm paired again first:
+
+```
+$ palm-gwctl forget 00:07:E0:3C:5E:FA
+00:07:E0:3C:5E:FA: allowlist removed, BlueZ device removed
+$ palm-gwctl pair 5 --one
+When asked for a passkey, enter:   8 9 4 1
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"  PIN requested
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"  paired, added to allowlist
+Window closed (one device).
+```
+
+Then Connect on the `Palm GW` connection, and Blazer loaded `http://example.com/` (Zoe, 08:04).
+The gateway's log:
+
+```
+08:03:17.443 connection    profile=lap channel=2 addr=00:07:E0:3C:5E:FA name="Zoë's Palm TX"
+08:03:17.460 handshake     mode=none profile=lap
+08:03:17.460 session_start profile=lap handshake=none peer=10.42.0.10 pid=28176
+08:03:17.519 session_up    ifname=ppp0 local=10.42.0.1 peer=10.42.0.10
+$ palm-gwctl status
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"      lap ppp0   up        10.42.0.10     none  up 1m15s
+firewall:  0 allow rule(s) (0 port, 0 icmp), 3 palm_to_pi, applied 08:04:26
+```
+
+**Phase 3 accepted** on fake-palm (stand-in LAN host, D-031) and the real Palm T|X.

@@ -12,6 +12,10 @@ table inet palm_gw {
         type ipv4_addr
         flags interval
     }
+    # Filled by palm-gwd from firewall.palm_to_pi: extra services on the Pi itself (D-029)
+    set pi_allow {
+        type inet_proto . inet_service
+    }
 
     # Classifier chains: the base chains only decide "did this come from the Palm side?"
     # policy accept + jump means this table coexists with any other firewall on the Pi.
@@ -47,6 +51,7 @@ table inet palm_gw {
         udp dport 67 accept                                   comment "DHCP from PAN clients"
         tcp dport 80 accept                                   comment "the /palm status page"
         icmp type { echo-request, destination-unreachable, time-exceeded } accept
+        meta l4proto . th dport @pi_allow accept
         tcp dport 8042 counter drop comment "palm->webui"
         counter drop comment "palm->pi"
     }

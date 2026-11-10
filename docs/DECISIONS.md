@@ -303,6 +303,55 @@ shunt first. Now the daemon keeps its copy of the socket until the session ends 
 (`ppp.HangUp`). The refusal path uses it too. Signals and the 3 s teardown are unchanged.
 `scripts/phase2-accept.sh` now also checks that fake-palm sees the link drop.
 
+### D-029: `palm_to_pi` fills a `pi_allow` set; the fixed input rules stay
+
+Section 7 has `firewall.palm_to_pi` ("what Palms may send to the Pi itself") and Phase 2's test
+note says to allow a test web server "in `palm_to_pi` temporarily", but section 8.7's `palm_input`
+chain hard-codes DNS (udp and tcp 53), DHCP (udp 67), port 80 and ICMP and never reads the key.
+The template now declares a third daemon-managed set, `pi_allow` (`inet_proto . inet_service`),
+and `palm_input` accepts `meta l4proto . th dport @pi_allow` just before its drops. The daemon fills
+it from `palm_to_pi`. The fixed rules stay, because DNS, DHCP and the status page are what the
+gateway is for, and removing `udp/53` from the list should not break every Palm. So the key adds
+services, it does not remove the fixed ones, and its default (`udp/53`, `udp/67`, `icmp`) only
+repeats them. `icmp` in the list is covered by the fixed ICMP rule. The comment in section 7 and
+`config.example.toml` says so.
+
+### D-030: `reload` applies the live settings and lists the rest; templates are embedded
+
+Section 8.8 has `reload` re-read the configuration, re-apply the sets, rewrite dnsmasq, and
+"re-register profiles if channels changed". Swapping the whole configuration under running
+sessions would half-apply changes such as the subnet or uplink, which are also rendered into the
+nftables table and the bridge at install time. `reload` therefore copies only the live settings onto
+the running configuration:
+- `[firewall]` (the three sets)
+- `network.dns_upstream` and `network.dhcp_pool` (dnsmasq is re-rendered, and restarted only if
+  the file changed)
+- `bluetooth.allow` and `allow_any`
+- the pairing settings the daemon reads per use (`pin`, `pin_length`,
+  `pair_window_default_minutes`, `trust_on_pair`)
+
+Every other changed key is listed in the reply as needing a `palm-gwd` restart, including profile
+channels. Re-registering profiles on reload is left for Phase 5's robustness work. The merged
+configuration is validated before anything is applied, and the daemon swaps it atomically, so
+running goroutines never see a half-updated one. To render dnsmasq at run time the daemon needs
+the template, so a small `deploy` Go package embeds `deploy/dnsmasq/palm-gw.conf.tmpl` and the
+nftables template (section 6 has no Go file in `deploy/`). The daemon also writes the dnsmasq file
+at start, so an edit followed by a restart is not lost. It re-applies the sets every 30 s, because
+`systemctl reload nftables` reloads the table from disk and empties them. That is logged only
+when the outcome changes.
+
+### D-031: Phase 3's LAN scan targets a stand-in LAN host on the Pi
+
+Phase 3's acceptance runs `nmap -sT -Pn 192.168.1.0/24 -p 22,80,443 -e pppN` from the fake-Palm
+side against the real LAN. Zoe's LAN is 10.4.0.0/23, and scanning it from the development
+session was not approved (the session's permission check refused a scan of the home network).
+`scripts/phase3-accept.sh` therefore puts a stand-in LAN host in its own network namespace on the
+Pi (`192.168.77.2` behind a veth pair, with listeners on 22, 80 and 443). Traffic from the Palm
+side to it takes the same path as to a real LAN host (`palm_forward`, the RFC 1918 drop, the
+`lan_allow` set), so the isolation and the allow-and-reload checks are the same. The script also
+scans the Pi's own LAN address from the Palm side. A scan of the real LAN can be added with
+Zoe's go-ahead.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

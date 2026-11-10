@@ -18,6 +18,17 @@ func (d *Daemon) registerHandlers() {
 	d.ctl.Handle("forget", d.handleForget)
 	d.ctl.Handle("allow", d.handleAllow)
 	d.ctl.Handle("disconnect", d.handleDisconnect)
+	d.ctl.Handle("reload", d.handleReload)
+}
+
+// handleReload re-reads config.toml and applies what can change live (D-030).
+func (d *Daemon) handleReload(ctx context.Context, _ ctl.Request, w *ctl.Writer) error {
+	r, err := d.reload(ctx)
+	if err != nil {
+		d.log.Warn("reload refused", "event", "reload_failed", "err", err)
+		return err
+	}
+	return w.Send(r)
 }
 
 // handleDisconnect terminates the device's sessions (SIGTERM to pppd's
@@ -43,11 +54,14 @@ func (d *Daemon) handleStatus(_ context.Context, _ ctl.Request, w *ctl.Writer) e
 		StatePath:     d.opts.StatePath,
 		Warnings:      d.opts.Warnings,
 		BlueZ:         ctl.BlueZStatus{Present: d.present, AgentRegistered: d.regd, Since: d.since, Losses: d.losses},
-		Config:        d.cfg.Redacted(),
+		Config:        d.config().Redacted(),
 	}
 	adapter := d.adapter
 	selection := d.selection
 	d.mu.Unlock()
+	d.fwMu.Lock()
+	st.Firewall = d.fw
+	d.fwMu.Unlock()
 
 	st.PairingWindow = d.window.State()
 	st.Profiles = d.profiles.Status()
@@ -80,7 +94,7 @@ func toPairEvent(e event.Event) ctl.PairEvent {
 func (d *Daemon) handlePair(ctx context.Context, req ctl.Request, w *ctl.Writer) error {
 	minutes := req.Minutes
 	if minutes <= 0 {
-		minutes = d.cfg.Bluetooth.PairWindowDefaultMinutes
+		minutes = d.config().Bluetooth.PairWindowDefaultMinutes
 	}
 	if d.currentAdapter() == nil {
 		return errors.New("BlueZ is not running; cannot open a pairing window")
@@ -88,7 +102,7 @@ func (d *Daemon) handlePair(ctx context.Context, req ctl.Request, w *ctl.Writer)
 	evCh, unsub := d.events.Subscribe()
 	defer unsub()
 
-	stateNow, err := d.window.Open(time.Duration(minutes)*time.Minute, req.One, d.cfg.Bluetooth.PINLength, d.cfg.Bluetooth.PIN)
+	stateNow, err := d.window.Open(time.Duration(minutes)*time.Minute, req.One, d.config().Bluetooth.PINLength, d.config().Bluetooth.PIN)
 	if err != nil {
 		if errors.Is(err, agent.ErrAlreadyOpen) {
 			return fmt.Errorf("a pairing window is already open (closes %s); cancel it first", stateNow.Expires.Format(time.Kitchen))

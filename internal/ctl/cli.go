@@ -96,8 +96,11 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 		}
 		return c.disconnect(cmdArgs[0])
 	case "reload":
-		fmt.Fprintf(stderr, "palm-gwctl %s: not implemented until Phase 3 (routing, NAT and isolation)\n", cmd)
-		return 2
+		if len(cmdArgs) != 0 {
+			fmt.Fprintf(stderr, "palm-gwctl %s: takes no arguments\n", cmd)
+			return 2
+		}
+		return c.reload()
 	case "rename", "events", "capture", "get", "set", "firewall", "check", "class", "bundle", "upgrade":
 		fmt.Fprintf(stderr, "palm-gwctl %s: not implemented until Phase 6 or 7\n", cmd)
 		return 2
@@ -283,6 +286,15 @@ func (c *cli) status() int {
 		fmt.Fprintf(w, "network:   %s gw %s uplink %s, pan %s (%s)   [PAN: Phase 4]\n", cfg.Network.Subnet, cfg.Network.Gateway,
 			cfg.Network.Uplink, onOff(cfg.PAN.Enabled), cfg.PAN.Bridge)
 	}
+	switch f := st.Firewall; {
+	case !f.Managed:
+		fmt.Fprintf(w, "firewall:  not managed (firewall.manage_nftables = false)\n")
+	case f.Error != "":
+		fmt.Fprintf(w, "firewall:  ERROR %s\n", f.Error)
+	default:
+		fmt.Fprintf(w, "firewall:  %d allow rule(s) (%d port, %d icmp), %d palm_to_pi, applied %s\n", f.AllowRules, f.LANPorts,
+			f.LANICMP, f.PalmToPi, f.AppliedAt.Format("15:04:05"))
+	}
 	for _, wn := range st.Warnings {
 		fmt.Fprintf(w, "warning:   %s\n", wn)
 	}
@@ -396,6 +408,45 @@ func (c *cli) disconnect(addr string) int {
 		return 1
 	}
 	fmt.Fprintf(c.stdout, "%s: %d session(s) terminated\n", r.Address, r.Sessions)
+	return 0
+}
+
+func (c *cli) reload() int {
+	var r ReloadReply
+	printed, err := c.call(Request{Cmd: "reload"}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		if r.OK {
+			return 0
+		}
+		return 1
+	}
+	if len(r.Applied) == 0 {
+		fmt.Fprintln(c.stdout, "reloaded: no live settings changed")
+	} else {
+		fmt.Fprintf(c.stdout, "reloaded: %s\n", strings.Join(r.Applied, ", "))
+	}
+	if r.DnsmasqRestarted {
+		fmt.Fprintln(c.stdout, "dnsmasq configuration rewritten and dnsmasq restarted")
+	}
+	if len(r.NeedsRestart) > 0 {
+		fmt.Fprintf(c.stdout, "not applied until palm-gwd restarts (sudo systemctl restart palm-gwd): %s\n",
+			strings.Join(r.NeedsRestart, ", "))
+		for _, k := range r.NeedsRestart {
+			switch k {
+			case "network.subnet", "network.gateway", "network.uplink", "network.mss_clamp", "pan.bridge":
+				fmt.Fprintf(c.stdout, "%s is also rendered into the nftables and bridge files: re-run the installer\n", k)
+			}
+		}
+	}
+	for _, e := range r.Errors {
+		fmt.Fprintf(c.stderr, "error: %s\n", e)
+	}
+	if !r.OK {
+		return 1
+	}
 	return 0
 }
 

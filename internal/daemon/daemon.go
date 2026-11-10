@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -37,6 +38,10 @@ type Options struct {
 	Phase      string
 	Warnings   []string
 	Log        *slog.Logger
+	// DnsmasqConf and DnsmasqUnit are the file the daemon renders and the
+	// unit it restarts when that file changes ("" = the installed defaults).
+	DnsmasqConf string
+	DnsmasqUnit string
 	// OnReady is called once, the first time the agent is registered
 	// (sd_notify READY=1 lives in main).
 	OnReady func()
@@ -44,7 +49,7 @@ type Options struct {
 
 // Daemon is the running gateway.
 type Daemon struct {
-	cfg     *config.Config
+	cfgp    atomic.Pointer[config.Config] // replaced, never mutated, by reload
 	opts    Options
 	log     *slog.Logger
 	events  *event.Bus
@@ -69,10 +74,16 @@ type Daemon struct {
 	gen       uint64 // bumped every time BlueZ (re)appears
 	readyOnce sync.Once
 
+	fwMu sync.Mutex
+	fw   ctl.FirewallStatus
+
 	// reattach asks the main loop to redo adapter and agent setup without
 	// BlueZ having gone away (BlueZ released our agent while staying up).
 	reattach chan struct{}
 }
+
+// config is the configuration in effect; reload swaps it (D-030).
+func (d *Daemon) config() *config.Config { return d.cfgp.Load() }
 
 // New wires everything up without touching the system.
 func New(opts Options) (*Daemon, error) {
@@ -83,8 +94,13 @@ func New(opts Options) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	if opts.DnsmasqConf == "" {
+		opts.DnsmasqConf = defaultDnsmasqConf
+	}
+	if opts.DnsmasqUnit == "" {
+		opts.DnsmasqUnit = defaultDnsmasqUnit
+	}
 	d := &Daemon{
-		cfg:      opts.Config,
 		opts:     opts,
 		log:      opts.Log.With("component", "daemon"),
 		events:   event.New(),
@@ -92,6 +108,7 @@ func New(opts Options) (*Daemon, error) {
 		started:  time.Now(),
 		reattach: make(chan struct{}, 1),
 	}
+	d.cfgp.Store(opts.Config)
 	d.allow = allow.New(opts.Config.Bluetooth.Allow, st, opts.Config.Bluetooth.AllowAny)
 	c := opts.Config
 	d.ppp, err = ppp.NewManager(ppp.Config{
@@ -135,7 +152,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.agent.Export(); err != nil {
 		return err
 	}
-	d.profiles = profile.New(bus, d.cfg, d.ppp, d.allow, d.events, d.opts.Log, d.adapterPath)
+	d.profiles = profile.New(bus, d.config(), d.ppp, d.allow, d.events, d.opts.Log, d.adapterPath)
 	d.profiles.OnReleased = d.onProfileReleased
 	if err := d.profiles.Export(); err != nil {
 		return err
@@ -144,6 +161,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// unregister from BlueZ if we can, and end every PPP session.
 	defer d.shutdown()
 	go d.ppp.RunReaper(ctx, 10*time.Second)
+	// Network plumbing (section 8.7) does not depend on BlueZ.
+	go d.keepFirewall(ctx)
+	if _, err := d.syncDnsmasq(ctx, d.config()); err != nil {
+		d.log.Error("dnsmasq configuration not written", "err", err)
+	}
 
 	// Log every event once, centrally, with its stable name.
 	evCh, unsub := d.events.Subscribe()
@@ -238,7 +260,7 @@ func (d *Daemon) attach(ctx context.Context) (func(), error) {
 	// bluetoothd registers its adapters a moment after taking the bus name.
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		a, h, err := d.bus.FindAdapter(d.cfg.Bluetooth.Adapter)
+		a, h, err := d.bus.FindAdapter(d.config().Bluetooth.Adapter)
 		if err == nil {
 			adapter, how = a, h
 			break
@@ -253,7 +275,7 @@ func (d *Daemon) attach(ctx context.Context) (func(), error) {
 		case <-time.After(time.Second):
 		}
 	}
-	if err := adapter.Configure(d.cfg.Bluetooth.Name); err != nil {
+	if err := adapter.Configure(d.config().Bluetooth.Name); err != nil {
 		return nil, err
 	}
 	d.mu.Lock()
@@ -266,9 +288,9 @@ func (d *Daemon) attach(ctx context.Context) (func(), error) {
 		"modalias", adapter.Props.Modalias,
 		"powered", adapter.Props.Powered, "discoverable", adapter.Props.Discoverable,
 		"pairable", adapter.Props.Pairable, "selection", how)
-	if adapter.Props.Class&0x001F00 != d.cfg.Bluetooth.Class&0x001F00 {
+	if adapter.Props.Class&0x001F00 != d.config().Bluetooth.Class&0x001F00 {
 		d.log.Warn("adapter Class major/minor differs from config; is the main.conf block applied and bluetooth restarted?",
-			"adapter_class", fmt.Sprintf("0x%06X", adapter.Props.Class), "config_class", fmt.Sprintf("0x%06X", d.cfg.Bluetooth.Class))
+			"adapter_class", fmt.Sprintf("0x%06X", adapter.Props.Class), "config_class", fmt.Sprintf("0x%06X", d.config().Bluetooth.Class))
 	}
 
 	if err := d.agent.Register(); err != nil {
@@ -423,13 +445,13 @@ func (d *Daemon) onDeviceChange(c bluez.DeviceChange) {
 			if err := d.allow.Add(dev.Address, dev.DisplayName()); err != nil {
 				d.log.Error("allowlist update failed", "err", err)
 			}
-			if d.cfg.Bluetooth.TrustOnPair {
+			if d.config().Bluetooth.TrustOnPair {
 				if err := d.bus.SetTrusted(c.Path, true); err != nil {
 					d.log.Warn("could not set Trusted", "addr", dev.Address, "err", err)
 				}
 			}
 			d.agent.ClearPending(c.Path)
-			d.log.Info("device paired", "event", "paired", "addr", dev.Address, "name", dev.DisplayName(), "trusted", d.cfg.Bluetooth.TrustOnPair)
+			d.log.Info("device paired", "event", "paired", "addr", dev.Address, "name", dev.DisplayName(), "trusted", d.config().Bluetooth.TrustOnPair)
 			d.events.Emit("paired", dev.Address, dev.DisplayName())
 			d.window.Paired(dev.Address)
 		} else {
