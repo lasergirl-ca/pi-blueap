@@ -1670,3 +1670,60 @@ connected, and the wizard printed that the T|X was online before it exited. Gate
 
 That covers the wizard's whole interactive path on the Pi 5. The fresh-flash acceptance
 repeats it from a new image.
+
+### Part 4: the .deb (D-043), 2026-11-11
+
+`make deb DEB_VERSION=0.6.0~test1` on the Mac produced `dist/palm-gw_0.6.0~test1_arm64.deb`
+(11 MB). On the Pi, `dpkg-deb -I` / `-c` showed:
+- `Depends: bluez (>= 5.66), ppp (>= 2.4.9), dnsmasq-base, nftables, network-manager`;
+- one conffile, `/etc/ppp/options.palm`;
+- binaries in `/usr/bin`, `fake-palm` in `/usr/libexec/palm-gw`, and units, the bridge helper,
+  NetworkManager and modules-load files under `/usr/lib`;
+- documentation in `/usr/share/doc/palm-gw`, and postinst, prerm and postrm.
+
+**From the source install to the package, on the Pi 5** (dongle mode, T|X paired):
+1. Backed up `config.toml`, `state.json`, `install-info.json` and `tls/` to
+   `/var/tmp/p6-backup`.
+2. `sudo make uninstall PURGE=1` and `groupdel palm-gw`, for a true pre-install state.
+3. Snapshotted `/etc`: sha256 of every file and symlink, every directory, and
+   `/boot/firmware/config.txt`, 1414 lines in all.
+4. **Fresh install:** `apt-get install ./palm-gw_0.6.0~test1_arm64.deb` gave `palm-gw:
+   sysadmin added to group palm-gw` and `palm-gw is installed. Run 'sudo palm-gw setup' to
+   finish.`. The units were `disabled` and `palm-gwd` was `inactive`, so nothing started
+   without a config.
+5. Restored the backups and ran `sudo palm-gw setup --yes --adapter dongle --pair no`, an
+   unattended re-run with the stored password. It rendered every file, added `disable-bt`
+   again, and reused the certificate (same fingerprint). Units ran from
+   `/usr/lib/systemd/system`, and `install-info.json` recorded `"install_path": "deb"`.
+
+**Upgrade:** `apt-get install ./palm-gw_0.6.0~test2_arm64.deb` over `~test1` printed
+`Unpacking palm-gw (0.6.0~test2) over (0.6.0~test1)` and `palm-gw: applying the existing
+configuration`. All five units were active afterwards. `sha256sum -c` of `config.toml`,
+`state.json` and `tls/cert.pem` passed, and the T|X was still `paired,trusted` and
+allowlisted.
+
+**Purge:** `apt-get purge palm-gw`. Its prerm removed the bridge connection, the `main.conf`
+block, the firewall table and include, the rendered files and `disable-bt`, and its postrm
+deleted `/etc/palm-gw`, `/var/lib/palm-gw` and the group. Then:
+
+```
+$ diff /var/tmp/p6-etc-before.txt /var/tmp/p6-etc-after.txt; echo "diff rc=$?"
+diff rc=0
+```
+
+`/etc` and `config.txt` were identical to the pre-install snapshot. Only `table inet filter`
+was left in nftables, and there was no `br-palm` connection.
+
+**Terminal junk under apt:** the first purge printed `]11;?\[6n` from prerm. That is
+bubbletea's `init()` asking a terminal for its colours, and apt's pseudo-terminal never
+answers. The maintainer scripts now capture `palm-gw`'s output. A remove-and-reinstall cycle
+with `~test3` printed none (`grep -c ']11;\|\[6n'` gave 0).
+
+**Restored:** `~test3` installed, the backups put back, and `palm-gw setup --yes --adapter
+dongle` run. `apt remove` followed by `apt install` re-applied the kept config through
+postinst. The Pi now runs the package (deb layout, dongle mode), with `config.toml` and
+`state.json` byte-identical to the backups and the T|X paired and allowlisted.
+
+A long-lived SSH session from before the purge kept its old membership of the deleted and
+re-created `palm-gw` group, so `palm-gwctl` was refused the socket until a fresh login. As
+postinst says, membership takes effect at the next login.

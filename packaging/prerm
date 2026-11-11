@@ -1,0 +1,22 @@
+#!/bin/sh
+# palm-gw prerm (D-043). On remove, undo what `palm-gw setup` did to the system while the
+# binary is still here: stop the units, delete the bridge connection, strip the main.conf
+# block and the nftables include, take out dtoverlay=disable-bt if palm-gw added it, delete
+# the rendered files. config.toml and the paired devices stay until purge. On an upgrade the
+# new version's postinst re-applies, so nothing is undone.
+set -e
+
+case "$1" in
+remove|deconfigure)
+	if [ -x /usr/bin/palm-gw ] && [ -d /run/systemd/system ]; then
+		# Captured, not on the terminal (see postinst).
+		if out=$(/usr/bin/palm-gw setup --remove 2>&1); then
+			printf '%s\n' "$out"
+		else
+			printf '%s\n' "$out" >&2
+			echo "palm-gw: removing the system configuration failed; see above" >&2
+		fi
+	fi
+	;;
+esac
+exit 0

@@ -614,6 +614,58 @@ uses them. Verified on the Pi 5 in dongle mode:
 - a reinstall afterwards restored dongle mode, with `config.toml` and `state.json` unchanged
   and the T|X still paired.
 
+### D-043: The .deb: what postinst, prerm and postrm do
+
+Section 8.11's Path B, built with nfpm (`packaging/nfpm.yaml`, `make deb`, nfpm v2.47.0 run with
+`go run`, so nothing is installed on the development machine). Decisions beyond the plan:
+
+**Contents**
+- The binaries go in `/usr/bin`, and `fake-palm` in `/usr/libexec/palm-gw/` (section 8.11
+  allows either; one package is simpler).
+- The static files are rendered for the deb layout into `dist/stage` by
+  `palm-gw setup --install-files --layout deb` (D-042), and the package owns them.
+- `/etc/ppp/options.palm` is the only conffile.
+- Documentation goes in `/usr/share/doc/palm-gw/`, with `LICENSE` as `copyright`.
+
+**Version**
+- A tagged commit `v1.2.3` builds `1.2.3`.
+- Anything else builds `0.0.0~git<commit time>.<sha>`, which sorts by commit time, so each
+  snapshot upgrades the last.
+
+**postinst (configure)**
+- Creates the `palm-gw` group, adds `SUDO_USER` to it, and creates `/var/lib/palm-gw`.
+- Without a config it prints "Run 'sudo palm-gw setup' to finish" and enables nothing. This
+  differs from section 8.11, which has postinst enable the units. Setup enables them through
+  `--apply`. The bridge and dnsmasq units now carry `ConditionPathExists=` on their rendered
+  files, like `palm-gwd` on `config.toml`, so nothing fails at boot before setup.
+- With a config (an upgrade, or a reinstall after `apt remove`), it runs
+  `palm-gw setup --apply`, so the gateway is running again when apt returns.
+- A failed apply is reported but does not fail the install, so dpkg never leaves the package
+  half-configured.
+- `systemctl` calls are skipped when systemd is not running, as in the image build's chroot.
+
+**prerm**
+- On remove, it runs `palm-gw setup --remove` while the binary still exists.
+- On upgrade, it does nothing, because the new postinst re-applies.
+
+**postrm (purge)**
+- Deletes `/etc/palm-gw` and `/var/lib/palm-gw`, including the certificate.
+- **Deletes the `palm-gw` group.** Debian practice usually leaves system groups behind, but
+  the Phase 6 accept line wants `/etc` identical to a pre-install snapshot, and the group lives
+  in `/etc/group`.
+- BlueZ's pairing records under `/var/lib/bluetooth` are never touched.
+
+**Output under apt**
+- bubbletea's package `init()` queries the terminal for its colours whenever stdout is a
+  terminal. apt runs maintainer scripts on a pseudo-terminal that never answers, so the query
+  showed as junk and waited out its timeout.
+- The maintainer scripts therefore capture `palm-gw`'s output and print it afterwards.
+  `install.sh` already pipes it.
+
+**Switching an existing source install to the .deb**
+- Run `sudo make uninstall` first (config and state are kept). Otherwise the source units in
+  `/etc/systemd/system` shadow the package's.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

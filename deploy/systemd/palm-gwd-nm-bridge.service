@@ -3,6 +3,8 @@ Description=palm-gw: ensure the Palm bridge exists via NetworkManager
 After=NetworkManager.service
 Wants=NetworkManager.service
 Before=palm-gwd.service palm-gw-dnsmasq.service
+# Skipped until `palm-gw setup` has written it (a fresh .deb install, D-043).
+ConditionPathExists=/etc/palm-gw/bridge.env
 
 [Service]
 Type=oneshot

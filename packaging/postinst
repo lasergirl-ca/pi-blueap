@@ -1,0 +1,39 @@
+#!/bin/sh
+# palm-gw postinst (PLAN.md section 8.11; D-043). On a fresh install it only creates the
+# operator group and asks for `palm-gw setup`. On an upgrade (a config already exists) it
+# re-applies that config, which re-renders the system files and restarts the units, so the
+# gateway is running again when apt returns. It never fails the install: a failed apply is
+# reported and left for `sudo palm-gw setup --apply`.
+set -e
+
+case "$1" in
+configure)
+	getent group palm-gw >/dev/null || groupadd --system palm-gw
+	# Let the admin who ran `sudo apt install` use palm-gwctl without sudo.
+	if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] && id "$SUDO_USER" >/dev/null 2>&1; then
+		if ! id -nG "$SUDO_USER" | tr ' ' '\n' | grep -qx palm-gw; then
+			usermod -aG palm-gw "$SUDO_USER" && echo "palm-gw: $SUDO_USER added to group palm-gw (takes effect at next login)"
+		fi
+	fi
+	install -d -m 0750 /var/lib/palm-gw
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+	fi
+	if [ -f /etc/palm-gw/config.toml ]; then
+		if [ -d /run/systemd/system ]; then
+			echo "palm-gw: applying the existing configuration"
+			# Captured, not on the terminal: bubbletea's init queries a terminal for its
+			# colours, which apt's pseudo-terminal never answers (D-043).
+			if out=$(palm-gw setup --apply 2>&1); then
+				printf '%s\n' "$out"
+			else
+				printf '%s\n' "$out" >&2
+				echo "palm-gw: applying the configuration failed; fix it and run: sudo palm-gw setup --apply" >&2
+			fi
+		fi
+	else
+		echo "palm-gw is installed. Run 'sudo palm-gw setup' to finish."
+	fi
+	;;
+esac
+exit 0

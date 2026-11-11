@@ -292,7 +292,11 @@ func summary(w io.Writer, cfg *config.Config, fingerprint, paired string, reboot
 	}
 	fmt.Fprintln(w, "  CLI:       palm-gwctl status")
 	fmt.Fprintln(w, "  Pair:      palm-gwctl pair")
-	fmt.Fprintln(w, "  Docs:      docs/PALM-SETUP.md")
+	doc := "docs/PALM-SETUP.md in the source tree"
+	if currentLayout().Name == "deb" {
+		doc = "/usr/share/doc/palm-gw/PALM-SETUP.md"
+	}
+	fmt.Fprintf(w, "  Docs:      %s\n", doc)
 	if paired != "" {
 		fmt.Fprintf(w, "  Palm:      %s\n", paired)
 	}

@@ -1,0 +1,20 @@
+#!/bin/sh
+# palm-gw postrm (D-043). Purge deletes the configuration, the paired-device state, the
+# certificate and the operator group, so /etc ends as it was before the install (PLAN.md
+# Phase 6 accept). BlueZ's own pairing records under /var/lib/bluetooth are left alone.
+set -e
+
+case "$1" in
+purge)
+	rm -rf /etc/palm-gw /var/lib/palm-gw
+	if getent group palm-gw >/dev/null; then
+		groupdel palm-gw || true
+	fi
+	;;
+remove)
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+	fi
+	;;
+esac
+exit 0

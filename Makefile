@@ -7,6 +7,13 @@ BIN      := bin
 DIST     := dist
 CMDS     := ./cmd/...
 
+# .deb version: the tag (v1.2.3 -> 1.2.3) on a tagged commit, otherwise a snapshot that
+# sorts by commit time (0.0.0~git20261111071500.c2e8b5c), so each build upgrades the last.
+DEB_VERSION ?= $(shell v=$$(git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null); \
+	if [ -n "$$v" ]; then echo "$${v\#v}"; \
+	else echo "0.0.0~git$$(git log -1 --format=%cd --date=format:%Y%m%d%H%M%S).$$(git rev-parse --short HEAD)"; fi)
+NFPM     ?= go run github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+
 # make install options (passed through to scripts/install.sh)
 ADAPTER  ?=
 UPLINK   ?=
@@ -41,8 +48,13 @@ install:
 uninstall:
 	scripts/uninstall.sh
 
-deb:
-	@echo "make deb: nfpm packaging arrives in Phase 6" >&2; exit 2
+# The .deb (D-043): arm64 binaries, the static files rendered for the deb layout (D-042)
+# into dist/stage (rewritten in place each time; the file set is fixed), then nfpm. Runs on
+# the development machine.
+deb: build-arm64
+	go run ./cmd/palm-gw setup --install-files --layout deb --root $(DIST)/stage
+	DEB_VERSION='$(DEB_VERSION)' $(NFPM) package -f packaging/nfpm.yaml -p deb -t $(DIST)/
+	@ls -l $(DIST)/*.deb
 
 release:
 	@echo "make release: arrives in Phase 6" >&2; exit 2

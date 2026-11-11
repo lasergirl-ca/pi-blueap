@@ -1,0 +1,75 @@
+# palm-gw .deb (PLAN.md section 8.11, Path B; D-043). Built by `make deb`, which first
+# renders the static files for the deb layout into dist/stage (D-042):
+#   palm-gw setup --install-files --layout deb --root dist/stage
+name: palm-gw
+arch: arm64
+platform: linux
+version: ${DEB_VERSION}
+version_schema: none
+section: net
+priority: optional
+maintainer: "palm-gw maintainers <palm-gw@users.noreply.github.com>"
+homepage: https://github.com/lasergirl-ca/pi-blueap
+license: MIT
+description: |
+  Bluetooth access point for Palm OS handhelds.
+  Turns a Raspberry Pi 4 or 5 into a Bluetooth gateway for Palm OS devices:
+  LAN Access, Serial Port and Dial-Up profiles over PPP, a PAN network access
+  point, NAT to the Pi's uplink, and a firewall that keeps Palms off the home
+  LAN. Run `sudo palm-gw setup` after installing.
+
+depends:
+  - bluez (>= 5.66)
+  - ppp (>= 2.4.9)
+  - dnsmasq-base
+  - nftables
+  - network-manager
+
+contents:
+  # Binaries (Debian policy: /usr/bin). fake-palm is a test tool (PLAN.md section 9).
+  - src: dist/linux-arm64/palm-gwd
+    dst: /usr/bin/palm-gwd
+    file_info: {mode: 0755}
+  - src: dist/linux-arm64/palm-gwctl
+    dst: /usr/bin/palm-gwctl
+    file_info: {mode: 0755}
+  - src: dist/linux-arm64/palm-gw
+    dst: /usr/bin/palm-gw
+    file_info: {mode: 0755}
+  - src: dist/linux-arm64/fake-palm
+    dst: /usr/libexec/palm-gw/fake-palm
+    file_info: {mode: 0755}
+
+  # Static files, rendered for the deb layout (D-042). The package owns them.
+  - src: dist/stage/usr/lib/systemd/system/palm-gwd.service
+    dst: /usr/lib/systemd/system/palm-gwd.service
+  - src: dist/stage/usr/lib/systemd/system/palm-gwd-nm-bridge.service
+    dst: /usr/lib/systemd/system/palm-gwd-nm-bridge.service
+  - src: dist/stage/usr/lib/systemd/system/palm-gw-dnsmasq.service
+    dst: /usr/lib/systemd/system/palm-gw-dnsmasq.service
+  - src: dist/stage/usr/lib/palm-gw/nm-bridge.sh
+    dst: /usr/lib/palm-gw/nm-bridge.sh
+    file_info: {mode: 0755}
+  - src: dist/stage/usr/lib/NetworkManager/conf.d/palm-gw.conf
+    dst: /usr/lib/NetworkManager/conf.d/palm-gw.conf
+  - src: dist/stage/usr/lib/modules-load.d/palm-gw.conf
+    dst: /usr/lib/modules-load.d/palm-gw.conf
+  # An operator may tune pppd's options, so this one is a conffile.
+  - src: dist/stage/etc/ppp/options.palm
+    dst: /etc/ppp/options.palm
+    type: config
+
+  # Documentation.
+  - src: README.md
+    dst: /usr/share/doc/palm-gw/README.md
+  - src: docs/PALM-SETUP.md
+    dst: /usr/share/doc/palm-gw/PALM-SETUP.md
+  - src: config.example.toml
+    dst: /usr/share/doc/palm-gw/config.example.toml
+  - src: LICENSE
+    dst: /usr/share/doc/palm-gw/copyright
+
+scripts:
+  postinstall: packaging/postinst
+  preremove: packaging/prerm
+  postremove: packaging/postrm
