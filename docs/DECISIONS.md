@@ -538,6 +538,22 @@ Verified on the T|X with the gateway on the dongle and the T|X forgotten first. 
 (trusted) came 0.12 s after `pin_requested`, the window closed, and the session came up on the
 first Connect. Unit tests cover every signal shape.
 
+### D-041: Phase 6 starts while Phase 5 waits for a Pi 4
+
+The kickoff rules say to work the section 10 phases strictly in order, and Phase 5's accept line
+asks that "both Pi 4 and Pi 5 pass identically". On 2026-11-10 every Phase 5 item on the Pi 5
+was done:
+- the fake-palm robustness runs and the reboots;
+- the Wi-Fi uplink;
+- the real T|X toggles, BlueZ restart, `palm-gwd` restart and power cut;
+- dongle mode.
+
+The 24-hour soak was deferred to field use (D-038). No Pi 4 is available yet. Zoe chose to start
+Phase 6 rather than wait. Phase 5 stays open: when the Pi 4 arrives, the Pi 4 half of Phase 5
+(robustness script, T|X runs, dongle mode, PLAN.md section 3's Pi 4 notes) is run and recorded
+before Phase 8's release, along with Phase 6's own Pi 4 acceptance. Phase 6 work does not
+change anything Phase 5 accepted without re-running the affected Phase 5 checks on the Pi 5.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08
