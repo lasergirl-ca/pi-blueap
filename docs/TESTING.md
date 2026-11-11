@@ -1636,6 +1636,22 @@ $ sudo env PALM_GW_UNATTENDED=1 PALM_GW_WEB=off palm-gw setup --dry-run
 A short password file is refused (`at least 8 characters`). With no terminal and stdin closed,
 the wizard stops with `cancelled; nothing was changed`.
 
-Still to do: a real interactive run on a terminal. It covers the huh prompts, writing
-`config.toml`, the certificate, and pairing a Palm during setup with "online" reported before
-the wizard exits.
+**Interactive runs by Zoe** (`sudo palm-gw setup` over SSH, huh prompts), 2026-11-11:
+- **06:41:** named the gateway "Palm Gateway - Surrey".
+- **06:44:** a second run set the name back to "Palm Gateway". Username `sysadmin`, a password
+  of her choice, HTTPS on.
+
+Each run changed the name in the `main.conf` block, so each restarted BlueZ, and `palm-gwd`
+recovered both times (`bluez_lost`, then `adapter configured` with the new alias). That is
+correct behaviour, not churn: re-applying afterwards (`palm-gw setup --apply`) reported
+`managed block unchanged` and left `main.conf`'s timestamp alone.
+
+Result:
+- `config.toml` (0640) has the argon2id hash and `username = "sysadmin"`. The key was appended
+  at the end of `[web]`, because this config predates the key.
+- The certificate `/var/lib/palm-gw/tls/cert.pem` (key 0600) is `CN=piblueap`, with
+  SAN `DNS:piblueap, DNS:piblueap.local, IP:10.4.0.241, IP:10.42.0.1`, valid to 2036.
+- All five units are active, and the T|X is still paired, trusted and allowlisted.
+
+Still to do: pairing a Palm during setup, with "online" reported before the wizard exits.
+That is part of the fresh-flash acceptance, because this T|X is already paired.
