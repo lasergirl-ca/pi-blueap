@@ -9,8 +9,8 @@ ConditionPathExists=/etc/palm-gw/config.toml
 
 [Service]
 Type=notify
-ExecStart=/usr/local/bin/palm-gwd -config /etc/palm-gw/config.toml
-ExecReload=/usr/local/bin/palm-gwctl reload
+ExecStart={{BIN_DIR}}/palm-gwd -config /etc/palm-gw/config.toml
+ExecReload={{BIN_DIR}}/palm-gwctl reload
 Restart=always
 RestartSec=3
 RuntimeDirectory=palm-gw

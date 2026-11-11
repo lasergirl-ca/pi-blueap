@@ -8,7 +8,7 @@ DIST     := dist
 CMDS     := ./cmd/...
 
 # make install options (passed through to scripts/install.sh)
-ADAPTER  ?= onboard
+ADAPTER  ?=
 UPLINK   ?=
 CONFIG   ?=
 

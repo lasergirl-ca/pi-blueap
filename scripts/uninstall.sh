@@ -1,64 +1,17 @@
 #!/usr/bin/env bash
-# palm-gw uninstaller for source installs: stops units, removes every file install.sh placed
-# (tracked in /var/lib/palm-gw/installed-files.txt), the nftables include line, the bridge
-# connection, and the dtoverlay=disable-bt line only if install-info.json says we added it.
-# Config and state are kept unless PURGE=1.
+# palm-gw uninstaller for source installs (PLAN.md section 8.11, `make uninstall`). The work is
+# `palm-gw setup --remove`: it stops the units, deletes the bridge connection, strips the
+# main.conf block and the nftables include, takes out dtoverlay=disable-bt only if palm-gw added
+# it, and deletes every file in /var/lib/palm-gw/installed-files.txt, binaries included.
+# Config and paired devices are kept unless PURGE=1.
 set -euo pipefail
-STATE=/var/lib/palm-gw
-ETC=/etc/palm-gw
-TRACK=$STATE/installed-files.txt
-BOOT_CONFIG=/boot/firmware/config.txt
-say() { printf '==> %s\n' "$*"; }
 [ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 1; }
-
-say "Stopping units"
-for u in palm-gwd palm-gw-dnsmasq palm-gwd-nm-bridge; do
-  systemctl disable --now "$u" 2>/dev/null || true
-done
-
-bridge=$(sed -n 's/^.*bridge *= *"\([^"]*\)".*$/\1/p' "$ETC/config.toml" 2>/dev/null | head -1)
-bridge=${bridge:-br-palm}
-if command -v nmcli >/dev/null && nmcli -t -f NAME con show | grep -qx "$bridge"; then
-  nmcli con delete "$bridge" >/dev/null && say "Removed NetworkManager connection $bridge"
+BIN=/usr/local/bin/palm-gw
+if [ ! -x "$BIN" ]; then
+  echo "uninstall.sh: $BIN not found; nothing to remove (or the .deb is installed: use apt remove)" >&2
+  exit 1
 fi
-
-say "Restoring /etc/bluetooth/main.conf"
-if [ -x /usr/local/bin/palm-gwd ] && [ -f /etc/bluetooth/main.conf ]; then
-  if [ "$(/usr/local/bin/palm-gwd -main-conf-remove /etc/bluetooth/main.conf)" = changed ]; then
-    systemctl restart bluetooth 2>/dev/null || true
-    echo "    managed block removed, bluetooth restarted"
-  else
-    echo "    no managed block present"
-  fi
-fi
-
-say "Removing firewall table"
-nft delete table inet palm_gw 2>/dev/null || true
-if [ -f /etc/nftables.conf ]; then
-  sed -i '/^# palm-gw$/d; /^include "\/etc\/nftables.d\/palm-gw.nft"$/d' /etc/nftables.conf
-fi
-
-say "Removing files"
-if [ -f "$TRACK" ]; then
-  while IFS= read -r f; do
-    case "$f" in "$STATE"/*|"$ETC"/*|/etc/bluetooth/main.conf) continue ;; esac
-    [ -e "$f" ] && rm -f "$f" && echo "    $f"
-  done < "$TRACK"
-fi
-rmdir /usr/local/lib/palm-gw 2>/dev/null || true
-systemctl daemon-reload
-systemctl reload-or-restart nftables 2>/dev/null || true
-
-if [ -f "$STATE/install-info.json" ] && grep -q '"added_disable_bt": *true' "$STATE/install-info.json"; then
-  sed -i '/^# palm-gw: onboard Bluetooth disabled/d; /^dtoverlay=disable-bt$/d' "$BOOT_CONFIG"
-  say "Removed dtoverlay=disable-bt from $BOOT_CONFIG (reboot to re-enable the onboard radio)"
-fi
-
-if [ "${PURGE:-0}" = 1 ]; then
-  rm -rf "$ETC" "$STATE"
-  say "Purged $ETC and $STATE"
-else
-  rm -f "$ETC/dnsmasq.conf" "$TRACK"
-  say "Kept $ETC/config.toml and $STATE (PURGE=1 removes them)"
-fi
-say "Done"
+args=(setup --remove)
+[ "${PURGE:-0}" = 1 ] && args+=(--purge)
+"$BIN" "${args[@]}"
+echo "==> Done"

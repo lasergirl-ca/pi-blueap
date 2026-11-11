@@ -5,10 +5,12 @@
 #
 #   sudo make install [ADAPTER=onboard|dongle] [UPLINK=eth0|wlan0] [CONFIG=path/to/config.toml]
 #
+# ADAPTER unset keeps the current adapter mode (onboard on a first install).
+#
 # Enables the bridge, dnsmasq, nftables and palm-gwd units (ENABLE_PALM_GWD=0 to leave the daemon off).
 set -euo pipefail
 
-ADAPTER=${ADAPTER:-onboard}
+ADAPTER=${ADAPTER:-}
 UPLINK=${UPLINK:-}
 CONFIG=${CONFIG:-}
 ENABLE_PALM_GWD=${ENABLE_PALM_GWD:-1}
@@ -16,14 +18,10 @@ VERSION=${VERSION:-dev}
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 BIN_DIR=/usr/local/bin
-LIB_DIR=/usr/local/lib/palm-gw
 ETC=/etc/palm-gw
 STATE=/var/lib/palm-gw
 TRACK=$STATE/installed-files.txt
-BOOT_CONFIG=/boot/firmware/config.txt
-BOOT_CMDLINE=/boot/firmware/cmdline.txt
 REBOOT_REQUIRED=0
-ADDED_DISABLE_BT=0
 
 say()  { printf '==> %s\n' "$*"; }
 note() { printf '    %s\n' "$*"; }
@@ -45,15 +43,6 @@ place() {
   track "$dst"
 }
 
-# render SRC DST MODE: render a deploy/ template through palm-gwd using the live config.
-render() {
-  local src=$1 dst=$2 mode=$3 tmp
-  tmp=$(mktemp)
-  "$BIN_DIR/palm-gwd" -config "$ETC/config.toml" -render "$src" > "$tmp"
-  place "$tmp" "$dst" "$mode"
-  rm -f "$tmp"
-}
-
 # ---------------------------------------------------------------- 1. preconditions
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo make install)"
 [ "$(uname -s)" = Linux ] || die "Linux only; never run make install on the development machine"
@@ -62,7 +51,7 @@ arch=$(uname -m)
 BOARD=$(ALLOW_UNSUPPORTED=1 "$REPO/scripts/detect-board.sh")
 [ "$BOARD" = other ] && warn "unsupported board; continuing anyway"
 say "Board: $BOARD, kernel $(uname -r)"
-[ -f "$BOOT_CONFIG" ] || die "$BOOT_CONFIG not found: Raspberry Pi OS Bookworm or newer is required"
+[ -f /boot/firmware/config.txt ] || die "/boot/firmware/config.txt not found: Raspberry Pi OS Bookworm or newer is required"
 command -v systemctl >/dev/null || die "systemd is required"
 command -v apt-get   >/dev/null || die "apt is required"
 
@@ -114,11 +103,13 @@ if [ -z "$src_dir" ]; then
   fi
 fi
 for b in palm-gwd palm-gwctl palm-gw fake-palm; do place "$src_dir/$b" "$BIN_DIR/$b" 0755; done
-install -d "$LIB_DIR"
-place "$REPO/scripts/nm-bridge.sh" "$LIB_DIR/nm-bridge.sh" 0755
-place "$REPO/scripts/detect-board.sh" "$LIB_DIR/detect-board.sh" 0755
 
-# ---------------------------------------------------------------- 5. config
+# ---------------------------------------------------------------- 5. static files
+# Units, the bridge helper, NetworkManager's unmanaged list, modules-load and the pppd options,
+# rendered for the source layout (/usr/local, /etc) and recorded in the manifest (D-042).
+"$BIN_DIR/palm-gw" setup --install-files --layout source
+
+# ---------------------------------------------------------------- 6. config
 say "Configuration"
 install -d -m 0750 "$ETC"
 if [ -f "$ETC/config.toml" ]; then
@@ -137,163 +128,23 @@ else
   note "$ETC/config.toml written from $(basename "$src") with uplink = \"$UPLINK\""
 fi
 "$BIN_DIR/palm-gwd" -config "$ETC/config.toml" -check
-UPLINK=$("$BIN_DIR/palm-gwd" -config "$ETC/config.toml" -render <(printf '{{UPLINK}}'))
 
-# ---------------------------------------------------------------- 6. system files
-say "System files"
-render "$REPO/deploy/systemd/palm-gwd.service"            /etc/systemd/system/palm-gwd.service 0644
-render "$REPO/deploy/systemd/palm-gwd-nm-bridge.service"  /etc/systemd/system/palm-gwd-nm-bridge.service 0644
-render "$REPO/deploy/systemd/palm-gw-dnsmasq.service"     /etc/systemd/system/palm-gw-dnsmasq.service 0644
-render "$REPO/deploy/NetworkManager/conf.d/palm-gw.conf"  /etc/NetworkManager/conf.d/palm-gw.conf 0644
-render "$REPO/deploy/dnsmasq/palm-gw.conf.tmpl"           "$ETC/dnsmasq.conf" 0644
-render "$REPO/deploy/sysctl.d/90-palm-gw.conf"            /etc/sysctl.d/90-palm-gw.conf 0644
-render "$REPO/deploy/modules-load.d/palm-gw.conf"         /etc/modules-load.d/palm-gw.conf 0644
-render "$REPO/deploy/ppp/options.palm"                    /etc/ppp/options.palm 0644
-
-# ---------------------------------------------------------------- 6b. bluetooth main.conf
-say "BlueZ main.conf managed block"
-MAINCONF=/etc/bluetooth/main.conf
-if [ -f "$MAINCONF" ] && [ ! -f "$STATE/main.conf.orig" ]; then
-  cp -p "$MAINCONF" "$STATE/main.conf.orig"   # belt and braces; the block is reversible on its own
-fi
-track "$MAINCONF"   # listed so uninstall knows to strip the block (it never deletes this file)
-mc=$("$BIN_DIR/palm-gwd" -config "$ETC/config.toml" -state "$STATE" -main-conf "$MAINCONF")
-BLUETOOTH_RESTART=0
-if [ "$mc" = changed ]; then note "$MAINCONF: managed block written (Name, Class, timeouts, JustWorksRepairing, ReverseServiceDiscovery, AutoEnable)"; BLUETOOTH_RESTART=1; else note "$MAINCONF: managed block unchanged"; fi
-
-for m in bnep rfcomm ppp_generic ppp_async; do modprobe "$m" 2>/dev/null || warn "modprobe $m failed"; done
-# The bridge key is applied again after the units start (the bridge may not exist yet here).
-sysctl -q -p /etc/sysctl.d/90-palm-gw.conf 2>/dev/null || true
-
-# ---------------------------------------------------------------- 7. nftables
-say "nftables"
-install -d /etc/nftables.d
-render "$REPO/deploy/nftables/palm-gw.nft.tmpl" /etc/nftables.d/palm-gw.nft 0644
-if [ ! -f /etc/nftables.conf ]; then
-  printf '#!/usr/sbin/nft -f\nflush ruleset\n' > /etc/nftables.conf
-  chmod 0755 /etc/nftables.conf
-  note "/etc/nftables.conf created"
-fi
-include_line='include "/etc/nftables.d/palm-gw.nft"'
-if grep -qxF "$include_line" /etc/nftables.conf; then
-  note "include line already in /etc/nftables.conf"
-else
-  printf '\n# palm-gw\n%s\n' "$include_line" >> /etc/nftables.conf
-  note "include line appended to /etc/nftables.conf"
-fi
-nft -c -f /etc/nftables.conf
-
-# ---------------------------------------------------------------- 8. adapter mode
-say "Bluetooth adapter: $ADAPTER"
-case "$ADAPTER" in
-  onboard) note "onboard radio stays enabled" ;;
-  dongle)
-    if grep -qE '^\s*dtoverlay=disable-bt\s*$' "$BOOT_CONFIG"; then
-      note "dtoverlay=disable-bt already in $BOOT_CONFIG"
-    else
-      printf '\n# palm-gw: onboard Bluetooth disabled so the USB dongle is hci0\ndtoverlay=disable-bt\n' >> "$BOOT_CONFIG"
-      ADDED_DISABLE_BT=1; REBOOT_REQUIRED=1
-      note "dtoverlay=disable-bt added to $BOOT_CONFIG"
-    fi
-    systemctl disable --now hciuart 2>/dev/null || true
-    # A kept config may name the onboard radio (hci1, or its address, D-035).
-    # Once the onboard radio is off the dongle is the only adapter, so warn
-    # unless the config names hci0, auto, or a USB adapter's address.
-    cfg_adapter=$("$BIN_DIR/palm-gwd" -config "$ETC/config.toml" -render <(printf '{{ADAPTER}}'))
-    case "$cfg_adapter" in
-      hci0|auto) ;;
-      *)
-        usb_addrs=""
-        for h in /sys/class/bluetooth/hci*; do
-          [ "$(basename "$(readlink -f "$h/device/subsystem" 2>/dev/null)")" = usb ] || continue
-          usb_addrs="$usb_addrs $(busctl get-property org.bluez "/org/bluez/$(basename "$h")" org.bluez.Adapter1 Address 2>/dev/null | awk -F'"' '{print toupper($2)}')"
-        done
-        case " $usb_addrs " in
-          *" $(printf '%s' "$cfg_adapter" | tr a-f A-F) "*) note "adapter = \"$cfg_adapter\" in $ETC/config.toml is the USB dongle" ;;
-          *) warn "adapter = \"$cfg_adapter\" in $ETC/config.toml is not a USB dongle here; with the onboard radio off the gateway will not find it. Set adapter = \"auto\", \"hci0\" or the dongle's address before rebooting" ;;
-        esac
-        ;;
-    esac
-    ;;
-  *) die "ADAPTER must be onboard or dongle" ;;
-esac
-if [ "$BOARD" = pi4 ] && [ -f "$BOOT_CMDLINE" ] && grep -qE 'console=(serial0|ttyAMA0)' "$BOOT_CMDLINE"; then
-  warn "Pi 4: a serial console on serial0/ttyAMA0 in $BOOT_CMDLINE can conflict with the onboard Bluetooth UART (PLAN.md section 3)"
-fi
-case "$UPLINK" in
-  wlan*)
-    # iw is not installed on Pi OS Lite; NetworkManager knows the frequency too.
-    freq=""
-    if command -v iw >/dev/null; then
-      freq=$(iw dev "$UPLINK" link 2>/dev/null | sed -n 's/.*freq: *\([0-9]*\).*/\1/p' | head -1)
-    fi
-    if [ -z "$freq" ] && command -v nmcli >/dev/null; then
-      freq=$(nmcli -t -f IN-USE,FREQ dev wifi list ifname "$UPLINK" --rescan no 2>/dev/null | sed -n 's/^\*:\([0-9]*\).*/\1/p' | head -1)
-    fi
-    if [ -n "$freq" ]; then
-      note "uplink $UPLINK is on $freq MHz"
-      if [ "$freq" -lt 3000 ] && [ "$ADAPTER" = onboard ]; then
-        warn "uplink $UPLINK is on 2.4 GHz ($freq MHz) with the onboard adapter; Bluetooth 1.1 Palms will suffer. Prefer Ethernet, 5 GHz, or a USB dongle."
-      fi
-    else
-      warn "could not read the Wi-Fi frequency of $UPLINK (no iw, no nmcli); check it is 5 GHz"
-    fi ;;
-esac
-
-# ---------------------------------------------------------------- 9. units
-say "Units"
-systemctl daemon-reload
-if [ "$BLUETOOTH_RESTART" = 1 ] || ! systemctl is-active --quiet bluetooth; then
-  systemctl restart bluetooth; note "bluetooth restarted"
-else
-  note "bluetooth left running (main.conf unchanged)"
-fi
-systemctl enable --now nftables >/dev/null 2>&1 && note "nftables enabled"
-systemctl reload-or-restart nftables
-systemctl enable --now palm-gwd-nm-bridge >/dev/null 2>&1 && note "palm-gwd-nm-bridge enabled and started"
-systemctl enable --now palm-gw-dnsmasq   >/dev/null 2>&1 && note "palm-gw-dnsmasq enabled and started"
-sysctl -q -p /etc/sysctl.d/90-palm-gw.conf 2>/dev/null || true
-note "sysctl applied: ip_forward=$(sysctl -n net.ipv4.ip_forward) rp_filter=$(sysctl -n net.ipv4.conf.all.rp_filter)"
-if [ "$ENABLE_PALM_GWD" = 1 ]; then
-  systemctl enable palm-gwd >/dev/null 2>&1
-  systemctl restart palm-gwd && note "palm-gwd enabled and (re)started"
-else
+# ---------------------------------------------------------------- 7. apply
+# Everything rendered from config.toml (dnsmasq, nftables, sysctl, bridge.env, the main.conf
+# block, the adapter mode in config.txt), then the units in order and install-info.json. The
+# same step the wizard and the .deb's postinst run. It ends with detection's warnings (Wi-Fi band,
+# Pi 4 console UART, power supply).
+apply_args=(--apply)
+[ -n "$ADAPTER" ] && apply_args+=(--adapter-mode "$ADAPTER")
+[ "$ENABLE_PALM_GWD" = 1 ] || apply_args+=(--no-start)
+apply_out=$(mktemp)
+"$BIN_DIR/palm-gw" setup "${apply_args[@]}" | tee "$apply_out" | grep -v "^Reboot required:"
+grep -q '^Reboot required: YES' "$apply_out" && REBOOT_REQUIRED=1
+rm -f "$apply_out"
+if [ "$ENABLE_PALM_GWD" != 1 ]; then
   systemctl disable --now palm-gwd >/dev/null 2>&1 || true
   note "palm-gwd installed but not enabled (ENABLE_PALM_GWD=0)"
 fi
-
-# ---------------------------------------------------------------- 10. install-info
-say "Recording install-info.json"
-# bluetoothctl can print async [CHG] events, with colour codes, before the list; keep only the
-# Controller lines.
-adapters=$(timeout 5 bluetoothctl list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep '^Controller ' | sed 's/"/\\"/g' | paste -sd'|' - || true)
-bluez=$(bluetoothctl --version 2>/dev/null | awk '{print $NF}' || true)
-pppd_v=$(pppd --version 2>&1 | awk '{print $NF}' | head -1 || true)
-nm_v=$(nmcli --version 2>/dev/null | awk '{print $NF}' || true)
-prev_added=0
-[ -f "$STATE/install-info.json" ] && grep -q '"added_disable_bt": *true' "$STATE/install-info.json" && prev_added=1
-[ "$prev_added" = 1 ] && ADDED_DISABLE_BT=1
-cat > "$STATE/install-info.json" <<JSON
-{
-  "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "version": "$VERSION",
-  "install_path": "source",
-  "board": "$BOARD",
-  "model": "$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || echo unknown)",
-  "kernel": "$(uname -r)",
-  "os": "$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")",
-  "bluez": "$bluez",
-  "pppd": "$pppd_v",
-  "networkmanager": "$nm_v",
-  "nftables": "$(nft --version 2>/dev/null | awk '{print $2}')",
-  "dnsmasq": "$(dnsmasq --version 2>/dev/null | head -1 | awk '{print $3}')",
-  "adapter_mode": "$ADAPTER",
-  "adapters": "$adapters",
-  "uplink": "$UPLINK",
-  "added_disable_bt": $([ "$ADDED_DISABLE_BT" = 1 ] && echo true || echo false)
-}
-JSON
-track "$STATE/install-info.json"
 
 # ---------------------------------------------------------------- done
 say "Done"
@@ -307,4 +158,4 @@ palm-gw $VERSION is installed.
   Logs:      journalctl -fu palm-gwd
   Uninstall: sudo make uninstall  (PURGE=1 also removes config and state)
 TXT
-[ "$REBOOT_REQUIRED" = 1 ] && echo "Reboot required: YES (onboard Bluetooth disabled for dongle mode)" || echo "Reboot required: no"
+[ "$REBOOT_REQUIRED" = 1 ] && echo "Reboot required: YES (the adapter mode changed)" || echo "Reboot required: no"

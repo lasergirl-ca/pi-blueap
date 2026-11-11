@@ -279,7 +279,8 @@ palm-gw/
 │   └── bootstrap-install.sh         # the `curl | sudo bash` script: detects arch/board, fetches release .deb, installs, launches setup
 ├── deploy/
 │   ├── systemd/palm-gwd.service
-│   ├── systemd/palm-gwd-nm-bridge.service      # oneshot: ensure br-palm via nmcli (idempotent)
+│   ├── systemd/palm-gwd-nm-bridge.service      # oneshot: ensure br-palm via nmcli (idempotent); reads /etc/palm-gw/bridge.env (D-042)
+│   ├── lib/nm-bridge.sh                         # its helper (D-042; was scripts/)
 │   ├── bluetooth/main.conf.block                # managed block merged into /etc/bluetooth/main.conf (section 8.1)
 │   ├── NetworkManager/conf.d/palm-gw.conf      # unmanaged bnep*, ppp*
 │   ├── dnsmasq/palm-gw.conf.tmpl                 # rendered to /etc/palm-gw/dnsmasq.conf
@@ -809,7 +810,7 @@ Wants=bluetooth.service palm-gwd-nm-bridge.service nftables.service palm-gw-dnsm
 
 [Service]
 Type=notify
-ExecStart=/usr/local/bin/palm-gwd -config /etc/palm-gw/config.toml
+ExecStart=/usr/local/bin/palm-gwd -config /etc/palm-gw/config.toml   # {{BIN_DIR}}: /usr/bin in the .deb (D-042)
 ExecReload=/usr/local/bin/palm-gwctl reload
 Restart=always
 RestartSec=3
@@ -873,7 +874,7 @@ curl -fsSL https://github.com/<owner>/palm-gw/releases/latest/download/install.s
 - `postinst`: create `palm-gw` group, `systemctl daemon-reload`, enable `palm-gwd-nm-bridge`, `palm-gw-dnsmasq`, `nftables`, `palm-gwd` but **do not start** `palm-gwd` until a config exists (`ConditionPathExists=/etc/palm-gw/config.toml` in the unit); print "Run `sudo palm-gw setup` to finish."
 - `prerm`/`postrm`: stop units; on purge remove `/etc/palm-gw`, `/var/lib/palm-gw`, the NM `br-palm` connection, the include line in `/etc/nftables.conf`, and the `dtoverlay=disable-bt` line **only if** `install-info.json` says the package added it.
 
-**Path C: from source.** `make install` builds and runs the same steps as the .deb's file layout plus `postinst`, for developers. Tracks placed files in `/var/lib/palm-gw/installed-files.txt` for `make uninstall`.
+**Path C: from source.** `make install` builds and runs the same steps as the .deb's file layout plus `postinst`, for developers. Tracks placed files in `/var/lib/palm-gw/installed-files.txt` for `make uninstall`. **Amended by D-042:** the static files are written by `palm-gw setup --install-files --layout source` and everything rendered from `config.toml` by `palm-gw setup --apply`, the same step the wizard and the `.deb` run; `make uninstall` is `palm-gw setup --remove`.
 
 **The wizard: `palm-gw setup`.** Interactive when on a TTY, flag-driven otherwise (`--uplink`, `--adapter`, `--name`, `--web-password-file`, `--subnet`, `--yes`). It never asks a question it can answer by looking.
 
@@ -913,7 +914,7 @@ Reboot required: no
 | `build` | `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe)"` for host |
 | `build-arm64` | same with `GOOS=linux GOARCH=arm64` into `dist/` |
 | `test`, `lint`, `vet` | obvious |
-| `install` | runs `scripts/install.sh` (needs root); accepts `ADAPTER=onboard|dongle`, `UPLINK=eth0|wlan0`, `CONFIG=path` |
+| `install` | runs `scripts/install.sh` (needs root); accepts `ADAPTER=onboard|dongle` (unset keeps the current mode, D-042), `UPLINK=eth0|wlan0`, `CONFIG=path` |
 | `uninstall` | `scripts/uninstall.sh`: stops units, removes every file the installer placed (tracked in `/var/lib/palm-gw/installed-files.txt`), removes the `include` line it added to `/etc/nftables.conf`, deletes the `br-palm` NM connection, leaves `/etc/palm-gw/config.toml` and the state file unless `PURGE=1` |
 | `support-bundle` | `scripts/support-bundle.sh` → `palm-gw-support-<ts>.tar.gz` |
 | `deb` | `nfpm package -p deb` → `dist/palm-gw_<ver>_arm64.deb` |
@@ -944,7 +945,7 @@ Served by `palm-gwd` itself (same process, so it reads the session table directl
 
 **Tests.** `httptest` coverage of auth (no cookie → redirect, bad CSRF → 403, rate limit), every mutating route against a fake ctl backend, and template rendering with an empty state. A Playwright smoke test in CI against the daemon running with a mock BlueZ is a stretch goal; record as such.
 
-`scripts/install.sh` steps (Path C, and what the .deb `postinst` plus `palm-gw setup` do between them), each idempotent and each echoing what it did or that it was already done:
+`scripts/install.sh` steps (Path C, and what the .deb `postinst` plus `palm-gw setup` do between them), each idempotent and each echoing what it did or that it was already done. Since D-042, steps 5 to 11 are `palm-gw setup --install-files` and `palm-gw setup --apply`:
 
 1. Refuse to run without root; detect board (section 3); refuse non-arm64 OS.
 2. `apt-get install -y bluez ppp dnsmasq nftables` (and `network-manager` if missing, with a warning that this changes network management).

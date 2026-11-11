@@ -1531,3 +1531,45 @@ warnings:
 
 The rig's supply negotiates 1500 mA, not 5 A. That is fine for the dongle, but worth knowing
 if other USB devices are added.
+
+### Part 2: the apply step in Go (D-042), 2026-11-10
+
+`go test ./internal/setup/` covers:
+- both layouts' static files: units point at the layout's binaries, the bridge unit reads
+  `bridge.env`, and no template action is left over;
+- `ApplySystem` on a fake root: every configuration file is written, the `nft -c` check runs
+  before any unit starts, then the bridge, dnsmasq, sysctl and `palm-gwd` start in that order;
+  a second run changes nothing and restarts neither the bridge nor Bluetooth, and the include
+  line is not duplicated;
+- dongle mode: it warns about an adapter pinned to the onboard radio, adds `disable-bt` once,
+  keeps the mode when it is not given, and takes the line out again for onboard;
+- `RemoveSystem`, then a reinstall that restores dongle mode, then a purge.
+
+On the Pi 5 (dongle mode, T|X paired), `sudo make install` over the Phase 5 install (no
+`ADAPTER=`):
+
+```
+==> Static files (source layout)
+    /etc/systemd/system/palm-gwd-nm-bridge.service written
+==> Configuration files
+    /etc/palm-gw/bridge.env written
+==> Bluetooth adapter mode
+    dtoverlay=disable-bt already in /boot/firmware/config.txt
+    adapter = "60:15:6F:E9:EB:03" is the USB dongle
+==> Units
+    systemctl restart palm-gwd-nm-bridge      (bridge.env is new)
+    systemctl start palm-gw-dnsmasq           (dnsmasq.conf unchanged)
+Reboot required: no
+```
+
+`sudo make uninstall` then removed the units, binaries, helper scripts, NetworkManager and
+modules-load files, the nftables file and include line, sysctl file, `bridge.env`,
+`dnsmasq.conf` and the `disable-bt` line, and deleted the `br-palm` connection. Afterwards
+`cmp /etc/bluetooth/main.conf /var/lib/palm-gw/main.conf.orig` matched, only
+`table inet filter` was left in nftables, and `/etc/palm-gw` held only `config.toml`.
+
+`sudo make install` again restored everything, including dongle mode from `install-info.json`.
+`config.toml` and `state.json` were byte-identical to copies taken before the uninstall. The
+T|X was still `paired,trusted` and allowlisted, and all five units were active. `--apply` now
+ends with detection's warnings (here, the 1500 mA supply), which replaces `install.sh`'s
+shell checks for the Wi-Fi band and the Pi 4 console UART.

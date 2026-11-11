@@ -1,5 +1,5 @@
 [Unit]
-Description=palm-gw: ensure the {{BRIDGE}} bridge exists via NetworkManager
+Description=palm-gw: ensure the Palm bridge exists via NetworkManager
 After=NetworkManager.service
 Wants=NetworkManager.service
 Before=palm-gwd.service palm-gw-dnsmasq.service
@@ -7,7 +7,10 @@ Before=palm-gwd.service palm-gw-dnsmasq.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/lib/palm-gw/nm-bridge.sh {{BRIDGE}} {{GATEWAY}} {{PREFIX}}
+# Written by `palm-gw setup --apply` from config.toml, so this unit stays the same for every
+# configuration and can ship in the package.
+EnvironmentFile=/etc/palm-gw/bridge.env
+ExecStart={{LIB_DIR}}/nm-bridge.sh ${BRIDGE} ${GATEWAY} ${PREFIX}
 
 [Install]
 WantedBy=multi-user.target

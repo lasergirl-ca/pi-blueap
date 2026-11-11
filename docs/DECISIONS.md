@@ -84,7 +84,7 @@ rejects a subnet written with host bits set (`10.42.0.1/24`), each with the key 
 The units reference `/usr/local/bin/palm-gwd` exactly as section 8.10 writes them. Section 8.11's
 `.deb` puts binaries in `/usr/bin`, which Debian policy requires. How the two reconcile (the .deb
 rendering its own copies of the units, most likely) is decided in Phase 6; nothing in Phase 0
-depends on it.
+depends on it. Decided by D-042.
 
 ### D-011: The daemon sets the group of its runtime directory, not only of the socket
 
@@ -553,6 +553,66 @@ Phase 6 rather than wait. Phase 5 stays open: when the Pi 4 arrives, the Pi 4 ha
 (robustness script, T|X runs, dongle mode, PLAN.md section 3's Pi 4 notes) is run and recorded
 before Phase 8's release, along with Phase 6's own Pi 4 acceptance. Phase 6 work does not
 change anything Phase 5 accepted without re-running the affected Phase 5 checks on the Pi 5.
+
+### D-042: Static files by install layout; config files by `palm-gw setup --apply`
+
+Settles D-010 (unit paths for a source install versus the `.deb`) and moves the installer's
+system-file work from shell into Go (`internal/setup`). Section 8.11 has the wizard render
+`deploy/` itself, and the `.deb` has to do the same in postinst, so the two now share one code
+path. The files split by what they depend on:
+
+- **Static files, which depend only on the install layout:**
+  - the three units;
+  - `nm-bridge.sh`, moved from `scripts/` to `deploy/lib/` so it can be embedded;
+  - NetworkManager's unmanaged list;
+  - the modules-load list;
+  - the pppd options.
+
+  They are text templates with `{{BIN_DIR}}` and `{{LIB_DIR}}`.
+  - The **source** layout uses `/usr/local/bin`, `/usr/local/lib/palm-gw`,
+    `/etc/systemd/system`, `/etc/NetworkManager/conf.d` and `/etc/modules-load.d`.
+  - The **deb** layout uses `/usr/bin`, `/usr/lib/palm-gw`, `/usr/lib/systemd/system`,
+    `/usr/lib/NetworkManager/conf.d` and `/usr/lib/modules-load.d`. systemd, NetworkManager
+    and modules-load all read those directories, so the package owns the files outright.
+  - `/etc/ppp/options.palm` is the same in both layouts, and a conffile in the `.deb`.
+  - `palm-gw setup --install-files --layout source|deb [--root DIR]` writes them. `install.sh`
+    uses it with the source layout, and `make deb` will use it with the deb layout into a
+    staging tree.
+- **Configuration files, which depend on `config.toml`:**
+  - `/etc/palm-gw/dnsmasq.conf`;
+  - `/etc/nftables.d/palm-gw.nft` and the include line in `/etc/nftables.conf`;
+  - `/etc/sysctl.d/90-palm-gw.conf`;
+  - the `main.conf` block;
+  - `dtoverlay=disable-bt` in `config.txt`;
+  - a new `/etc/palm-gw/bridge.env`.
+
+  `palm-gw setup --apply` renders them, checks the firewall with `nft -c`, and starts the units
+  in order: bridge, then dnsmasq, then sysctl, then `palm-gwd`. The bridge unit now reads
+  `bridge.env` (`EnvironmentFile=`) instead of having the bridge, gateway and prefix rendered
+  into its `ExecStart`, so the unit is static and can ship in the package. The apply step
+  restarts the bridge only when `bridge.env` changed, and dnsmasq only when its configuration
+  changed, because restarting the bridge drops PAN clients. It ends with detection's warnings
+  (Phase 6 part 1).
+- **`palm-gw setup --remove [--purge]`** undoes both:
+  - it stops the units, deletes the bridge connection, and strips the `main.conf` block and the
+    nftables include;
+  - it removes `disable-bt` only if palm-gw added it;
+  - it deletes every path in `/var/lib/palm-gw/installed-files.txt`.
+
+  `config.toml` and `state.json` stay unless `--purge` is given. `install-info.json` also stays,
+  with `added_disable_bt` cleared, so a reinstall restores the adapter mode. `make uninstall`
+  calls it.
+- **The adapter mode is now two-way.** `make install` without `ADAPTER=` keeps the current mode
+  (previously the default `onboard` was a no-op). `--adapter-mode onboard` takes out a
+  `disable-bt` line palm-gw added, and warns about one it did not add.
+
+`palm-gwd -render` and `-main-conf` (D-003) stay for compatibility, but the installer no longer
+uses them. Verified on the Pi 5 in dongle mode:
+- a reinstall rewrote only the changed files and kept dongle mode;
+- `make uninstall` removed every placed file and left `main.conf` byte-for-byte equal to
+  `main.conf.orig`;
+- a reinstall afterwards restored dongle mode, with `config.toml` and `state.json` unchanged
+  and the T|X still paired.
 
 ## Hardware observations
 

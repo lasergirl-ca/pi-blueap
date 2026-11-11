@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"palm-gw/internal/bluez"
@@ -41,11 +44,89 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	check := fs.Bool("check", false, "run detection only and print a health report")
 	asJSON := fs.Bool("json", false, "with --check: print the report as JSON")
 	cfgPath := fs.String("config", defaultConfigPath, "configuration file")
+	apply := fs.Bool("apply", false, "render the system files from the config and (re)start the units, without asking anything")
+	adapterMode := fs.String("adapter-mode", "", "with --apply: onboard or dongle (default: keep the current mode)")
+	noStart := fs.Bool("no-start", false, "with --apply: do not enable or restart palm-gwd")
+	installFiles := fs.Bool("install-files", false, "write the layout's static files (units, helpers) under --root")
+	layoutName := fs.String("layout", "", "source or deb (default: from where this binary lives)")
+	root := fs.String("root", "/", "with --install-files: target root (a staging directory for packaging)")
+	remove := fs.Bool("remove", false, "undo --apply and a source install's files; keeps config and paired devices")
+	purge := fs.Bool("purge", false, "with --remove: also delete config.toml and the paired devices")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if !*check {
-		fmt.Fprintln(stderr, "palm-gw setup: the wizard is not built yet (Phase 6); only --check works")
+	layout := currentLayout()
+	if *layoutName != "" {
+		l, err := setup.LayoutByName(*layoutName)
+		if err != nil {
+			fmt.Fprintln(stderr, "palm-gw setup:", err)
+			return 2
+		}
+		layout = l
+	}
+	switch {
+	case *installFiles:
+		if *root == "/" && os.Geteuid() != 0 {
+			fmt.Fprintln(stderr, "palm-gw setup --install-files: run as root (or give --root)")
+			return 1
+		}
+		manifestRoot := *root
+		if layout.Name == "deb" {
+			manifestRoot = "" // dpkg tracks the package's own files
+		}
+		fmt.Fprintf(stdout, "==> Static files (%s layout)\n", layout.Name)
+		if _, err := setup.InstallStatic(*root, layout, manifestRoot, stdout); err != nil {
+			fmt.Fprintln(stderr, "palm-gw setup:", err)
+			return 1
+		}
+		return 0
+	case *apply:
+		if os.Geteuid() != 0 {
+			fmt.Fprintln(stderr, "palm-gw setup --apply: run as root")
+			return 1
+		}
+		adapters, _ := bluezAdapters()
+		host := setup.LocalHost(nil)
+		res, err := setup.ApplySystem(setup.ApplyOptions{
+			ConfigPath:  *cfgPath,
+			Layout:      layout,
+			AdapterMode: *adapterMode,
+			Adapters:    adapters,
+			Board:       host.DetectBoard(),
+			Version:     version,
+			StartDaemon: !*noStart,
+			Run:         runCombined,
+			Out:         stdout,
+		})
+		if err != nil {
+			fmt.Fprintln(stderr, "palm-gw setup:", err)
+			return 1
+		}
+		// The same checks as --check (Wi-Fi band, Pi 4 console UART, supply).
+		if r := setup.LocalHost(bluezAdapters).Detect(*cfgPath); len(r.Warnings) > 0 {
+			fmt.Fprintln(stdout, "==> Checks")
+			for _, w := range r.Warnings {
+				fmt.Fprintf(stdout, "WARNING: %s\n", w)
+			}
+		}
+		if res.RebootRequired {
+			fmt.Fprintf(stdout, "Reboot required: YES (adapter mode is now %s)\n", res.AdapterMode)
+		} else {
+			fmt.Fprintln(stdout, "Reboot required: no")
+		}
+		return 0
+	case *remove:
+		if os.Geteuid() != 0 {
+			fmt.Fprintln(stderr, "palm-gw setup --remove: run as root")
+			return 1
+		}
+		if err := setup.RemoveSystem(setup.RemoveOptions{ConfigPath: *cfgPath, Purge: *purge, Run: runCombined, Out: stdout}); err != nil {
+			fmt.Fprintln(stderr, "palm-gw setup:", err)
+			return 1
+		}
+		return 0
+	case !*check:
+		fmt.Fprintln(stderr, "palm-gw setup: the wizard is not built yet (Phase 6); use --check, --apply, --install-files or --remove")
 		return 2
 	}
 	r := setup.LocalHost(bluezAdapters).Detect(*cfgPath)
@@ -63,6 +144,30 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// currentLayout is the layout this binary was installed with.
+func currentLayout() setup.Layout {
+	exe, err := os.Executable()
+	if err != nil {
+		return setup.SourceLayout
+	}
+	if p, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = p
+	}
+	return setup.LayoutOf(exe)
+}
+
+// runCombined runs a command; on failure the error carries its output.
+func runCombined(name string, args ...string) ([]byte, error) {
+	out, err := exec.Command(name, args...).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return out, fmt.Errorf("%w: %s", err, msg)
+		}
+	}
+	return out, err
 }
 
 func printReport(w io.Writer, r setup.Report) {
