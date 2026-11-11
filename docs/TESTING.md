@@ -1355,10 +1355,50 @@ src/profile.c:ext_connect() LAN Access using PPP connected to 00:07:E0:3C:5E:FA
 palm-gwd: 19:01:10.069 connection lap, 19:01:10.080 session_start, 19:01:10.139 session_up
 ```
 
+The T|X's own idle timeout (Prefs ▸ Network ▸ Details ▸ Idle timeout) hangs up a quiet session.
+One session at 19:01 ended after 1m29s with `LCP terminated by peer` and 4 bytes received. For
+the restart tests and the soak it is set to Never.
+
+`palm-gwd` restart mid-session: the T|X had a LAP session up (24 s). `sudo systemctl restart
+palm-gwd` at 19:45:30. pppd ended with `Terminating on signal 15` and the session was logged as
+ended (D-034: PPP sessions do not survive a daemon restart). `palm-gwd ready` came in the same
+second, the link to the T|X dropped at 19:45:34, and there were 7 fds and no pppd. The T|X
+reconnected on the first tap:
+
+```
+19:47:08.237 connection
+19:47:08.253 session_start
+19:47:08.321 session_up
+```
+
+Power cut with the T|X connected: the power cable was pulled with a LAP session up since 19:47.
+The Pi booted at 19:52:56 (new boot ID), and `palm-gwd`, `bluetooth` and `palm-gw-dnsmasq`
+were active, with `palm-gwd ready` at 19:53:03. There were no WARN or ERROR lines in the daemon
+log and 7 fds. The radios came up swapped (onboard on hci0), and `adapter = "2C:CF:67:2F:29:F5"`
+still picked the onboard one (D-035). Wi-Fi uplink: `default via 10.4.0.1 dev wlan0`, ping out
+fine. The only boot noise was a one-off `brcmf_cyw_external_auth: External authentication
+failed` before wlan0 associated. `ServicesResolved` was false again (a fresh `bluetoothd`), and
+the T|X connected on the first tap:
+
+```
+20:03:04.844 connection
+20:03:04.861 session_start
+20:03:04.937 session_up
+```
+
+24-hour soak started 2026-11-10 20:03, with the T|X connected (idle timeout Never). The
+`palm-test-soak` unit logs fds, RSS, pppd count, session uptime and unit states every 5 minutes
+to `/var/tmp/p5-soak.log`. First line:
+
+```
+2026-11-10 20:03:29 pid=877 fds=10 rss_kb=11216 pppd=2 session_up=24s units=active,active,active,
+```
+
+(10 fds and 2 pppd processes with one session up: pppd and its `charshunt` child.)
+
 ### Still to do for Phase 5
 
-- With the real T|X: a `palm-gwd` restart mid-session (reconnect on first tap); a power cut
-  with the Palm connected; the 24-hour soak.
+- The 24-hour soak result (started 2026-11-10 20:03).
 - USB dongle mode on the Pi 5 (`make install ADAPTER=dongle`, reboot, the Palm pairs with the
   dongle).
 - Everything above on a Pi 4 (Zoe will get one).
