@@ -48,7 +48,7 @@ func TestApplyStock(t *testing.T) {
 		t.Fatal("expected change")
 	}
 	// Block directly after [General], before the stock comments.
-	if !strings.Contains(out, "[General]\n"+BeginMarker+"\nName = Palm Gateway\nClass = 0x000300\nDiscoverableTimeout = 0\nPairableTimeout = 0\nJustWorksRepairing = always\nControllerMode = dual\n"+EndMarker+"\n") {
+	if !strings.Contains(out, "[General]\n"+BeginMarker+"\nName = Palm Gateway\nClass = 0x000300\nDiscoverableTimeout = 0\nPairableTimeout = 0\nJustWorksRepairing = always\nControllerMode = dual\nReverseServiceDiscovery = false\n"+EndMarker+"\n") {
 		t.Fatalf("General block wrong:\n%s", out)
 	}
 	if !strings.Contains(out, "[Policy]\n"+BeginMarker+"\nAutoEnable = true\n"+EndMarker+"\n") {

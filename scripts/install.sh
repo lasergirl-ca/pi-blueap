@@ -159,7 +159,7 @@ fi
 track "$MAINCONF"   # listed so uninstall knows to strip the block (it never deletes this file)
 mc=$("$BIN_DIR/palm-gwd" -config "$ETC/config.toml" -state "$STATE" -main-conf "$MAINCONF")
 BLUETOOTH_RESTART=0
-if [ "$mc" = changed ]; then note "$MAINCONF: managed block written (Name, Class, timeouts, JustWorksRepairing, AutoEnable)"; BLUETOOTH_RESTART=1; else note "$MAINCONF: managed block unchanged"; fi
+if [ "$mc" = changed ]; then note "$MAINCONF: managed block written (Name, Class, timeouts, JustWorksRepairing, ReverseServiceDiscovery, AutoEnable)"; BLUETOOTH_RESTART=1; else note "$MAINCONF: managed block unchanged"; fi
 
 for m in bnep rfcomm ppp_generic ppp_async; do modprobe "$m" 2>/dev/null || warn "modprobe $m failed"; done
 # The bridge key is applied again after the units start (the bridge may not exist yet here).

@@ -39,6 +39,10 @@ func ManagedSettings(cfg *config.Config, class uint32) []Setting {
 		{"General", "PairableTimeout", "0"},
 		{"General", "JustWorksRepairing", "always"},
 		{"General", "ControllerMode", "dual"},
+		// D-037: without this, BlueZ holds a trusted Palm's profile connection
+		// until it has browsed the Palm's SDP record, and after a bluetoothd
+		// restart nothing starts that browse, so the Palm sits on "Initializing".
+		{"General", "ReverseServiceDiscovery", "false"},
 		{"Policy", "AutoEnable", "true"},
 	}
 }

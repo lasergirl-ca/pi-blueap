@@ -444,6 +444,10 @@ JustWorksRepairing = always
 # Palms are BR/EDR only. Leaving LE on is harmless, but "dual" is the default anyway.
 ControllerMode = dual
 
+# D-037: otherwise BlueZ holds a trusted Palm's connection until it has browsed the Palm's SDP
+# record, and after a bluetoothd restart nothing starts that browse ("Initializing" forever).
+ReverseServiceDiscovery = false
+
 [Policy]
 AutoEnable = true
 ```
@@ -1062,6 +1066,7 @@ Palm's "PC" connection type was designed for Windows XP's **Incoming Connection*
 | Palm cannot find the Pi in Add Device | Not discoverable, wrong class, Wi-Fi coexistence | `bluetoothctl show` → `Discoverable: yes`, `Class:`; `btmon` shows inquiry responses? | Set `Discoverable`; try class `0x020104`; disable Wi-Fi or use dongle |
 | Palm finds the Pi but "Unable to connect" during pairing | No pairing window (agent rejected), or PIN mismatch | daemon log `pairing_rejected reason=no_window`; `btmon` shows `PIN Code Request` then `PIN Code Request Negative Reply` | open a window; re-enter PIN |
 | Pairs and connects on first try, never again after Palm reset | Palm lost its link key, Pi still has old one | `btmon` shows `Link Key Request` → Palm `Negative Reply` → `PIN Code Request` | `JustWorksRepairing = always` (already set); if still stuck, `palm-gwctl forget <addr>` and re-pair |
+| Paired Palm stuck on "Initializing" after the Pi or BlueZ restarted; re-pairing cures it until the next restart | BlueZ waiting for a reverse SDP browse that never starts (D-037) | `btmon` shows the Palm's RFCOMM `SABM` with no `UA`/`DM`; `bluetoothd` debug log stops at `authorizing connection`; no `connection` event in the daemon log | `ReverseServiceDiscovery = false` in the managed block (already set); check the block is present in `/etc/bluetooth/main.conf` |
 | "Established" but no web pages | DNS or NAT | On Palm, try `http://1.1.1.1/` vs a hostname; on Pi `nft list counters`, `tcpdump -i pppN` | check `ms-dns`, dnsmasq `listen-address`, `ip_forward`, masquerade on correct `uplink` |
 | Works for 30 to 90 s then drops | Wi-Fi coexistence, or `lcp-echo-failure` too aggressive, or Palm idle timeout | pppd stderr: `LCP terminated by peer` vs `No response to N echo-requests` | Ethernet uplink / dongle; raise `lcp-echo-interval`; Palm Network Details → Idle timeout: Never |
 | RFCOMM channel in use / second Palm cannot connect | Orphan pppd shunt holding the fd | `pgrep -a pppd`, daemon log `orphan_pppd` | `Setpgid` + kill process group; close daemon's fd copy after `Start()` |

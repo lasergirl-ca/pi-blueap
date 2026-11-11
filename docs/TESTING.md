@@ -1284,11 +1284,81 @@ The kernel's `tty_tiocmset` keeps only DTR, RTS, OUT1, OUT2 and LOOP from a mode
 carrier cannot be set from user space on any TTY, and the RFCOMM socket has no call for it. The
 change was reverted; D-036 records why T|X dial-up stays unsupported.
 
+### Real T|X over the Wi-Fi uplink, 2026-11-10
+
+Baseline before the T|X runs (12:31:41): `palm-gwd` 7 fds, 0 sessions, no pppd.
+
+The first attempt sat on "Initializing" on the T|X. bluetoothd accepted the LAP channel twice
+but never handed the connection to `palm-gwd` (no `connection` event), while fake-palm connected
+on the same channel at the same time. Cause unknown. After forgetting the T|X and pairing again
+(`palm-gwctl forget 00:07:E0:3C:5E:FA`, `palm-gwctl pair 5 --one`), the LAP session came up at
+12:40:09 and stayed reliable from then on.
+
+A session over the Wi-Fi uplink: CradleSync "Secure HotSync" ran through the gateway (8m47s
+session, about 2.1 MB received by the Palm). The only LAN-isolation drops were 3 TCP SYNs from
+the Palm to `10.4.0.7:14243` on the home LAN, which is the isolation rule doing its job.
+
+20 Connect/Disconnect toggles (Prefs ▸ Network, Disconnect then Connect): the gateway logged 23
+Connects and 23 Disconnects between 14:02:55 and 14:33:39. Every Connect produced a `connection`
+event and a `session_start` in the same second, with no failed or half-made attempts in the
+gateway or bluetoothd logs. The only bluetoothd line is BlueZ's harmless
+`ext_io_disconnected() ... getpeername: Transport endpoint is not connected` on each hang-up.
+The last session ended with the T|X closing PPP cleanly (`LCP terminated by peer`, 3m17s,
+353 KB sent to the Palm).
+
+```
+$ sudo journalctl -u palm-gwd --since 14:02:50 -o cat | grep -c '"session_start"'
+23
+$ sudo journalctl -u palm-gwd --since 14:02:50 -o cat | grep -c '"session_end"'
+23
+$ sudo journalctl -u palm-gwd --since 14:02:50 -o cat | grep -cE '"level":"(WARN|ERROR)"'
+0
+$ sudo ls /proc/$(pgrep -x palm-gwd)/fd | wc -l
+7
+$ pgrep -a pppd; palm-gwctl status | grep ^sessions
+sessions:  0 of 8, pool 0 of 10.42.0.10-10.42.0.99 in use
+```
+
+BlueZ restart mid-session: the T|X had a LAP session up (4m52s). `sudo systemctl restart
+bluetooth` at 15:38:02. The session ended cleanly (`Modem hangup`, no pppd left), and
+`palm-gwd` was back at 15:38:04 with the agent, all three profiles and NAP registered again
+(`recovered 1 times`).
+
+**First tap failed:** the T|X stuck on "Initializing", twice (15:39:03 and 15:41:13). btmon:
+
+```
+> RFCOMM: Set Async Balance Mode (SABM) (0x2f)  Address: 0x13 cr 1 dlci 0x04   15:39:03.609
+< HCI Authentication Requested ... Link Key Request Reply ... Auth Complete: Success
+< Set Connection Encryption ... Encryption: Enabled with E0                     15:39:03.794
+  (no UA or DM for dlci 4)
+< RFCOMM: Disconnect (DISC) dlci 0x00                                          15:39:32.564
+```
+
+`bluetoothd` debug log (`kill -USR2`) for the second attempt:
+
+```
+src/profile.c:ext_confirm() incoming connect from 00:07:E0:3C:5E:FA
+src/profile.c:ext_confirm() LAN Access using PPP authorizing connection from 00:07:E0:3C:5E:FA
+(nothing until the Palm dropped the link 28 s later)
+```
+
+The agent was never called, and the T|X's `info` file has no `Services=` line
+(`ServicesResolved` false). D-037 has the BlueZ code path. This is also what this morning's
+"Initializing" was, after the reboots. The fix adds `ReverseServiceDiscovery = false` to the
+managed block. After `sudo make install`, which wrote the block and restarted BlueZ at
+16:05:18 with `ServicesResolved` still false, the T|X connected on the first tap:
+
+```
+src/profile.c:ext_confirm() LAN Access using PPP authorizing connection from 00:07:E0:3C:5E:FA
+src/profile.c:ext_auth() 00:07:E0:3C:5E:FA authorized to connect to LAN Access using PPP
+src/profile.c:ext_connect() LAN Access using PPP connected to 00:07:E0:3C:5E:FA
+palm-gwd: 19:01:10.069 connection lap, 19:01:10.080 session_start, 19:01:10.139 session_up
+```
+
 ### Still to do for Phase 5
 
-- With the real T|X: 20 Connect/Disconnect toggles; a BlueZ restart and a `palm-gwd` restart
-  mid-session (reconnect on first tap); a power cut with the Palm connected; a session over the
-  Wi-Fi uplink; the 24-hour soak.
+- With the real T|X: a `palm-gwd` restart mid-session (reconnect on first tap); a power cut
+  with the Palm connected; the 24-hour soak.
 - USB dongle mode on the Pi 5 (`make install ADAPTER=dongle`, reboot, the Palm pairs with the
   dongle).
 - Everything above on a Pi 4 (Zoe will get one).

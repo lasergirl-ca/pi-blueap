@@ -423,6 +423,38 @@ kept unused. T|X dial-up (Connect to: Modem) stays unsupported; the T|X uses the
 over LAN Access, which works. DUN remains for clients that do not wait for a DV transition
 (fake-palm `--mode at`, and possibly other Palms; to be tried with the LifeDrive if one turns up).
 
+### D-037: The managed block sets `ReverseServiceDiscovery = false`
+
+PLAN.md section 8.1 lists the keys in the `main.conf` managed block; this adds one. Found with the
+real T|X on 2026-11-10: after any `bluetoothd` restart (a reboot, `systemctl restart bluetooth`,
+`make install`, `class toggle`), a paired, trusted Palm stuck on "Initializing" on every
+Connect until it was paired again. btmon showed the Palm's SABM on the LAP channel, the link
+authenticated and encrypted, and then no UA or DM until the Palm gave up 29 s later.
+`bluetoothd`'s debug log stopped at `ext_confirm() ... authorizing connection`. Our agent was
+never asked, and `palm-gwd` never got `NewConnection`.
+
+The cause is in BlueZ (5.82 and 5.66 alike). For a trusted device, `adapter_authorize` queues the
+grant behind `device_wait_for_svc_complete`, which waits for the device's SDP services to be
+resolved. They count as resolved after a restart only if the stored `info` file lists
+`Services=`, and a Palm's SDP record holds nothing BlueZ stores, so the T|X's file has none.
+When they are not resolved, the wait is only released by a browse. BlueZ schedules a reverse
+browse only from `device_bonding_complete`, so a plain reconnect never gets one and the grant
+never comes. Pairing again runs the browse, which is why re-pairing "fixed" it until the next
+restart. fake-palm never hit it, because its adapter's record has services stored.
+
+`ReverseServiceDiscovery = false` makes `device_wait_for_svc_complete` release at once. Its
+other effects:
+- BlueZ no longer browses SDP records of devices that pair with us. The gateway only serves
+  profiles and never connects out to a Palm's services, so nothing uses those records.
+- BlueZ skips the GATT client for LE devices that connect to the Pi. LE devices the Pi itself
+  connects to, such as a keyboard, keep their GATT client.
+
+Alternatives not taken:
+- Having `palm-gwd` start a browse with `Device1.Connect` when an allowlisted device connects
+  while `ServicesResolved` is false: it races the Palm's own timeout, and `Connect` would also
+  try outgoing profile connections.
+- Writing `Services=` into BlueZ's storage files.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08
