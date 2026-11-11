@@ -455,6 +455,19 @@ Alternatives not taken:
   try outgoing profile connections.
 - Writing `Services=` into BlueZ's storage files.
 
+### D-038: The 24-hour soak is deferred to field use
+
+PLAN.md section 10, Phase 5 lists a 24-hour soak with a Palm connected. On 2026-11-10 Zoe decided
+to skip it on the bench and get it in the field instead, by using the gateway day to day with the
+T|X. The rest of Phase 5's accept criteria for the real T|X were met that day:
+- 23 of 23 toggles connected on the first tap.
+- BlueZ restart, `palm-gwd` restart and power cut each reconnected on the first tap.
+- fds stayed at the baseline and no pppd was orphaned.
+
+The `palm-test-soak` logger was started at 20:03 and stopped at 20:05 without results. Anything a
+long session turns up in the field (a dropped link that does not come back on the first tap,
+growing fds or RSS in `palm-gwctl status` and `/proc`) goes into TESTING.md and a new decision.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

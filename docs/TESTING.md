@@ -1386,20 +1386,13 @@ the T|X connected on the first tap:
 20:03:04.937 session_up
 ```
 
-24-hour soak started 2026-11-10 20:03, with the T|X connected (idle timeout Never). The
-`palm-test-soak` unit logs fds, RSS, pppd count, session uptime and unit states every 5 minutes
-to `/var/tmp/p5-soak.log`. First line:
-
-```
-2026-11-10 20:03:29 pid=877 fds=10 rss_kb=11216 pppd=2 session_up=24s units=active,active,active,
-```
-
-(10 fds and 2 pppd processes with one session up: pppd and its `charshunt` child.)
+24-hour soak: deferred to field use (D-038). The logger ran from 20:03 to 20:05 and was stopped
+with the T|X still connected (session up 2m15s).
 
 ### Still to do for Phase 5
 
-- The 24-hour soak result (started 2026-11-10 20:03).
 - USB dongle mode on the Pi 5 (`make install ADAPTER=dongle`, reboot, the Palm pairs with the
   dongle).
 - Everything above on a Pi 4 (Zoe will get one).
 - Android or Windows as a PAN client if one turns up (D-033).
+- Put the Pi's uplink back on eth0 after the Wi-Fi tests.

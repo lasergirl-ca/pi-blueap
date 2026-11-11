@@ -1007,7 +1007,7 @@ Bridge polling, `NetworkServer1.Register`, NM unmanaged config, DHCP for PANU.
 **Accept:** `fake-palm pan` gets a lease in the DHCP range and reaches the internet with the same isolation. An Android phone paired through a window and toggled "Internet access" on the Pi entry also works. (D-033: accepted on fake-palm alone; the Android check moves to Phase 5.) `brctl show`/`bridge link` shows `bnep0` enslaved; NetworkManager does not list `bnep0` as a managed device.
 
 ### Phase 5: Robustness and both boards
-Reconnect storms with the real Palm (toggle Connect/Disconnect 20 times), T|X dial-up carrier detect on an RFCOMM TTY (D-025; not possible from user space, D-036), BlueZ restart mid-session, `systemctl restart palm-gwd` mid-session, power-cycle the Pi with a Palm connected, USB dongle mode on both boards, Wi-Fi uplink mode, 24-hour soak with a Palm connected and `lcp-echo` keeping the link up.
+Reconnect storms with the real Palm (toggle Connect/Disconnect 20 times), T|X dial-up carrier detect on an RFCOMM TTY (D-025; not possible from user space, D-036), BlueZ restart mid-session, `systemctl restart palm-gwd` mid-session, power-cycle the Pi with a Palm connected, USB dongle mode on both boards, Wi-Fi uplink mode, 24-hour soak with a Palm connected and `lcp-echo` keeping the link up (deferred to field use, D-038).
 **Accept:** No orphans, no fd leaks (`ls /proc/$(pidof palm-gwd)/fd | wc -l` stable across 100 sessions), all units active after each disruption, soak link survives or reconnects on first tap. Both Pi 4 and Pi 5 pass identically; differences recorded.
 
 ### Phase 6: Setup wizard and packaging
