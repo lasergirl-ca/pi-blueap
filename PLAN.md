@@ -91,7 +91,7 @@ Appendix D: pppd option rationale
 | Control plane | Unix domain socket `/run/palm-gw/ctl.sock`, newline-delimited JSON, used by `palm-gwctl` (same binary, subcommand) and by the web UI. The daemon is the only thing that touches BlueZ, pppd and nftables; CLI and web are thin clients. |
 | Packaging | **Debian package** (`palm-gw_<ver>_arm64.deb`, built with `nfpm`) as the primary install path, with a bootstrap `install.sh` that downloads the right release and installs it. `make install` from source remains for developers. Upgrades are `apt install ./newer.deb` or `palm-gwctl upgrade`. |
 | Setup wizard | `palm-gw setup`: interactive terminal wizard (Go, `charmbracelet/huh` for prompts, falls back to plain prompts when not a TTY) that writes `/etc/palm-gw/config.toml` and the templated system files. Fully scriptable with flags for unattended installs. |
-| Web UI | **Yes, in v1.** Go `net/http` with embedded templates and htmx; no JS build step, no Node. Full UI on the Pi's LAN address(es), port 8042; **read-only** UI and API on the gateway address `10.42.0.1:8042` for the Bluetooth side (no pairing, forget, firewall or settings there; amended by D-026, design in `docs/WEB-UI.md`). Username and password set during `setup`, session cookie (bearer token for the Palm app's API), TLS optional via self-signed cert generated at setup. |
+| Web UI | **Yes, in v1.** Go `net/http` with embedded templates and htmx; no JS build step, no Node. Full UI on the Pi's LAN address(es), port 8042; the same UI and API, **TLS only**, on the gateway address `10.42.0.1:8042` for the Bluetooth side, used by a native ARM Palm OS app with full admin (amended by D-026 and D-039, design in `docs/WEB-UI.md`). Username and password set during `setup`, session cookie (bearer token for the Palm app's API), TLS optional via self-signed cert generated at setup. |
 | Licence | MIT. |
 
 ---
@@ -392,8 +392,7 @@ group  = "palm-gw"                 # socket is 0660 root:palm-gw so an operator 
 enabled        = true
 listen         = ["0.0.0.0:8042"]   # full UI: bound to LAN addresses only at runtime (the daemon skips br-palm/ppp*)
 username       = "admin"
-bluetooth_side = true               # read-only UI and API on the gateway address, port 8042 (D-026, docs/WEB-UI.md)
-bluetooth_plain_http = false        # allow http:// there; credentials then cross the radio unencrypted
+bluetooth_side = true               # UI and API on the gateway address, port 8042, TLS only (D-026, D-039, docs/WEB-UI.md)
 viewer_username      = ""           # optional read-only account
 viewer_password_hash = ""
 tls            = "self-signed"      # "off" | "self-signed" | "file"
@@ -733,10 +732,10 @@ table inet palm_gw {
         udp dport 53 accept
         tcp dport 53 accept
         udp dport 67 accept                                   # DHCP from PAN clients
-        tcp dport 80 accept                                   # the /palm status page (section 8.12)
+        tcp dport 80 accept                                   # the "you are connected" page (section 8.12, D-039)
         icmp type { echo-request, destination-unreachable, time-exceeded } accept
         meta l4proto . th dport @pi_allow accept              # firewall.palm_to_pi (D-029)
-        ip daddr {{GATEWAY}} tcp dport 8042 accept            # read-only web UI and API (D-026); omitted when web.bluetooth_side = false
+        ip daddr {{GATEWAY}} tcp dport 8042 accept            # web UI and API over TLS (D-026, D-039); omitted when web.bluetooth_side = false
         tcp dport 8042 counter drop comment "palm->webui"     # explicit, for the counter: the LAN listener stays unreachable
         counter drop comment "palm->pi"                       # no SSH, no ctl socket, nothing else
     }
@@ -924,7 +923,7 @@ Reboot required: no
 
 Served by `palm-gwd` itself (same process, so it reads the session table directly and does not need a second service account for the ctl socket). Go `net/http`, `html/template`, `embed.FS`, htmx for partial refresh; no build tooling. Total front-end footprint target: under 60 KB.
 
-**Binding and exposure.** The daemon enumerates addresses at start and binds `[web].listen` only on interfaces that are not `br-palm`, `bnep*`, or `ppp*`; it re-evaluates on `InterfacesAdded`/netlink changes. Independently, the nftables `input` chain drops port 8042 from Palm interfaces (section 8.7 `input` chain's final `counter drop` already does this; add an explicit `tcp dport 8042 counter drop` line above it for clarity). The full UI is therefore reachable from the home LAN and never from a Palm. **Amended by D-026:** a second listener on the gateway address (`10.42.0.1:8042`) serves a read-only route set (dashboard, devices list, "this device", and the `/api/v1/` read API for the Palm app) to the Bluetooth side, with the mutating routes not registered there; the firewall accepts 8042 to the gateway address only. Details in `docs/WEB-UI.md`.
+**Binding and exposure.** The daemon enumerates addresses at start and binds `[web].listen` only on interfaces that are not `br-palm`, `bnep*`, or `ppp*`; it re-evaluates on `InterfacesAdded`/netlink changes. Independently, the nftables `input` chain drops port 8042 from Palm interfaces (section 8.7 `input` chain's final `counter drop` already does this; add an explicit `tcp dport 8042 counter drop` line above it for clarity). The full UI is therefore reachable from the home LAN and never from a Palm. **Amended by D-026 and D-039:** a second listener on the gateway address (`10.42.0.1:8042`), TLS only, serves the full route set and the `/api/v1/` API to the Bluetooth side for the ARM Palm OS app (`palm-app/`) and PAN laptops; the firewall accepts 8042 to the gateway address only. Details in `docs/WEB-UI.md`.
 
 **Auth.** Single admin account with a username (D-026; optional read-only viewer account in `docs/WEB-UI.md`), password hashed with argon2id (`golang.org/x/crypto/argon2`), HttpOnly Secure SameSite=Strict session cookie, CSRF token on every mutating form, rate limit of 5 failed logins per minute per source IP. `palm-gw web set-password` resets it from the shell. With `tls = "self-signed"`, a cert for the Pi's hostname and current IPs is generated at setup into `/var/lib/palm-gw/tls/` and its fingerprint is printed so the user can pin it; the login page shows the same fingerprint.
 
@@ -941,7 +940,7 @@ Served by `palm-gwd` itself (same process, so it reads the session table directl
 | `/diagnostics` | Output of `palm-gw setup --check` (board, adapters, PSU, UART conflict, Wi-Fi band, module presence, unit states); **Capture 60 s of btmon** button that produces a downloadable `.btsnoop`; **Download support bundle** button (`scripts/support-bundle.sh` equivalent in Go: journals, configs with password hash redacted, install-info, last capture). |
 | `/about` | Version, build, update check (`palm-gw upgrade --check`; opt-in, off by default, never automatic). |
 
-**Palm-friendly bonus page**: `/palm` served **only** on `br-palm`/`ppp*` addresses (the opposite binding rule), plain HTML 3.2, no CSS, no JS, under 2 KB, showing "You are connected. IP: x. Gateway: y." so a Palm user can confirm connectivity in Blazer at `http://10.42.0.1/`. This is the one listener allowed from the Palm side, on port 80, and it is read-only and unauthenticated.
+**"You are connected" page** (amended by D-039): served **only** on the gateway address (the opposite binding rule), a small HTML5 page for Linux laptops on PAN, showing "You are connected. IP: x. Gateway: y." and a link to `https://10.42.0.1:8042/`, at `http://10.42.0.1/`. It is on port 80, read-only and unauthenticated. Palms use the app instead of Blazer.
 
 **Tests.** `httptest` coverage of auth (no cookie → redirect, bad CSRF → 403, rate limit), every mutating route against a fake ctl backend, and template rendering with an empty state. A Playwright smoke test in CI against the daemon running with a mock BlueZ is a stretch goal; record as such.
 
@@ -1015,8 +1014,8 @@ Reconnect storms with the real Palm (toggle Connect/Disconnect 20 times), T|X di
 **Accept:** On a freshly flashed Pi OS Lite image on each board: the one-liner installs, the wizard detects board and uplink correctly without asking, asks only for name/adapter/password, pairs a Palm during setup, and the Palm has internet before the wizard exits. Unattended mode (`PALM_GW_UNATTENDED=1` with env answers) produces the same result with no prompts. `apt install` of a newer .deb over an older one preserves config and the paired-device state and leaves the gateway running. `apt purge` leaves `/etc` clean (diff against a pre-install snapshot). Running `palm-gw setup` a second time pre-fills and changes only what the user changes.
 
 ### Phase 7: Web UI
-Server, auth, all pages in section 8.12, `/palm` page on the Palm side, nftables rule for 8042, the read-only Bluetooth-side listener and `/api/v1/` (D-026, `docs/WEB-UI.md`).
-**Accept:** From a LAN browser: log in, open a pairing window, see the PIN, pair a Palm and watch the event feed; disconnect and forget devices; add a firewall allow entry and verify a Palm can reach it immediately; change the gateway name and see the Palm's device list show the new name after a re-scan; download a btmon capture and open it in Wireshark; download a support bundle and confirm the password hash is redacted. From the Palm: `http://10.42.0.1/` in Blazer shows the connected page. From the Bluetooth side (fake-palm, a PAN laptop, and the Palm app once it exists): `https://10.42.0.1:8042/` logs in to the read-only UI and API, every mutating route returns 404, and the Pi's LAN address on 8042 is dropped (D-026). `nmap` from the Palm side confirms only 53/67/80/8042 and ICMP are reachable on the Pi, 8042 only on `10.42.0.1`.
+Server, auth, all pages in section 8.12, the port-80 "you are connected" page, nftables rule for 8042, the TLS-only Bluetooth-side listener, `/api/v1/`, and the ARM Palm OS app in `palm-app/` (D-026, D-039, `docs/WEB-UI.md`).
+**Accept:** From a LAN browser: log in, open a pairing window, see the PIN, pair a Palm and watch the event feed; disconnect and forget devices; add a firewall allow entry and verify a Palm can reach it immediately; change the gateway name and see the Palm's device list show the new name after a re-scan; download a btmon capture and open it in Wireshark; download a support bundle and confirm the password hash is redacted. From a PAN laptop: `http://10.42.0.1/` shows the connected page. From the Bluetooth side (fake-palm, a PAN laptop, and the Palm app on the T|X): `https://10.42.0.1:8042/` logs in, plain HTTP on 8042 gets no answer, the app opens a pairing window and shows its PIN, disconnects and forgets a device and adds a firewall rule, and the Pi's LAN address on 8042 is dropped (D-026, D-039). `nmap` from the Palm side confirms only 53/67/80/8042 and ICMP are reachable on the Pi, 8042 only on `10.42.0.1`.
 
 ### Phase 8: Documentation and release
 `PALM-SETUP.md` (section 11) with photos or exact screen text from a T|X and a LifeDrive; `TROUBLESHOOTING.md` populated with real log excerpts from every failure induced in Phase 5; `TESTING.md`; `DECISIONS.md` complete; `README.md` with a 60-second quick start (the one-liner, the wizard, the web URL); `make release` artefact installed from scratch on a clean image of each board as the final test.
@@ -1097,7 +1096,7 @@ Controls, and what each defends against:
 | No `ktune`, no `defaultroute`, no `proxyarp` towards the LAN, `rp_filter` | PPP peers injecting routes or ARP into the Pi |
 | Logging with device address for every pairing, authorisation and session event; `btmon` capture on demand | Forensics |
 | Daemon-owned, `0660 root:palm-gw` ctl socket; no network listener | Local privilege boundary for operators |
-| Web UI on the Bluetooth side is read-only: mutating routes are not registered on that listener, and it is TLS-only unless `bluetooth_plain_http` is set (D-026) | A password captured over the weak radio link cannot pair devices, change the firewall or reach the LAN |
+| Web UI and API on the Bluetooth side are TLS 1.3 only, with the certificate pinned by the Palm app; logins rate-limited per source (D-026, D-039) | The admin password is never exposed to the weak legacy-PIN radio link |
 | systemd hardening to the extent pppd and BlueZ allow | Blast radius of a daemon bug |
 
 What the gateway deliberately does **not** claim: confidentiality or integrity of the Bluetooth hop. Applications on the Palm that need that use TLS (the user's wolfSSL port on Palm OS provides TLS 1.3). Stock Palm apps (Blazer, VersaMail) use SSL 3.0/TLS 1.0 at best and should be treated as cleartext for threat-modelling purposes; the firewall's isolation is what protects the rest of the house from them, not the radio.

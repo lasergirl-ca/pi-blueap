@@ -468,6 +468,42 @@ The `palm-test-soak` logger was started at 20:03 and stopped at 20:05 without re
 long session turns up in the field (a dropped link that does not come back on the first tap,
 growing fds or RSS in `palm-gwctl status` and `/proc`) goes into TESTING.md and a new decision.
 
+### D-039: The Palm app gets full admin over TLS; the Blazer page becomes an HTML5 page (amends D-026 and section 2)
+
+D-026 made the Bluetooth side read-only, because a Palm's radio link uses legacy PIN pairing and
+cannot be trusted to keep a password secret. On 2026-11-10 Zoe asked for a native Palm app,
+ARM only, whose username and password grant admin access, instead of a special Palm web page.
+Because this reopens a section 2 decision, the risk was put to her first, with options from
+full admin down to read-only.
+
+She chose:
+- **Full admin from the app.** Pairing windows, with the PIN shown on the Palm. Disconnect,
+  forget and rename. Firewall allow rules. Settings.
+- **TLS 1.3 only on the Bluetooth listener.** The app uses her wolfSSL port and pins the
+  certificate fingerprint. `bluetooth_plain_http` is removed: the admin password must never
+  cross the radio in the clear. End-to-end TLS is what makes the weak radio link acceptable,
+  which removes the reason for D-026's read-only rule.
+- **The app lives in this repository**, under `palm-app/`. It is ARM only, so Palm OS 5 devices
+  such as the T|X, LifeDrive and Tungsten T3/T5. Palm OS 4 devices get no admin interface, and
+  the LAN UI remains for everyone. Zoe has a Palm development how-to to hand over when Phase 7
+  starts.
+- **The plain `/palm` page on port 80** is no longer HTML 3.2 for Blazer. It becomes a small
+  HTML5 page for Linux laptops on PAN: still no login, still only "you are connected", the
+  addresses, and a link to `https://10.42.0.1:8042/`.
+
+Consequences:
+- The Bluetooth listener registers the same routes as the LAN listener, so a laptop on PAN
+  logging in over HTTPS also gets full admin. This is Claude's reading of Zoe's answers (TLS is
+  what makes admin acceptable there too), to be confirmed before Phase 7.
+- Actions that restart Bluetooth (class toggle, some settings) end the Palm's own link. The app
+  and UI warn before them.
+- The mutating API mirrors `palm-gwctl`.
+- The table-driven "mutating routes 404 on the Bluetooth mux" test becomes "the Bluetooth
+  listener refuses plain HTTP and requires a login for every route".
+
+Still built in Phase 7, in phase order. Sections 2, 7, 8.7, 8.12, 13 and the Phase 7 acceptance
+test are amended. The design is in `docs/WEB-UI.md`.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08
