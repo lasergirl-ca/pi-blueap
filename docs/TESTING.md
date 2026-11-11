@@ -1482,3 +1482,9 @@ bluez devices: 2
 The session ended at 20:42:14 after 1.3 minutes and 567 KB to the Palm, with pppd's `Error
 reading standard input: Connection timed out`. That is a Bluetooth link timeout, not a PPP
 hang-up, so the T|X was probably turned off or out of range. fds were 7 afterwards.
+
+The Pi stays in dongle mode from here on, at Zoe's request. The gateway runs on the UB500, with
+`dtoverlay=disable-bt` set. Until the onboard radio is enabled again, fake-palm has no client
+radio, so the fake-palm acceptance scripts cannot run on this Pi. Re-enabling it means removing
+the `dtoverlay=disable-bt` line and rebooting. The gateway stays pinned to the dongle by
+address, and the onboard radio becomes fake-palm's client.
