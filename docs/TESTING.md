@@ -1653,5 +1653,20 @@ Result:
   SAN `DNS:piblueap, DNS:piblueap.local, IP:10.4.0.241, IP:10.42.0.1`, valid to 2036.
 - All five units are active, and the T|X is still paired, trusted and allowlisted.
 
-Still to do: pairing a Palm during setup, with "online" reported before the wizard exits.
-That is part of the fresh-flash acceptance, because this T|X is already paired.
+**Pairing during setup**, 2026-11-11. Zoe removed the pairing on the T|X, and
+`palm-gwctl forget 00:07:E0:3C:5E:FA` removed it on the gateway, so the T|X was new to both
+sides. She ran `sudo palm-gw setup` with the same answers (stored password kept) and "Pair a
+Palm now? Yes". The wizard opened a `--one` window and showed the PIN. The T|X paired and
+connected, and the wizard printed that the T|X was online before it exited. Gateway log:
+
+```
+07:24:56.983 window_open
+07:25:23.905 pin_requested
+07:25:24.054 paired            (trusted, allowlisted; D-040's Bonded path)
+07:25:24.063 window_closed     (--one)
+07:26:00.671 connection
+07:26:00.819 session_up        (lap ppp0 10.42.0.10)
+```
+
+That covers the wizard's whole interactive path on the Pi 5. The fresh-flash acceptance
+repeats it from a new image.
