@@ -1395,4 +1395,22 @@ with the T|X still connected (session up 2m15s).
   dongle).
 - Everything above on a Pi 4 (Zoe will get one).
 - Android or Windows as a PAN client if one turns up (D-033).
-- Put the Pi's uplink back on eth0 after the Wi-Fi tests.
+
+### Uplink back on eth0, 2026-11-10
+
+`nmcli con mod "Wired connection 1" ipv4.never-default no ipv6.never-default no` and `nmcli dev
+reapply eth0`. Then `uplink = "eth0"` in `/etc/palm-gw/config.toml` (the adapter stays pinned
+by address, D-035) and `sudo make install` to re-render `/etc/nftables.d/palm-gw.nft`: a
+`palm-gwd` restart alone leaves the NAT rule on the old interface, because the uplink is rendered
+at install time (D-030). Wi-Fi stays associated as a backup route, which the gateway does not
+use:
+
+```
+default via 10.4.0.1 dev eth0 proto dhcp src 10.4.0.241 metric 100
+default via 10.4.0.1 dev wlan0 proto dhcp src 10.4.0.243 metric 600
+network:   10.42.0.0/24 gw 10.42.0.1 uplink eth0
+45:		ip saddr 10.42.0.0/24 oifname "eth0" masquerade
+```
+
+`scripts/phase3-accept.sh` (fake-palm, `URL=http://example.com/`): 14 of 14 passed, 0 failed
+(`/var/tmp/phase3-accept-20261110-200653.log`).
