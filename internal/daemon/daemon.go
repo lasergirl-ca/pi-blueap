@@ -76,6 +76,9 @@ type Daemon struct {
 	selection string
 	gen       uint64 // bumped every time BlueZ (re)appears
 	readyOnce sync.Once
+	// bonded holds devices whose pairing was already handled, because one
+	// pairing can show up as Bonded and later as Paired too (D-040).
+	bonded map[dbus.ObjectPath]bool
 
 	fwMu sync.Mutex
 	fw   ctl.FirewallStatus
@@ -120,6 +123,7 @@ func New(opts Options) (*Daemon, error) {
 	}
 	d.cfgp.Store(opts.Config)
 	d.pan.clients = map[string]*ctl.PANClient{}
+	d.bonded = map[dbus.ObjectPath]bool{}
 	d.allow = allow.New(opts.Config.Bluetooth.Allow, st, opts.Config.Bluetooth.AllowAny)
 	c := opts.Config
 	d.ppp, err = ppp.NewManager(ppp.Config{
@@ -447,7 +451,28 @@ func (d *Daemon) onDeviceChange(c bluez.DeviceChange) {
 	if !bluez.UnderAdapter(c.Path, d.adapterPath()) {
 		return
 	}
+	if c.Removed {
+		d.mu.Lock()
+		delete(d.bonded, c.Path)
+		d.mu.Unlock()
+		return
+	}
 	paired, flipped := c.Paired()
+	if flipped {
+		// Handle each pairing once: it can arrive as Bonded and, once
+		// services resolve, as Paired as well (D-040).
+		d.mu.Lock()
+		seen := d.bonded[c.Path]
+		if paired {
+			d.bonded[c.Path] = true
+		} else {
+			delete(d.bonded, c.Path)
+		}
+		d.mu.Unlock()
+		if paired && seen {
+			flipped = false
+		}
+	}
 	connV, connChanged := c.Changed["Connected"]
 	if !flipped && !connChanged {
 		return

@@ -449,6 +449,9 @@ other effects:
 - BlueZ skips the GATT client for LE devices that connect to the Pi. LE devices the Pi itself
   connects to, such as a keyboard, keep their GATT client.
 
+Side effect found the same evening: BlueZ then never signals `Paired` for a Palm, so the daemon
+also watches `Bonded` (D-040).
+
 Alternatives not taken:
 - Having `palm-gwd` start a browse with `Device1.Connect` when an allowlisted device connects
   while `ServicesResolved` is false: it races the Palm's own timeout, and `Connect` would also
@@ -503,6 +506,37 @@ Consequences:
 
 Still built in Phase 7, in phase order. Sections 2, 7, 8.7, 8.12, 13 and the Phase 7 acceptance
 test are amended. The design is in `docs/WEB-UI.md`.
+
+### D-040: A pairing is detected from `Bonded` as well as `Paired`
+
+Found on 2026-11-10 in the dongle-mode test, as a consequence of D-037. With
+`ReverseServiceDiscovery = false`, a new Palm paired correctly in BlueZ (`Paired`, `Bonded`,
+link key stored), but `palm-gwd` never logged `paired`. So the device was not allowlisted or
+trusted, the `--one` window did not close, and the Palm's next Connect was refused
+(`service_rejected`). The first dongle pairing only got through because the T|X was still on
+the allowlist from the onboard pairing.
+
+A `busctl monitor org.bluez` capture of the pairing showed `PropertiesChanged` with
+`Bonded: true`, then `Connected: false`, and no `Paired` signal at all, although `GetAll`
+answered `Paired: true` a moment later. BlueZ's `device_set_paired` (5.66 and 5.82 alike) holds
+the `Paired` signal back while the device's services are unresolved (`pending_paired`) and sends
+it only when an SDP browse completes. With reverse service discovery off, a Palm is never
+browsed, so the signal never comes. `Bonded` is signalled at once.
+
+The daemon now treats `Bonded` turning true the same as `Paired`:
+- **Each pairing is handled once**, per device path. A device whose services do get resolved,
+  such as a laptop, can report both `Bonded` and `Paired`.
+- **The record is cleared** when `Paired` or `Bonded` turns false, or when BlueZ removes the
+  device (`InterfacesRemoved`, which covers `forget`), so a later re-pair counts again.
+- **`InterfacesAdded` for a device that is already connected is handled too.** BlueZ's gdbus
+  layer suppresses `PropertiesChanged` until a new object has been announced, and before the
+  fix the first `device_connected` of a never-seen Palm went unlogged. A device announced while
+  not connected is ignored. That covers devices found by an inquiry, and every stored device
+  after a `bluetoothd` restart, which would otherwise look like a pairing outside a window.
+
+Verified on the T|X with the gateway on the dongle and the T|X forgotten first. `paired`
+(trusted) came 0.12 s after `pin_requested`, the window closed, and the session came up on the
+first Connect. Unit tests cover every signal shape.
 
 ## Hardware observations
 

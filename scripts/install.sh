@@ -196,6 +196,24 @@ case "$ADAPTER" in
       note "dtoverlay=disable-bt added to $BOOT_CONFIG"
     fi
     systemctl disable --now hciuart 2>/dev/null || true
+    # A kept config may name the onboard radio (hci1, or its address, D-035).
+    # Once the onboard radio is off the dongle is the only adapter, so warn
+    # unless the config names hci0, auto, or a USB adapter's address.
+    cfg_adapter=$("$BIN_DIR/palm-gwd" -config "$ETC/config.toml" -render <(printf '{{ADAPTER}}'))
+    case "$cfg_adapter" in
+      hci0|auto) ;;
+      *)
+        usb_addrs=""
+        for h in /sys/class/bluetooth/hci*; do
+          [ "$(basename "$(readlink -f "$h/device/subsystem" 2>/dev/null)")" = usb ] || continue
+          usb_addrs="$usb_addrs $(busctl get-property org.bluez "/org/bluez/$(basename "$h")" org.bluez.Adapter1 Address 2>/dev/null | awk -F'"' '{print toupper($2)}')"
+        done
+        case " $usb_addrs " in
+          *" $(printf '%s' "$cfg_adapter" | tr a-f A-F) "*) note "adapter = \"$cfg_adapter\" in $ETC/config.toml is the USB dongle" ;;
+          *) warn "adapter = \"$cfg_adapter\" in $ETC/config.toml is not a USB dongle here; with the onboard radio off the gateway will not find it. Set adapter = \"auto\", \"hci0\" or the dongle's address before rebooting" ;;
+        esac
+        ;;
+    esac
     ;;
   *) die "ADAPTER must be onboard or dongle" ;;
 esac
@@ -246,7 +264,9 @@ fi
 
 # ---------------------------------------------------------------- 10. install-info
 say "Recording install-info.json"
-adapters=$(timeout 5 bluetoothctl list 2>/dev/null | sed 's/"/\\"/g' | paste -sd'|' - || true)
+# bluetoothctl can print async [CHG] events, with colour codes, before the list; keep only the
+# Controller lines.
+adapters=$(timeout 5 bluetoothctl list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep '^Controller ' | sed 's/"/\\"/g' | paste -sd'|' - || true)
 bluez=$(bluetoothctl --version 2>/dev/null | awk '{print $NF}' || true)
 pppd_v=$(pppd --version 2>&1 | awk '{print $NF}' | head -1 || true)
 nm_v=$(nmcli --version 2>/dev/null | awk '{print $NF}' || true)

@@ -284,11 +284,11 @@ func TestRedacted(t *testing.T) {
 
 func TestRender(t *testing.T) {
 	c := Default()
-	out, err := c.Render("t", `gw={{GATEWAY}} net={{SUBNET}} pfx={{PREFIX}} mask={{NETMASK}} up={{UPLINK}} br={{BRIDGE}} dhcp={{DHCP_START}}-{{DHCP_END}}{{if MSS_CLAMP}} clamp{{end}}{{range DNS_UPSTREAM}} dns={{.}}{{end}}`)
+	out, err := c.Render("t", `gw={{GATEWAY}} net={{SUBNET}} pfx={{PREFIX}} mask={{NETMASK}} up={{UPLINK}} ad={{ADAPTER}} br={{BRIDGE}} dhcp={{DHCP_START}}-{{DHCP_END}}{{if MSS_CLAMP}} clamp{{end}}{{range DNS_UPSTREAM}} dns={{.}}{{end}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "gw=10.42.0.1 net=10.42.0.0/24 pfx=24 mask=255.255.255.0 up=eth0 br=br-palm dhcp=10.42.0.100-10.42.0.199 clamp"
+	want := "gw=10.42.0.1 net=10.42.0.0/24 pfx=24 mask=255.255.255.0 up=eth0 ad=" + c.Bluetooth.Adapter + " br=br-palm dhcp=10.42.0.100-10.42.0.199 clamp"
 	if out != want {
 		t.Fatalf("got  %q\nwant %q", out, want)
 	}

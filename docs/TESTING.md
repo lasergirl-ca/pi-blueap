@@ -1391,8 +1391,6 @@ with the T|X still connected (session up 2m15s).
 
 ### Still to do for Phase 5
 
-- USB dongle mode on the Pi 5 (`make install ADAPTER=dongle`, reboot, the Palm pairs with the
-  dongle).
 - Everything above on a Pi 4 (Zoe will get one).
 - Android or Windows as a PAN client if one turns up (D-033).
 
@@ -1414,3 +1412,73 @@ network:   10.42.0.0/24 gw 10.42.0.1 uplink eth0
 
 `scripts/phase3-accept.sh` (fake-palm, `URL=http://example.com/`): 14 of 14 passed, 0 failed
 (`/var/tmp/phase3-accept-20261110-200653.log`).
+
+### USB dongle mode on the Pi 5, 2026-11-10
+
+`sudo make install ADAPTER=dongle`, over the existing install. The config is kept, and it
+pinned the onboard radio by address (D-035). The installer added `dtoverlay=disable-bt` once and
+recorded `added_disable_bt: true` (kept on a re-run), but it said nothing about the config. With
+that config the gateway would have found no adapter after the reboot. The installer now warns:
+
+```
+==> Bluetooth adapter: dongle
+    dtoverlay=disable-bt added to /boot/firmware/config.txt
+WARNING: adapter = "2C:CF:67:2F:29:F5" in /etc/palm-gw/config.toml is not a USB dongle here; with the onboard radio off the gateway will not find it. Set adapter = "auto", "hci0" or the dongle's address before rebooting
+```
+
+After setting `adapter = "60:15:6F:E9:EB:03"`, the re-run says `adapter = "60:15:6F:E9:EB:03" in
+/etc/palm-gw/config.toml is the USB dongle`. The same run fixed `install-info.json`'s
+`adapters`: `bluetoothctl list` had included a `[CHG]` event line with colour codes, and only
+the `Controller` lines are kept now.
+
+Reboot at 20:23:35. Only `hci0` (usb) exists, and the RTL8761BU firmware loaded. `palm-gwd`,
+`bluetooth`, `palm-gw-dnsmasq` and `nftables` were active, and `palm-gwd` was ready at 20:23:51
+with no WARN or ERROR lines:
+
+```
+adapter:   hci0 60:15:6F:E9:EB:03 (usb)  alias "Palm Gateway"  class 0x420300  powered=yes discoverable=yes pairable=no  (configured by address)
+```
+
+**First T|X pairing with the dongle** (window from `palm-gwctl pair 5 --one`, run under
+`systemd-run`, because the window closes when the command exits). The T|X paired (20:28:54
+`pin_requested`) and connected (20:29:30 `session_up`). But the daemon logged no `paired`, the
+T|X was not marked trusted, and the window closed only on its timeout. The T|X got in only
+because it was still on the allowlist from the onboard pairing.
+
+**Second pairing, after `palm-gwctl forget 00:07:E0:3C:5E:FA`** (a true new device), with
+`busctl monitor org.bluez` recording. `pin_requested` at 20:34:36 was again followed by no
+`paired`, and the next Connect was refused (20:36:02 `service_rejected`). The capture:
+
+```
+03:34:36.922833 PropertiesChanged /org/bluez/hci0/dev_00_07_E0_3C_5E_FA  "Bonded" true
+03:34:37.109255 PropertiesChanged /org/bluez/hci0/dev_00_07_E0_3C_5E_FA  "Connected" false
+03:34:37.109726 GetAll reply: "Paired" true, "Bonded" true, "Trusted" false
+```
+
+BlueZ never signals `Paired` while services are unresolved, and with D-037 a Palm's never are.
+D-040 has the source. The fix makes the daemon treat `Bonded` as `Paired`, handle each pairing
+once, and also handle a connected device's `InterfacesAdded`.
+
+**Third pairing, with the fix, after forgetting the T|X again:**
+
+```
+20:39:47.025 device_connected      (from InterfacesAdded; unlogged before the fix)
+20:39:59.219 pin_requested
+20:39:59.341 paired                (trusted=true)
+20:39:59.350 window_closed         (--one)
+20:40:54.829 device_connected
+20:40:55.269 connection
+20:40:55.304 session_start
+20:40:55.395 session_up
+```
+
+```
+allowlist: 2 entries
+  00:07:E0:3C:5E:FA  dynamic  Zoë's Palm TX
+bluez devices: 2
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"      class 0x100114  paired,trusted
+```
+
+The session ended at 20:42:14 after 1.3 minutes and 567 KB to the Palm, with pppd's `Error
+reading standard input: Connection timed out`. That is a Bluetooth link timeout, not a PPP
+hang-up, so the T|X was probably turned off or out of range. fds were 7 afterwards.

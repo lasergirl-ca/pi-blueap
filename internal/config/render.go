@@ -23,6 +23,7 @@ func (c *Config) Funcs() template.FuncMap {
 		"PREFIX":       subnet.Bits,
 		"NETMASK":      func() string { return netmask(subnet.Bits()) },
 		"UPLINK":       func() string { return c.Network.Uplink },
+		"ADAPTER":      func() string { return c.Bluetooth.Adapter },
 		"BRIDGE":       func() string { return c.PAN.Bridge },
 		"PPP_START":    func() string { return c.Network.PPPPool[0] },
 		"PPP_END":      func() string { return c.Network.PPPPool[1] },

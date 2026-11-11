@@ -61,36 +61,99 @@ func (b *Bus) SetTrusted(p dbus.ObjectPath, trusted bool) error {
 	return nil
 }
 
-// DeviceChange is one PropertiesChanged on a Device1.
+// DeviceChange is one PropertiesChanged on a Device1, a Device1 announced
+// with properties already set, or (Removed) a Device1 that went away.
 type DeviceChange struct {
 	Path    dbus.ObjectPath
 	Changed map[string]dbus.Variant
+	Removed bool
 }
 
-// Paired reports whether this change flipped Paired, and to what.
+// Paired reports whether this change flipped Paired or Bonded, and to what:
+// true if either became true. BlueZ (5.66 and 5.82) holds the Paired signal
+// back until the device's services are resolved (device_set_paired,
+// pending_paired), and with ReverseServiceDiscovery off (D-037) a Palm's never
+// are, so a Palm's pairing shows up only as Bonded (D-040).
 func (c DeviceChange) Paired() (value, changed bool) {
-	v, ok := c.Changed["Paired"]
-	if !ok {
-		return false, false
+	for _, k := range []string{"Paired", "Bonded"} {
+		v, ok := c.Changed[k]
+		if !ok {
+			continue
+		}
+		if b, _ := v.Value().(bool); b {
+			return true, true
+		}
+		changed = true
 	}
-	b, _ := v.Value().(bool)
-	return b, true
+	return false, changed
 }
 
 // OnDeviceChange calls h for every Device1 PropertiesChanged until the
-// returned function is called.
+// returned function is called. It also turns a new Device1 that is announced
+// already paired, bonded or connected into a change, because BlueZ suppresses
+// PropertiesChanged for an object it has not published yet (gdbus object.c,
+// "don't emit property changed if interface is not yet published"), so a
+// change made in that window would otherwise be lost.
 func (b *Bus) OnDeviceChange(h func(DeviceChange)) func() {
 	return b.OnSignal(func(s *dbus.Signal) {
-		if s.Name != IfaceProperties+".PropertiesChanged" || len(s.Body) < 2 {
-			return
+		if c, ok := deviceChangeFromSignal(s); ok {
+			h(c)
 		}
-		iface, _ := s.Body[0].(string)
-		if iface != IfaceDevice {
-			return
+	})
+}
+
+// deviceChangeFromSignal is OnDeviceChange's filter, split out for tests.
+func deviceChangeFromSignal(s *dbus.Signal) (DeviceChange, bool) {
+	switch s.Name {
+	case IfaceProperties + ".PropertiesChanged":
+		if len(s.Body) < 2 {
+			return DeviceChange{}, false
+		}
+		if iface, _ := s.Body[0].(string); iface != IfaceDevice {
+			return DeviceChange{}, false
 		}
 		changed, _ := s.Body[1].(map[string]dbus.Variant)
-		h(DeviceChange{Path: s.Path, Changed: changed})
-	})
+		return DeviceChange{Path: s.Path, Changed: changed}, true
+	case IfaceObjectManager + ".InterfacesAdded":
+		if len(s.Body) < 2 {
+			return DeviceChange{}, false
+		}
+		p, _ := s.Body[0].(dbus.ObjectPath)
+		ifaces, _ := s.Body[1].(map[string]map[string]dbus.Variant)
+		props, ok := ifaces[IfaceDevice]
+		if !ok {
+			return DeviceChange{}, false
+		}
+		// Only a device that is already connected counts: one found by an
+		// inquiry is announced unconnected, and after a bluetoothd restart
+		// every stored device is announced paired but not connected, which is
+		// not a new pairing. Of its properties, only true values are changes.
+		if on, _ := props["Connected"].Value().(bool); !on {
+			return DeviceChange{}, false
+		}
+		changed := map[string]dbus.Variant{}
+		for _, k := range []string{"Paired", "Bonded", "Connected"} {
+			if v, ok := props[k]; ok {
+				if on, _ := v.Value().(bool); on {
+					changed[k] = v
+				}
+			}
+		}
+		return DeviceChange{Path: p, Changed: changed}, true
+	case IfaceObjectManager + ".InterfacesRemoved":
+		if len(s.Body) < 2 {
+			return DeviceChange{}, false
+		}
+		p, _ := s.Body[0].(dbus.ObjectPath)
+		ifaces, _ := s.Body[1].([]string)
+		for _, i := range ifaces {
+			if i == IfaceDevice {
+				return DeviceChange{Path: p, Removed: true}, true
+			}
+		}
+		return DeviceChange{}, false
+	}
+	return DeviceChange{}, false
 }
 
 // AddrFromPath turns /org/bluez/hciN/dev_00_07_E0_12_34_56 into
