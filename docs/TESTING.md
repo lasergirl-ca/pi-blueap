@@ -1488,3 +1488,46 @@ The Pi stays in dongle mode from here on, at Zoe's request. The gateway runs on 
 radio, so the fake-palm acceptance scripts cannot run on this Pi. Re-enabling it means removing
 the `dtoverlay=disable-bt` line and rebooting. The gateway stays pinned to the dongle by
 address, and the onboard radio becomes fake-palm's client.
+
+## Phase 6: Setup wizard and packaging (in progress)
+
+Started 2026-11-10 with Phase 5's Pi 4 runs outstanding (D-041).
+
+### Part 1: detection and `palm-gw setup --check`, 2026-11-10
+
+`internal/setup/detect.go` covers what PLAN.md section 8.11 lists:
+- **Board** from `/proc/device-tree/model`.
+- **Adapters** from BlueZ, with their sysfs bus. With none, it checks `dtoverlay=disable-bt` and
+  the kernel log for a firmware failure.
+- **Uplink candidates** from `ip -j route show default`, leaving out `br-palm`, `bnep*`, `ppp*`,
+  `lo`, `docker*` and `veth*`, with the Wi-Fi band from `iw`, or `nmcli` because Pi OS Lite has
+  no `iw`.
+- **Pi 4 serial-console conflict** from `cmdline.txt`. A Pi 5's `serial0` is its debug UART,
+  so it is not flagged.
+- **Pi 5 supply** from `/proc/device-tree/chosen/power/max_current` and `vcgencmd
+  get_throttled`.
+- **Existing config** for pre-filling.
+- **Subnet collisions** against host addresses and routes, leaving out palm-gw's own `br-palm`
+  and `ppp*`, so a re-run of setup does not collide with itself. It suggests the next free
+  10.N.0.0/24.
+
+`go test ./internal/setup/` uses fixtures taken from the Pi 5 rig's real `ip -j` output.
+
+On the Pi 5 (dongle mode, Ethernet and Wi-Fi uplinks):
+
+```
+$ sudo palm-gw setup --check
+board:     pi5 (Raspberry Pi 5 Model B Rev 1.0)
+adapters:  hci0 60:15:6F:E9:EB:03  USB dongle (usb)  powered=yes
+           onboard radio disabled (dtoverlay=disable-bt)
+uplinks:   eth0 via 10.4.0.1 metric 100
+           wlan0 via 10.4.0.1 metric 600  Wi-Fi 5240 MHz
+power:     supply 1500 mA, get_throttled=0x0
+config:    /etc/palm-gw/config.toml (will be pre-filled)
+subnet:    10.42.0.0/24 free
+warnings:
+  - Pi 5 supply negotiated 1500 mA (under 5 A), so USB ports share 600 mA; a Bluetooth dongle needs about 50 mA, which is fine unless other USB devices draw a lot
+```
+
+The rig's supply negotiates 1500 mA, not 5 A. That is fine for the dongle, but worth knowing
+if other USB devices are added.

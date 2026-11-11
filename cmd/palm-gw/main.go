@@ -26,8 +26,10 @@ func run(args []string) int {
 	case "version", "-version", "--version":
 		fmt.Println("palm-gw", version)
 		return 0
-	case "setup", "upgrade":
-		fmt.Fprintf(os.Stderr, "palm-gw %s: not implemented until Phase 6 (setup wizard and packaging)\n", args[0])
+	case "setup":
+		return cmdSetup(args[1:], os.Stdout, os.Stderr)
+	case "upgrade":
+		fmt.Fprintln(os.Stderr, "palm-gw upgrade: not implemented yet (Phase 6)")
 		return 2
 	case "web":
 		fmt.Fprintln(os.Stderr, "palm-gw web: not implemented until Phase 7 (web UI)")
