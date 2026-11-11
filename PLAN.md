@@ -267,6 +267,8 @@ palm-gw/
 │   │   ├── detect.go                # board, adapters, uplink candidates, PSU, console UART, Wi-Fi band
 │   │   ├── render.go                # templates deploy/ files from config
 │   │   └── detect_test.go
+│   ├── release/
+│   │   └── release.go               # latest tag, SHA256SUMS, checked .deb download for `palm-gw upgrade` (D-044)
 │   └── web/
 │       ├── server.go                # net/http, auth, routes (section 8.12)
 │       ├── handlers_*.go            # status, pair, devices, firewall, logs, bundle, settings
@@ -905,7 +907,7 @@ palm-gw is running.
 Reboot required: no
 ```
 
-`palm-gw setup --check` runs detection only and prints a health report (used by `postinst` and by the web UI's Diagnostics page). `palm-gw upgrade` fetches the latest .deb and installs it, preserving config; `palm-gwctl upgrade` is an alias.
+`palm-gw setup --check` runs detection only and prints a health report (used by `postinst` and by the web UI's Diagnostics page). `palm-gw upgrade` fetches the latest .deb and installs it, preserving config; `palm-gwctl upgrade` is an alias. **Amended by D-044:** `palm-gw upgrade [--check] [--version vX.Y.Z | --from URL] [--force]` asks the GitHub API for the latest release, compares versions with `dpkg --compare-versions`, downloads `SHA256SUMS` and the .deb it lists, checks the sum and runs `apt-get install`; `--from` takes a release directory (`https://` or `file://`) instead. A source install is refused with "git pull && sudo make install". The release's .deb is named after the tag (`palm-gw_0.6.0-rc1_arm64.deb` for package version `0.6.0~rc1`), and `--verify-sig` exists in the bootstrap script but fails until the project publishes a minisign key.
 
 `Makefile` targets:
 
@@ -918,7 +920,8 @@ Reboot required: no
 | `uninstall` | `scripts/uninstall.sh`: stops units, removes every file the installer placed (tracked in `/var/lib/palm-gw/installed-files.txt`), removes the `include` line it added to `/etc/nftables.conf`, deletes the `br-palm` NM connection, leaves `/etc/palm-gw/config.toml` and the state file unless `PURGE=1` |
 | `support-bundle` | `scripts/support-bundle.sh` → `palm-gw-support-<ts>.tar.gz` |
 | `deb` | `nfpm package -p deb` → `dist/palm-gw_<ver>_arm64.deb` (D-043: static files staged by `palm-gw setup --install-files --layout deb`; `DEB_VERSION` from the tag, else a commit-time snapshot) |
-| `release` | `deb` plus `dist/SHA256SUMS`, `dist/install.sh` (the bootstrap script with the version baked in), and a GitHub release via `gh release create` |
+| `release` | `deb` plus `dist/release/SHA256SUMS`, `dist/release/install.sh` (the bootstrap script with the version baked in), from a clean tree at a `v*` tag only. **Amended by D-044:** it never touches GitHub |
+| `publish` | D-044: `release`, then `git push origin <tag>` and `gh release create` with the three files (a tag with a hyphen is a pre-release) |
 
 ### 8.12 Management web UI
 

@@ -7,10 +7,13 @@ BIN      := bin
 DIST     := dist
 CMDS     := ./cmd/...
 
-# .deb version: the tag (v1.2.3 -> 1.2.3) on a tagged commit, otherwise a snapshot that
-# sorts by commit time (0.0.0~git20261111071500.c2e8b5c), so each build upgrades the last.
-DEB_VERSION ?= $(shell v=$$(git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null); \
-	if [ -n "$$v" ]; then echo "$${v\#v}"; \
+# The release tag at HEAD, if any (v1.2.3, v0.6.0-rc1).
+RELEASE_TAG ?= $(shell git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null)
+# .deb version: the tag on a tagged commit (v1.2.3 -> 1.2.3; v0.6.0-rc1 -> 0.6.0~rc1, so a
+# pre-release sorts before its release), otherwise a snapshot that sorts by commit time
+# (0.0.0~git20261111071500.c2e8b5c), so each build upgrades the last.
+DEB_VERSION ?= $(shell v='$(RELEASE_TAG)'; \
+	if [ -n "$$v" ]; then echo "$${v\#v}" | tr - '~'; \
 	else echo "0.0.0~git$$(git log -1 --format=%cd --date=format:%Y%m%d%H%M%S).$$(git rev-parse --short HEAD)"; fi)
 NFPM     ?= go run github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
 
@@ -19,7 +22,7 @@ ADAPTER  ?=
 UPLINK   ?=
 CONFIG   ?=
 
-.PHONY: all build build-arm64 test vet lint fmt install uninstall deb release support-bundle clean
+.PHONY: all build build-arm64 test vet lint fmt install uninstall deb release publish support-bundle clean
 
 all: build
 
@@ -56,8 +59,33 @@ deb: build-arm64
 	DEB_VERSION='$(DEB_VERSION)' $(NFPM) package -f packaging/nfpm.yaml -p deb -t $(DIST)/
 	@ls -l $(DIST)/*.deb
 
+# Release artefacts (D-044), from a clean tree at a v* tag only, into dist/release/:
+#   palm-gw_<tag>_arm64.deb   the package (named after the tag: no ~ in a download URL)
+#   install.sh                the bootstrap installer with the tag baked in
+#   SHA256SUMS                for both
+# `make publish` uploads them; `make release` never touches GitHub.
+REL      := $(DIST)/release
+REL_DEB  := palm-gw_$(patsubst v%,%,$(RELEASE_TAG))_arm64.deb
+SHA256   ?= $(shell command -v sha256sum >/dev/null && echo sha256sum || echo 'shasum -a 256')
+
 release:
-	@echo "make release: arrives in Phase 6" >&2; exit 2
+	@test -n "$(RELEASE_TAG)" || { echo "make release: HEAD is not at a v* tag (git tag -a vX.Y.Z)" >&2; exit 2; }
+	@test -z "$$(git status --porcelain)" || { echo "make release: the tree has uncommitted changes" >&2; exit 2; }
+	$(MAKE) deb
+	mkdir -p $(REL)
+	cp $(DIST)/palm-gw_$(DEB_VERSION)_arm64.deb $(REL)/$(REL_DEB)
+	sed 's/@RELEASE_TAG@/$(RELEASE_TAG)/' packaging/bootstrap-install.sh > $(REL)/install.sh
+	chmod 0755 $(REL)/install.sh
+	cd $(REL) && $(SHA256) $(REL_DEB) install.sh > SHA256SUMS
+	@cat $(REL)/SHA256SUMS
+
+# Pushes the tag, creates the GitHub release and uploads the artefacts. A tag with a
+# hyphen (v0.6.0-rc1) is a pre-release, which releases/latest skips.
+publish: release
+	git push origin $(RELEASE_TAG)
+	gh release create $(RELEASE_TAG) --verify-tag --title "palm-gw $(RELEASE_TAG)" --generate-notes \
+		$(if $(findstring -,$(RELEASE_TAG)),--prerelease) \
+		$(REL)/$(REL_DEB) $(REL)/install.sh $(REL)/SHA256SUMS
 
 support-bundle:
 	@echo "make support-bundle: arrives in Phase 8" >&2; exit 2

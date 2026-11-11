@@ -1,7 +1,6 @@
 // Command palm-gw is the user-facing entry point: `palm-gw setup` (wizard),
 // `palm-gw status`, `palm-gw web`, `palm-gw upgrade` (PLAN.md section 8.11).
-// Phase 0 ships `status` (an alias for palm-gwctl status) and stubs for the
-// rest, which arrive in Phases 6 and 7.
+// `palm-gw web` arrives in Phase 7.
 package main
 
 import (
@@ -29,8 +28,7 @@ func run(args []string) int {
 	case "setup":
 		return cmdSetup(args[1:], os.Stdout, os.Stderr)
 	case "upgrade":
-		fmt.Fprintln(os.Stderr, "palm-gw upgrade: not implemented yet (Phase 6)")
-		return 2
+		return cmdUpgrade(args[1:], os.Stdout, os.Stderr)
 	case "web":
 		fmt.Fprintln(os.Stderr, "palm-gw web: not implemented until Phase 7 (web UI)")
 		return 2
@@ -47,7 +45,7 @@ func usage() {
   setup      interactive setup wizard (also flag-driven for unattended installs)
   status     gateway status (same as palm-gwctl status)
   web        web UI management: set-password
-  upgrade    install the latest release
+  upgrade    install the latest release (--check only looks)
   version    print version
 `)
 }

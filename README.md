@@ -6,24 +6,28 @@ and gets routed, NAT'd internet over Bluetooth (Serial Port, LAN Access or Dial-
 profile, all PPP over RFCOMM). Pocket PCs, Android phones and laptops get the same through
 Bluetooth PAN. Palms are firewalled away from the home LAN unless you allow a host.
 
-**Status: Phase 0 of 8 (scaffold).** The daemon loads and validates its configuration and
-serves a control socket; nothing talks to Bluetooth yet. See [PLAN.md](PLAN.md) for the full
-specification and build phases, and [docs/TESTING.md](docs/TESTING.md) for what has been
-verified so far.
+**Status: Phase 6 of 8 (setup wizard and packaging).** Pairing, PPP, PAN, the firewall and
+the setup wizard work on a Pi 5; the web UI and the Palm admin app come in Phase 7. See
+[PLAN.md](PLAN.md) for the full specification and build phases, and
+[docs/TESTING.md](docs/TESTING.md) for what has been verified so far.
 
-## Quick start (will be)
+## Quick start
+
+On a Raspberry Pi 4 or 5 running Raspberry Pi OS Lite (64-bit), once a release is published:
 
 ```sh
 curl -fsSL https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/install.sh | sudo bash
 ```
 
-followed by `sudo palm-gw setup`, then open `https://<pi>:8042`. Until Phase 6 ships that
-path, developers install from source:
+It installs the package and runs the setup wizard (`sudo palm-gw setup`, which you can run
+again any time). `sudo palm-gw upgrade` installs a newer release later.
+
+Developers build the package on their own machine and install it on the Pi:
 
 ```sh
-make build-arm64                      # on the development machine
-scp -r dist Makefile scripts deploy config.example.toml pi:~/palm-gw/
-ssh pi 'cd palm-gw && sudo make install UPLINK=eth0'
+make deb                              # on the development machine
+scp dist/palm-gw_*_arm64.deb pi:
+ssh pi 'sudo apt install ./palm-gw_*_arm64.deb && sudo palm-gw setup'
 ```
 
 ## Layout
@@ -36,8 +40,11 @@ ssh pi 'cd palm-gw && sudo make install UPLINK=eth0'
 | `cmd/fake-palm` | Linux-side test client that stands in for a Palm |
 | `internal/config` | schema, defaults, validation, template rendering |
 | `internal/ctl` | control socket protocol, server, client, CLI |
-| `deploy/` | systemd units, dnsmasq and nftables templates, sysctl, modules, pppd options |
-| `scripts/` | `install.sh`, `uninstall.sh`, `detect-board.sh`, `nm-bridge.sh` |
+| `internal/setup` | detection, the wizard, and applying or removing the system files |
+| `internal/release` | finding and fetching a release for `palm-gw upgrade` |
+| `deploy/` | systemd units, dnsmasq and nftables templates, sysctl, modules, pppd options, the bridge helper |
+| `packaging/` | nfpm config, maintainer scripts, the bootstrap installer |
+| `scripts/` | `install.sh` and `uninstall.sh` (from source), `detect-board.sh`, acceptance test scripts |
 | `docs/` | `DECISIONS.md` (every deviation from the plan), `TESTING.md` (acceptance evidence) |
 
 ## Licence

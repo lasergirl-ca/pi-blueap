@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,6 +46,10 @@ func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
 // Main is the palm-gwctl command line. It is shared by cmd/palm-gwctl and by
 // `palm-gwd ctl ...`. It returns the process exit status.
 func Main(args []string, stdout, stderr io.Writer, version string) int {
+	if len(args) > 0 && args[0] == "upgrade" {
+		// An alias for `palm-gw upgrade` (PLAN.md section 8.11), with its flags.
+		return execPalmGW(args, stderr)
+	}
 	fs := flag.NewFlagSet("palm-gwctl", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	socket := fs.String("socket", DefaultSocket, "control socket path")
@@ -101,7 +107,7 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 			return 2
 		}
 		return c.reload()
-	case "rename", "events", "capture", "get", "set", "firewall", "check", "class", "bundle", "upgrade":
+	case "rename", "events", "capture", "get", "set", "firewall", "check", "class", "bundle":
 		fmt.Fprintf(stderr, "palm-gwctl %s: not implemented until Phase 6 or 7\n", cmd)
 		return 2
 	default:
@@ -141,7 +147,7 @@ Commands:
   check                       health report
   class toggle                swap Class of Device with class_fallback
   bundle                      write a support bundle
-  upgrade [--check]           install the latest release
+  upgrade [--check]           install the latest release (runs palm-gw upgrade)
 
 Every command accepts --json.
 `)
@@ -513,4 +519,34 @@ func didnt(b bool, yes, no string) string {
 // spaced renders a PIN as "4 8 2 1" so it is easy to read off a screen.
 func spaced(pin string) string {
 	return strings.Join(strings.Split(pin, ""), " ")
+}
+
+// execPalmGW replaces this process with palm-gw, found next to this binary
+// (both layouts put the binaries in one directory) or else on PATH.
+func execPalmGW(args []string, stderr io.Writer) int {
+	path := ""
+	if exe, err := os.Executable(); err == nil {
+		if p, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = p
+		}
+		if cand := filepath.Join(filepath.Dir(exe), "palm-gw"); fileExists(cand) {
+			path = cand
+		}
+	}
+	if path == "" {
+		p, err := exec.LookPath("palm-gw")
+		if err != nil {
+			fmt.Fprintln(stderr, "palm-gwctl upgrade: palm-gw not found")
+			return 1
+		}
+		path = p
+	}
+	err := syscall.Exec(path, append([]string{"palm-gw"}, args...), os.Environ())
+	fmt.Fprintf(stderr, "palm-gwctl upgrade: %v\n", err)
+	return 1
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular()
 }

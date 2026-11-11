@@ -666,6 +666,54 @@ Section 8.11's Path B, built with nfpm (`packaging/nfpm.yaml`, `make deb`, nfpm 
 - Run `sudo make uninstall` first (config and state are kept). Otherwise the source units in
   `/etc/systemd/system` shadow the package's.
 
+### D-044: Releases, the bootstrap installer and `palm-gw upgrade`
+
+Section 8.11's Path A, `palm-gw upgrade` and `make release`. Decisions beyond the plan:
+
+**Release artefacts** (`make release`, into `dist/release/`)
+- Only from a clean tree at a `v*` tag.
+- `palm-gw_<tag without v>_arm64.deb`, `install.sh` (the bootstrap script with the tag baked
+  in) and `SHA256SUMS` for both.
+- The .deb is named after the tag, not the package version: a pre-release tag `v0.6.0-rc1`
+  builds package version `0.6.0~rc1` (so it sorts before `0.6.0`), and a `~` has no place in a
+  download URL. The installers read the file name from `SHA256SUMS`, so the name is free.
+- **`make publish` is separate.** It pushes the tag and runs `gh release create`; the plan has
+  `release` do that. Building artefacts should never publish anything by accident.
+- A tag with a hyphen is published as a pre-release, which `releases/latest` skips.
+
+**The bootstrap script** (`packaging/bootstrap-install.sh`)
+- Refuses non-root, non-Linux, non-aarch64, a 32-bit userland on a 64-bit kernel (dpkg
+  architecture not `arm64`), boards other than the Pi 4/400/CM4 and Pi 5/CM5, a missing
+  `apt-get`, systemd or `/boot/firmware/config.txt`, and Debian older than 12.
+- Fetches from the tag baked in by `make release`; `PALM_GW_VERSION` picks another; a copy run
+  from a checkout uses `releases/latest`. `PALM_GW_BASE_URL` (https or file) points at any
+  release directory: a mirror, or a local build for testing.
+- Runs `apt-get update` first, because a fresh image's lists are stale.
+- Reads the terminal for the wizard by redirecting from `/dev/tty`, since stdin is the
+  script; apt-get gets `/dev/null` for the same reason. With an existing config, it only
+  reports the upgrade (postinst has re-applied it, D-043). With `PALM_GW_UNATTENDED=1` it runs
+  `palm-gw setup --yes`, whose answers come from the `PALM_GW_*` variables.
+- The whole script is one function called on the last line, so a cut-short download runs
+  nothing.
+- `--verify-sig` is designed in (minisign over `SHA256SUMS`, the key baked into the script)
+  but fails with "this release is not signed" until the project publishes a key.
+
+**`palm-gw upgrade`** (`internal/release`, `cmd/palm-gw/upgrade.go`)
+- The latest tag comes from the GitHub API (`/releases/latest`). `--check` needs no root and
+  never runs on its own; it is what the web UI's About page will call (section 8.12).
+- Versions are compared with `dpkg --compare-versions`, against the installed package, not
+  the binary's build string.
+- `--from URL` takes a release directory instead of GitHub; Go's HTTP client is given a
+  `file://` transport for it. `--version vX.Y.Z` picks a release; `--force` reinstalls.
+- The download goes in a world-readable temporary directory, because apt reads a local .deb
+  as the `_apt` user.
+- A source install (`/usr/local/bin`) is refused with "git pull && sudo make install".
+- `palm-gwctl upgrade` (and `palm-gwd ctl upgrade`) exec `palm-gw upgrade` with the same
+  arguments.
+
+**CI** now runs shellcheck over the scripts that ship: the bootstrap script, the maintainer
+scripts and the bridge helper.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

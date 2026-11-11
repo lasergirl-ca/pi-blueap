@@ -1727,3 +1727,103 @@ postinst. The Pi now runs the package (deb layout, dongle mode), with `config.to
 A long-lived SSH session from before the purge kept its old membership of the deleted and
 re-created `palm-gw` group, so `palm-gwctl` was refused the socket until a fresh login. As
 postinst says, membership takes effect at the next login.
+
+### Part 5: bootstrap installer, `palm-gw upgrade`, `make release` (D-044), 2026-11-11
+
+No GitHub release exists yet, so each "release" was a directory on the Pi with what
+`make release` produces: the package named after its tag, `install.sh` with the tag baked in,
+and `SHA256SUMS`. `make deb DEB_VERSION=0.6.0~test4` and `~test5` built the packages;
+`relbad` held `~test4`'s package under `~test5`'s name and sums. The installers were pointed
+at the directories with `PALM_GW_BASE_URL=file:///tmp/relN` and `--from file:///tmp/relN`.
+`make -n release RELEASE_TAG=v0.6.0-rc1` and `make -n publish RELEASE_TAG=v0.6.0-rc1`
+showed package version `0.6.0~rc1`, asset `palm-gw_0.6.0-rc1_arm64.deb`, the tag baked into
+`install.sh`, and `gh release create v0.6.0-rc1 --verify-tag … --prerelease`; nothing ran.
+
+**Bootstrap refusals**, each piped as `cat install.sh | … bash`:
+
+```
+$ cat /tmp/rel4/install.sh | bash
+palm-gw install: run me as root: curl -fsSL <url> | sudo bash
+$ cat /tmp/rel4/install.sh | sudo PALM_GW_VERSION=1.2 bash
+==> Raspberry Pi 5 Model B Rev 1.0, Debian GNU/Linux 13 (trixie)
+palm-gw install: PALM_GW_VERSION must be a release tag such as v1.2.0 (got '1.2').
+$ cat /tmp/relbad/install.sh | sudo PALM_GW_BASE_URL=file:///tmp/relbad bash
+palm-gw install: palm-gw_0.6.0-test5_arm64.deb does not match SHA256SUMS; not installing it.
+$ cat /tmp/rel5/install.sh | sudo PALM_GW_BASE_URL=file:///tmp/rel5 bash -s -- --verify-sig
+palm-gw install: --verify-sig: this release is not signed (no public key in this script).
+```
+
+All exited 1 with the package left at `0.6.0~test3`. Without `PALM_GW_BASE_URL`, the baked
+tag `v0.6.0-test4` gave a 404 from GitHub, as it should.
+
+**Bootstrap over an installed gateway:** `cat /tmp/rel4/install.sh | sudo
+PALM_GW_BASE_URL=file:///tmp/rel4 bash` checked the sum, ran `apt-get update` and
+`apt-get install`, `Unpacking palm-gw (0.6.0~test4) over (0.6.0~test3)`, postinst re-applied
+the config (every file `unchanged`), and the script ended with `palm-gw is upgraded and
+running with your existing configuration.` All five units active; the T|X still allowlisted.
+
+**`palm-gw upgrade`:**
+
+```
+$ palm-gw upgrade --check
+palm-gw upgrade: no release has been published yet
+$ palm-gwctl upgrade --check --version v0.6.0
+palm-gw v0.6.0 is available (installed: 0.6.0~test4). Install it with: sudo palm-gw upgrade
+$ palm-gw upgrade --from file:///tmp/rel5
+palm-gw upgrade: run it as root: sudo palm-gw upgrade
+$ sudo palm-gw upgrade --from file:///tmp/relbad
+palm-gw upgrade: palm-gw_0.6.0-test5_arm64.deb: checksum mismatch (got 9a292491…, SHA256SUMS says c40d4da3…)
+$ sudo palm-gw upgrade --from file:///tmp/rel4
+palm-gw is up to date (installed: 0.6.0~test4, offered: 0.6.0~test4). Use --force to reinstall it.
+$ sudo palm-gw upgrade --from file:///tmp/rel5
+…
+Unpacking palm-gw (0.6.0~test5) over (0.6.0~test4) ...
+palm-gw: applying the existing configuration
+…
+palm-gw upgraded: 0.6.0~test4 -> 0.6.0~test5. Config and paired devices are unchanged.
+$ sudo palm-gwctl upgrade --from file:///tmp/rel5
+palm-gw is up to date (installed: 0.6.0~test5, offered: 0.6.0~test5). Use --force to reinstall it.
+```
+
+The `--check` against GitHub ran as `sysadmin` without sudo. No `/tmp/palm-gw-upgrade-*`
+directory was left behind.
+
+**Fresh bootstrap, unattended.** Backed up `config.toml`, `state.json`, `install-info.json`
+and `tls/` to `/var/tmp/p6-backup` (mode 0700), then `apt-get purge palm-gw`: no
+`/etc/palm-gw`, no `/var/lib/palm-gw`, no group, no `disable-bt`. Then:
+
+```
+$ cat /tmp/rel5/install.sh | sudo PALM_GW_BASE_URL=file:///tmp/rel5 PALM_GW_UNATTENDED=1 \
+    PALM_GW_UPLINK=eth0 PALM_GW_ADAPTER=dongle PALM_GW_WEB=off PALM_GW_PAIR=no bash
+==> palm-gw_0.6.0-test5_arm64.deb: checksum OK
+The following NEW packages will be installed:
+  palm-gw
+palm-gw: sysadmin added to group palm-gw (takes effect at next login)
+palm-gw is installed. Run 'sudo palm-gw setup' to finish.
+==> Running palm-gw setup (unattended)
+board:     pi5 (Raspberry Pi 5 Model B Rev 1.0)
+adapters:  hci0 60:15:6F:E9:EB:03  USB dongle (usb)  powered=yes
+uplinks:   eth0 via 10.4.0.1 metric 100
+           wlan0 via 10.4.0.1 metric 600  Wi-Fi 5240 MHz
+…
+    /etc/palm-gw/config.toml written
+…
+    dtoverlay=disable-bt added to /boot/firmware/config.txt
+…
+palm-gw is running.
+Reboot required: YES (the Bluetooth adapter mode changed)
+```
+
+No prompts. The reboot notice is right on paper, since the purge had taken the `disable-bt` line
+out and setup put it back, but the Pi had not rebooted in between, so the radio never came
+back. The web UI was left off so that no password was set in this run.
+
+**Restored:** the backups put back and `palm-gw setup --yes --adapter dongle --pair no` run
+(every file `unchanged`, `web password: unchanged`, `Reboot required: no`). `sha256sum -c`
+passed for `config.toml`, `state.json`, `tls/cert.pem` and `tls/key.pem`; the T|X is
+allowlisted and the units are active. The backup was shredded and the test directories
+deleted. The Pi runs `0.6.0~test5`.
+
+**Not tested:** the interactive wizard through `/dev/tty` under `curl | sudo bash` (Zoe at a
+terminal; part 7's fresh-flash run covers it), downloads from a real GitHub release (none
+published), and the non-arm64 and non-Pi refusals (no such host here).

@@ -18,6 +18,8 @@ jobs:
           version: v2.15.0
       - run: go test ./...
       - run: make build-arm64
+      # The scripts that ship (the bootstrap installer, the maintainer scripts, the bridge helper).
+      - run: shellcheck packaging/bootstrap-install.sh packaging/postinst packaging/prerm packaging/postrm deploy/lib/nm-bridge.sh
       - uses: actions/upload-artifact@v4
         with:
           name: palm-gw-linux-arm64
