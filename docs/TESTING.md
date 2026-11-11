@@ -1827,3 +1827,85 @@ deleted. The Pi runs `0.6.0~test5`.
 **Not tested:** the interactive wizard through `/dev/tty` under `curl | sudo bash` (Zoe at a
 terminal; part 7's fresh-flash run covers it), downloads from a real GitHub release (none
 published), and the non-arm64 and non-Pi refusals (no such host here).
+
+### Part 6: `make image` (D-002, D-045), 2026-11-11
+
+`make image DEB_VERSION=0.6.0~test6` on the Mac (Docker 29.8.2, arm64 VM, no emulation).
+
+**Base image:** downloaded once into `dist/base/` and checked against the pinned hash:
+
+```
+$ echo '483db18a…422843  dist/base/2026-10-06-raspios-trixie-arm64-lite.img.xz.part' | sha256sum -c -
+dist/base/2026-10-06-raspios-trixie-arm64-lite.img.xz.part: OK
+==> Base image: b8a393dc1c3701450b5fffbfe74368a98fb6eab7415ce456cc0cead886ea8780, 3078619136 bytes
+```
+
+The unpacked hash and size match the `extract_sha256` and `extract_size` in Raspberry Pi's own
+Imager list (`os_list_imagingutility_v4.json`).
+
+**The build:**
+
+```
+==> Base: Debian GNU/Linux 13 (trixie)
+==> Installing palm-gw_0.6.0~test6_arm64.deb with apt
+0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+palm-gw is installed. Run 'sudo palm-gw setup' to finish.
+==> Cleaning up the chroot
+/dev/loop0      2.3G  1.9G  268M  88% /work/palm-gw-0.6.0-test6-rpi-arm64.mnt
+==> Compressing to palm-gw-0.6.0-test6-rpi-arm64.img.xz
+==> Done: dist/palm-gw-0.6.0-test6-rpi-arm64.img.xz (548733632 bytes; 3078619136 unpacked)
+```
+
+apt installed palm-gw alone: the Lite image already has every dependency. The root
+filesystem keeps 268 MB free before the first boot grows it.
+
+**What changed against the stock image**, from `scripts/image-diff.sh` (every file on both
+partitions, with mode, owner and hash; `<` is the stock image, `>` the palm-gw image; the
+package's own files under `/usr` and `/var/lib/dpkg/info` are left out here):
+
+```
+=== partition 1: < base, > image
+=== partition 2: < base, > image
+< ./etc/group …            > ./etc/group …   > ./etc/group- …  (the palm-gw group)
+< ./etc/gshadow …          > ./etc/gshadow … > ./etc/gshadow- …
+> ./etc/palm-gw-image f 644 root:root
+> ./etc/ppp/options.palm f 644 root:root
+> ./etc/profile.d/palm-gw-setup.sh f 644 root:root
+< ./var/cache/apt/pkgcache.bin …  > ./var/cache/apt/pkgcache.bin …
+< ./var/lib/dpkg/status …  > ./var/lib/dpkg/status …  > ./var/lib/dpkg/status-old …
+> ./var/lib/palm-gw d 750 root:root
+  (and apt's and dpkg's logs, empty in the stock image, now record the install)
+=== checks
+palm-gw 0.6.0~test6 install ok installed
+palm-gw:x:985:
+palm-gw units enabled: none
+resolv.conf: as in the base
+boot partition has user-data
+boot partition has network-config
+boot partition has meta-data
+loops still attached: 0
+```
+
+The boot partition (firmware, `config.txt`, `cmdline.txt` and cloud-init's `user-data`,
+`network-config` and `meta-data`) is byte-identical to the stock image, and so are the apt
+package lists.
+
+Fixed on the way to that result:
+- The first build deleted the package lists and apt's caches, which the stock image ships.
+  It now installs from the stock lists, and only on a missing dependency refreshes them and
+  then puts the stock ones back. That fallback ran once, when `apt-get install --no-download`
+  rejected the local path ("Pathname to install is not absolute"), and left the lists
+  identical to stock; `--no-download` is gone.
+- The first build grew the root filesystem by 512 MB; it no longer does (`GROW_MB=0`).
+- `xz -6` gave 615 MB; `xz -9` gives 549 MB.
+- Loop devices left attached by an earlier comparison run inside Docker's VM made a fresh
+  container's next free device (`loop8`) have no node. Both scripts now create a missing node,
+  and the leaked devices were detached.
+
+**Imager entry** (`dist/palm-gw-0.6.0-test6-rpi-arm64.json`): one OS with `"init_format":
+"cloudinit-rpi"`, `"devices": ["pi5-64bit", "pi4-64bit"]`, the sizes and both hashes, and the
+Pi 4 and Pi 5 device objects copied from Raspberry Pi's list.
+
+**Not tested yet:** booting the image. That needs a spare card and Zoe, and is part 7: flash
+it with Raspberry Pi Imager (customisation through `--repo` with the `.json`, or with "Use
+custom"), boot, log in, see the reminder, run `sudo palm-gw setup`.

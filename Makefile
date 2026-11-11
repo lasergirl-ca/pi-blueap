@@ -22,7 +22,7 @@ ADAPTER  ?=
 UPLINK   ?=
 CONFIG   ?=
 
-.PHONY: all build build-arm64 test vet lint fmt install uninstall deb release publish support-bundle clean
+.PHONY: all build build-arm64 test vet lint fmt install uninstall deb image release publish support-bundle clean
 
 all: build
 
@@ -78,6 +78,32 @@ release:
 	chmod 0755 $(REL)/install.sh
 	cd $(REL) && $(SHA256) $(REL_DEB) install.sh > SHA256SUMS
 	@cat $(REL)/SHA256SUMS
+
+# The ready-to-flash image (D-002, D-045): the pinned Raspberry Pi OS Lite (64-bit) image with
+# the .deb installed, built by packaging/build-image.sh in a privileged arm64 Docker container
+# (on a Linux arm64 host, run the script directly as root). The base is downloaded once into
+# dist/base/ and checked against PIOS_SHA256. Writes dist/palm-gw-<ver>-rpi-arm64.img.xz, its
+# .sha256, and a Raspberry Pi Imager repository file (.json).
+PIOS_URL    ?= https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2026-10-06/2026-10-06-raspios-trixie-arm64-lite.img.xz
+PIOS_SHA256 ?= 483db18a48da399b5b7022ffae9a07bc6d99daab30e593aedac09b69ff422843
+PIOS_IMG    := $(DIST)/base/$(notdir $(PIOS_URL))
+IMG_VERSION := $(if $(RELEASE_TAG),$(patsubst v%,%,$(RELEASE_TAG)),$(subst ~,-,$(DEB_VERSION)))
+IMAGE       := $(DIST)/palm-gw-$(IMG_VERSION)-rpi-arm64.img.xz
+IMAGE_URL   ?= $(if $(RELEASE_TAG),https://github.com/lasergirl-ca/pi-blueap/releases/download/$(RELEASE_TAG)/$(notdir $(IMAGE)),$(notdir $(IMAGE)))
+DOCKER      ?= docker
+
+$(PIOS_IMG):
+	mkdir -p $(DIST)/base
+	curl -fL --retry 3 -o $@.part '$(PIOS_URL)'
+	echo '$(PIOS_SHA256)  $@.part' | $(SHA256) -c -
+	mv $@.part $@
+
+image: deb $(PIOS_IMG)
+	$(DOCKER) run --rm --privileged --platform linux/arm64 -v '$(CURDIR)':/src -w /src \
+		-e WORK=/work -e DEBIAN_FRONTEND=noninteractive -e IMAGE_VERSION='$(DEB_VERSION)' -e IMAGE_URL='$(IMAGE_URL)' debian:trixie-slim \
+		bash -c 'apt-get update -qq && apt-get install -y -qq fdisk e2fsprogs xz-utils zerofree >/dev/null && \
+			packaging/build-image.sh "$(PIOS_IMG)" "$(DIST)/palm-gw_$(DEB_VERSION)_arm64.deb" "$(IMAGE)"'
+	@ls -l $(IMAGE) $(IMAGE).sha256 $(IMAGE:.img.xz=.json)
 
 # Pushes the tag, creates the GitHub release and uploads the artefacts. A tag with a
 # hyphen (v0.6.0-rc1) is a pre-release, which releases/latest skips.

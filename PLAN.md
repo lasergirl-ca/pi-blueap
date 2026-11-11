@@ -278,7 +278,8 @@ palm-gw/
 ├── packaging/
 │   ├── nfpm.yaml                    # builds palm-gw_<ver>_arm64.deb
 │   ├── postinst, prerm, postrm      # create group, enable units, run `palm-gw setup --check` hints
-│   └── bootstrap-install.sh         # the `curl | sudo bash` script: detects arch/board, fetches release .deb, installs, launches setup
+│   ├── bootstrap-install.sh         # the `curl | sudo bash` script: detects arch/board, fetches release .deb, installs, launches setup
+│   └── build-image.sh               # D-045: stock Pi OS Lite image + the .deb, for `make image`
 ├── deploy/
 │   ├── systemd/palm-gwd.service
 │   ├── systemd/palm-gwd-nm-bridge.service      # oneshot: ensure br-palm via nmcli (idempotent); reads /etc/palm-gw/bridge.env (D-042)
@@ -921,6 +922,7 @@ Reboot required: no
 | `support-bundle` | `scripts/support-bundle.sh` → `palm-gw-support-<ts>.tar.gz` |
 | `deb` | `nfpm package -p deb` → `dist/palm-gw_<ver>_arm64.deb` (D-043: static files staged by `palm-gw setup --install-files --layout deb`; `DEB_VERSION` from the tag, else a commit-time snapshot) |
 | `release` | `deb` plus `dist/release/SHA256SUMS`, `dist/release/install.sh` (the bootstrap script with the version baked in), from a clean tree at a `v*` tag only. **Amended by D-044:** it never touches GitHub |
+| `image` | D-002, D-045: `deb`, then the pinned Raspberry Pi OS Lite (64-bit) image with the .deb installed in a chroot (`packaging/build-image.sh`, in a privileged arm64 Docker container): `dist/palm-gw-<ver>-rpi-arm64.img.xz`, its `.sha256`, and a Raspberry Pi Imager repository file. Not configured; cloud-init untouched so Imager's customisation works |
 | `publish` | D-044: `release`, then `git push origin <tag>` and `gh release create` with the three files (a tag with a hyphen is a pre-release) |
 
 ### 8.12 Management web UI

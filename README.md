@@ -22,6 +22,10 @@ curl -fsSL https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/in
 It installs the package and runs the setup wizard (`sudo palm-gw setup`, which you can run
 again any time). `sudo palm-gw upgrade` installs a newer release later.
 
+Or flash the ready-made image (`palm-gw-<ver>-rpi-arm64.img.xz`, Raspberry Pi OS Lite with
+palm-gw installed) with Raspberry Pi Imager, set the user, SSH and Wi-Fi in Imager as usual,
+and run `sudo palm-gw setup` after the first login.
+
 Developers build the package on their own machine and install it on the Pi:
 
 ```sh

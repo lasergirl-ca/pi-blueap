@@ -714,6 +714,49 @@ Section 8.11's Path A, `palm-gw upgrade` and `make release`. Decisions beyond th
 **CI** now runs shellcheck over the scripts that ship: the bootstrap script, the maintainer
 scripts and the bridge helper.
 
+### D-045: The image: stock Pi OS Lite plus the .deb, built in Docker
+
+D-002's `make image`, decided now:
+
+**What the image is**
+- The pinned Raspberry Pi OS Lite (64-bit) image (Trixie, 2026-10-06; `PIOS_URL` and
+  `PIOS_SHA256` in the Makefile), with the palm-gw `.deb` installed by `apt-get` in a chroot.
+  Nothing else changes, so the gateway is **not** configured and nothing of palm-gw starts.
+- **Cloud-init is left alone.** Trixie images are customised on first boot by cloud-init from
+  `user-data` and `network-config` on the boot partition, which Raspberry Pi Imager writes. The
+  image keeps those files and services as shipped, so Imager's settings (user, SSH key, Wi-Fi,
+  hostname) work as they do for the stock image. D-002's "pre-enables SSH" is therefore done
+  by Imager, like on the stock image, instead of being baked in: a baked-in SSH server with no
+  user would be useless, and a baked-in user would be a shared default password.
+- Until `/etc/palm-gw/config.toml` exists, a login shell prints "Run: sudo palm-gw setup"
+  (`/etc/profile.d/palm-gw-setup.sh`). D-002 said setup "runs on first login"; launching a
+  root wizard from a login script is too surprising, so it is a reminder instead.
+  `/etc/palm-gw-image` records the palm-gw version, the base image and the build time.
+- One image for both boards, named `palm-gw-<ver>-rpi-arm64.img.xz` (D-002 had `<board>`),
+  with a `.sha256` and a Raspberry Pi Imager repository file (`.json`): one OS entry with
+  `init_format: cloudinit-rpi` and the `pi5-64bit`/`pi4-64bit` device tags, as in Raspberry
+  Pi's own list, for `rpi-imager --repo palm-gw-….json`.
+
+**How it is built** (`packaging/build-image.sh`)
+- On a Linux arm64 host as root; `make image` runs it in a privileged `debian:trixie-slim`
+  container under Docker, which on Apple silicon is arm64 without emulation. Work happens in
+  the container's own filesystem, not the bind-mounted checkout.
+- The image keeps the stock size: its root filesystem has about 430 MB free and palm-gw needs
+  30 MB, and Pi OS grows the root filesystem to the card on first boot. `GROW_MB=N` adds room
+  if a later base needs it. Partitions are mounted through offset loop devices, since
+  containers get no partition device nodes.
+- The chroot gets `/proc`, `/sys`, `/dev`, the build host's `resolv.conf` (the image's own is
+  put back) and a `policy-rc.d` that refuses service starts; postinst sees no systemd and
+  starts nothing (D-043).
+- The base already has every dependency (bluez, ppp, dnsmasq-base, nftables,
+  NetworkManager), so `apt-get install` installs palm-gw from the stock package
+  lists and downloads nothing. Only if that fails are the lists refreshed, and the stock
+  lists are put back afterwards, so the image's apt state matches its base.
+- Afterwards: `zerofree` on the root filesystem, then `xz -9` (549 MB, against 615 MB with
+  `-6`; the stock image is 550 MB). Compressing takes about 12 minutes on the Mac.
+- `scripts/image-diff.sh` lists every file on both partitions of the base and the built
+  image and prints the differences, which is how the image is checked.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08
