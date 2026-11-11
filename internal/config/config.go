@@ -117,6 +117,7 @@ type Ctl struct {
 // Web is the [web] table.
 type Web struct {
 	Enabled      bool     `toml:"enabled" json:"enabled"`
+	Username     string   `toml:"username" json:"username"` // D-026
 	Listen       []string `toml:"listen" json:"listen"`
 	TLS          string   `toml:"tls" json:"tls"`
 	TLSCertFile  string   `toml:"tls_cert_file" json:"tls_cert_file"`
@@ -177,6 +178,7 @@ func Default() *Config {
 		Ctl:     Ctl{Socket: "/run/palm-gw/ctl.sock", Group: "palm-gw"},
 		Web: Web{
 			Enabled:      true,
+			Username:     "admin",
 			Listen:       []string{"0.0.0.0:8042"},
 			TLS:          "self-signed",
 			SessionHours: 72,

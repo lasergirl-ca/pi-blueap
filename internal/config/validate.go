@@ -41,6 +41,7 @@ var (
 	pinRe     = regexp.MustCompile(`^[0-9]{1,16}$`)
 	btAddrRe  = regexp.MustCompile(`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`)
 	ifnameRe  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
+	userRe    = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,32}$`)
 )
 
 // Validate applies the rules in PLAN.md section 7 ("Validation rules") plus
@@ -246,6 +247,9 @@ func (c *Config) Validate() error {
 			}
 		default:
 			add("web.tls", "must be off, self-signed or file, got %q", w.TLS)
+		}
+		if !userRe.MatchString(w.Username) {
+			add("web.username", "must be 1 to 32 letters, digits, '.', '_' or '-', got %q", w.Username)
 		}
 		if w.SessionHours < 1 {
 			add("web.session_hours", "must be at least 1, got %d", w.SessionHours)

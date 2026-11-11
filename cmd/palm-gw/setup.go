@@ -52,6 +52,19 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	root := fs.String("root", "/", "with --install-files: target root (a staging directory for packaging)")
 	remove := fs.Bool("remove", false, "undo --apply and a source install's files; keeps config and paired devices")
 	purge := fs.Bool("purge", false, "with --remove: also delete config.toml and the paired devices")
+	var wf wizardFlags
+	fs.StringVar(&wf.name, "name", "", "gateway name as the Palm sees it (PALM_GW_NAME)")
+	fs.StringVar(&wf.adapter, "adapter", "", "onboard, dongle (turns the onboard radio off), dongle-keep, or an hciN/address (PALM_GW_ADAPTER)")
+	fs.StringVar(&wf.uplink, "uplink", "", "uplink interface (PALM_GW_UPLINK)")
+	fs.StringVar(&wf.subnet, "subnet", "", "Palm network, an IPv4 /24 (PALM_GW_SUBNET)")
+	fs.StringVar(&wf.web, "web", "", "web UI on or off (PALM_GW_WEB)")
+	fs.StringVar(&wf.webUser, "web-user", "", "web UI username (PALM_GW_WEB_USER)")
+	fs.StringVar(&wf.webPasswordFile, "web-password-file", "", "read the web UI password from this file (or PALM_GW_WEB_PASSWORD)")
+	fs.StringVar(&wf.tls, "tls", "", "self-signed or off (PALM_GW_TLS)")
+	fs.StringVar(&wf.pair, "pair", "", "open a pairing window at the end: yes or no (PALM_GW_PAIR)")
+	fs.BoolVar(&wf.yes, "yes", false, "unattended: take every answer from flags, PALM_GW_* or the current config; never prompt (PALM_GW_UNATTENDED=1)")
+	fs.BoolVar(&wf.plain, "plain", false, "plain line prompts instead of the terminal UI")
+	fs.BoolVar(&wf.dryRun, "dry-run", false, "ask the questions and show what config.toml would change, without writing or applying anything")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -126,8 +139,7 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	case !*check:
-		fmt.Fprintln(stderr, "palm-gw setup: the wizard is not built yet (Phase 6); use --check, --apply, --install-files or --remove")
-		return 2
+		return runWizard(wf, *cfgPath, stdout, stderr)
 	}
 	r := setup.LocalHost(bluezAdapters).Detect(*cfgPath)
 	if *asJSON {

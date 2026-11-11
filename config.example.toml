@@ -78,6 +78,7 @@ group  = "palm-gw"                 # socket is 0660 root:palm-gw so an operator 
 
 [web]
 enabled        = true
+username       = "admin"            # set by `palm-gw setup` (D-026)
 listen         = ["0.0.0.0:8042"]   # bound to LAN addresses only at runtime; nftables drops 8042 from the Palm side
 tls            = "self-signed"      # "off" | "self-signed" | "file"
 tls_cert_file  = ""

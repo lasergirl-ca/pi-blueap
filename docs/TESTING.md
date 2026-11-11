@@ -1573,3 +1573,69 @@ modules-load files, the nftables file and include line, sysctl file, `bridge.env
 T|X was still `paired,trusted` and allowlisted, and all five units were active. `--apply` now
 ends with detection's warnings (here, the 1500 mA supply), which replaces `install.sh`'s
 shell checks for the Wi-Fi band and the Pi 4 console UART.
+
+### Part 3: the wizard (`palm-gw setup`), 2026-11-11
+
+`internal/setup/wizard.go` asks only what detection cannot answer:
+- the **name**;
+- the **adapter**, only when both an onboard radio and a dongle are present: onboard, dongle
+  with the onboard radio kept, or dongle with the onboard radio turned off;
+- the **uplink**, only with more than one default route;
+- the **subnet**, only on a collision;
+- the **web UI**: on or off, username, and password, which is kept if one is stored; plus
+  **HTTPS** with a self-signed certificate;
+- **pair now**.
+
+Answers come from flags, then `PALM_GW_*`, then the existing config. `--yes` or
+`PALM_GW_UNATTENDED=1` never prompts, and stops with a clear message if a required answer
+(the first web password) is missing. config.toml is edited key by key (`SetKeys`): a new
+install starts from the embedded `config.example.toml`, and a re-run changes only the lines
+whose answers changed, keeping comments and alignment. The web password is stored as argon2id
+in PHC form. The certificate is ECDSA P-256, covers the host name, the uplink address and
+`10.42.0.1` (D-039), and is reused while it covers the same names. `config.toml` gains
+`[web].username` (D-026). Prompts use charmbracelet/huh on a terminal (section 2), or plain
+lines otherwise (`--plain`). `--dry-run` shows the `config.toml` changes and writes nothing.
+
+`go test ./internal/setup/` covers:
+- `SetKeys` on fixtures and on the shipped example (exactly the requested lines change, and
+  it still validates);
+- argon2id hashing and verification;
+- the certificate: reused for the same names, new when an address is added;
+- an interactive run with a password mismatch and retry;
+- unattended runs: no password is refused; a subnet collision renumbers the gateway and both
+  pools; web off needs no password;
+- an unchanged re-run produces no edits.
+
+On the Pi 5 (dongle mode, no web password stored), all `--dry-run`, with nothing written
+(`config.toml` kept its 20:23 timestamp):
+
+```
+$ printf '\n2\ny\n\n<pw>\n<pw>\ny\nn\n' | sudo palm-gw setup --plain --dry-run
+  Bluetooth: the USB dongle (hci0 60:15:6F:E9:EB:03)      (no adapter question: only the dongle is visible)
+Which interface connects the Pi to the internet?
+  1) eth0 via 10.4.0.1
+  2) wlan0 via 10.4.0.1 (Wi-Fi 5240 MHz)
+==> Dry run: nothing written or applied
+    - uplink     = "eth0"                             # interface to NAT out of
+    + uplink     = "wlan0"                            # interface to NAT out of
+    - password_hash  = ""                 # argon2id; written by `palm-gw setup` or `palm-gw web set-password`
+    + password_hash  = "(new argon2id hash)"
+    adapter mode: dongle, pair at the end: false
+
+$ sudo env PALM_GW_UNATTENDED=1 palm-gw setup --dry-run
+palm-gw setup: answer required: a web UI password (PALM_GW_WEB_PASSWORD or --web-password-file), or turn the web UI off (PALM_GW_WEB=off)
+
+$ sudo env PALM_GW_UNATTENDED=1 PALM_GW_WEB_PASSWORD=<pw> PALM_GW_NAME="Zoë Test GW" PALM_GW_UPLINK=wlan0 palm-gw setup --dry-run
+    (three line changes: name, uplink, password_hash)
+
+$ sudo env PALM_GW_UNATTENDED=1 PALM_GW_WEB=off palm-gw setup --dry-run
+    - enabled        = true
+    + enabled        = false
+```
+
+A short password file is refused (`at least 8 characters`). With no terminal and stdin closed,
+the wizard stops with `cancelled; nothing was changed`.
+
+Still to do: a real interactive run on a terminal. It covers the huh prompts, writing
+`config.toml`, the certificate, and pairing a Palm during setup with "online" reported before
+the wizard exits.
