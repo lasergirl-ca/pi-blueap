@@ -1909,3 +1909,92 @@ Pi 4 and Pi 5 device objects copied from Raspberry Pi's list.
 **Not tested yet:** booting the image. That needs a spare card and Zoe, and is part 7: flash
 it with Raspberry Pi Imager (customisation through `--repo` with the `.json`, or with "Use
 custom"), boot, log in, see the reminder, run `sudo palm-gw setup`.
+
+### Part 7: fresh flash of the image (D-045, D-046), 2026-11-11, first run
+
+Hardware: a second Raspberry Pi 5 (onboard radio 2C:CF:67:2E:E7:4A) on a new 64 GB microSD
+card, with a second TP-Link UB500 dongle (60:15:6F:EA:00:81), Ethernet uplink. The working
+gateway (10.4.0.241) stayed up throughout.
+
+**Flashing** with Raspberry Pi Imager 2.0.12 on the Mac. The first attempt used "Use custom"
+and Imager skipped customisation altogether. Imager's source (`OSSelectionStep.qml`) sets a
+custom file with no `init_format`, so customisation is never offered for one. The second
+attempt opened Imager with a copy of the entry whose `url` is the local file:
+
+```
+$ "/Applications/Raspberry Pi Imager.app/Contents/MacOS/rpi-imager" --repo dist/palm-gw-0.6.0-test6-local.json
+setSrc: initFormat parameter: "cloudinit-rpi" -> _initFormat set to: "cloudinit-rpi"
+configureWriteThread: passing to thread - initFormat: "cloudinit-rpi" cloudinit empty: false …
+```
+
+Hostname `palmgw-test`, user `sysadmin` with Zoe's password and SSH key. Imager writes
+`sudo: null` (as for stock Lite: neither entry offers passwordless sudo), so sudo asked for the
+password until Zoe changed that by hand.
+
+**First boot and login** (Zoe):
+
+```
+$ ssh sysadmin@10.4.1.118
+Linux palmgw-test 6.18.50+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.18.50-1+rpt1 (2026-09-11) aarch64
+…
+  palm-gw is installed but not set up yet. Run:  sudo palm-gw setup
+```
+
+`cloud-init status`: done. `/etc/palm-gw-image`: `PALM_GW_VERSION=0.6.0~test6`, base
+`2026-10-06-raspios-trixie-arm64-lite.img.xz`.
+
+**`sudo palm-gw setup`** (Zoe, interactive): detection listed both radios (dongle
+`powered=no`), Ethernet, and two warnings (under-voltage since boot, a 3000 mA supply). She
+chose the dongle with the onboard radio off, the web UI with HTTPS, and pairing. A mistyped
+password confirmation was caught and asked again. The apply step wrote everything, then:
+
+```
+palm-gw setup: systemctl restart palm-gwd: exit status 1: Job for palm-gwd.service failed because a timeout was exceeded.
+```
+
+```
+$ journalctl -u palm-gwd -o cat | grep -m1 'attach to BlueZ failed'
+{"level":"ERROR","msg":"attach to BlueZ failed; retrying in 3 s","component":"daemon","err":"bluez: set hci1.Powered: Failed"}
+$ for r in /sys/class/rfkill/rfkill*; do echo "$(cat $r/name) $(cat $r/type) soft=$(cat $r/soft)"; done
+hci0 bluetooth soft=0
+hci1 bluetooth soft=1
+phy0 wlan soft=0
+$ ls -l --time-style=full-iso /var/lib/systemd/rfkill/ | grep usb
+-rw-r--r-- 1 root root 2 2026-10-05 17:27:44.862034643 -0700 platform-xhci-hcd.1-usb-0:1:1.0:bluetooth
+$ sudo cat /var/lib/systemd/rfkill/platform-xhci-hcd.1-usb-0:1:1.0:bluetooth
+1
+```
+
+The stock image ships that USB Bluetooth port saved as blocked (D-046). Clearing it by hand
+(`echo 0 > /sys/class/rfkill/rfkill1/soft`) let `palm-gwd` attach at its next retry.
+
+**The fix, on the Pi** (`0.6.0~test8`, installed with `apt-get install`): the dongle blocked
+again by hand, then `systemctl restart palm-gwd`:
+
+```
+restart rc=0
+{"level":"WARN","msg":"adapter was rfkill soft-blocked; unblocked it","component":"daemon","event":"rfkill_unblocked","hci":"hci1"}
+{"level":"INFO","msg":"adapter configured","component":"daemon","hci":"hci1","address":"60:15:6F:EA:00:81","alias":"Palm Gateway - Lyman",…}
+{"level":"INFO","msg":"palm-gwd ready","ctl_socket":"/run/palm-gw/ctl.sock"}
+$ sudo cat /var/lib/systemd/rfkill/platform-xhci-hcd.1-usb-0:1:1.0:bluetooth
+0
+```
+
+(`0.6.0~test7` had no wait after the unblock; its first `Powered` failed and the 3 s retry
+worked.) After a reboot for `dtoverlay=disable-bt`, the dongle is hci0, unblocked, and
+`palm-gwctl status` shows it configured by address, PAN up on `br-palm`.
+
+**Pairing** (Zoe, the T|X):
+
+```
+$ ssh sysadmin@10.4.1.118 palm-gwctl pair 5 --one
+Pairing window open for 5m0s.
+…
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"  PIN requested
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"  paired, added to allowlist
+Window closed (one device).
+```
+
+Next: the same run from a fixed image (`0.6.0-test9`), so that `sudo palm-gw setup` goes
+through to pairing with no hand fixes; then the `curl | sudo bash` installer with the
+interactive wizard on `/dev/tty`.

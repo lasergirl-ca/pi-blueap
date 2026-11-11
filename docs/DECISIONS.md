@@ -757,6 +757,33 @@ D-002's `make image`, decided now:
 - `scripts/image-diff.sh` lists every file on both partitions of the base and the built
   image and prints the differences, which is how the image is checked.
 
+### D-046: palm-gwd clears a soft rfkill block on its adapter
+
+Found on the first fresh flash (Phase 6 part 7): with a USB dongle, `palm-gwd` never came up
+("bluez: set hci1.Powered: Failed", then the start timed out) and the wizard stopped before
+pairing. The dongle was soft-blocked by rfkill. Raspberry Pi OS restores each radio's saved
+block state at boot (`systemd-rfkill`, `/var/lib/systemd/rfkill/`), and the stock 2026-10-06
+Lite image ships `platform-xhci-hcd.1-usb-0:1:1.0:bluetooth` saved as `1` (dated 2026-10-05,
+from Raspberry Pi's image build). So on any fresh card, a Bluetooth dongle in that Pi 5 USB
+port starts blocked; BlueZ lists it but cannot power it. Lite has no `rfkill` command.
+
+- Before configuring the adapter, `palm-gwd` checks `/sys/class/rfkill` for the adapter's
+  switch and, if it is soft-blocked, clears it through `/dev/rfkill` (`internal/rfkill`),
+  logs `rfkill_unblocked` as a warning and waits a second, since bluetoothd refuses `Powered`
+  for a moment after the unblock. `systemd-rfkill` saves the new state, so the block does not
+  come back on the next boot. A hard block is logged as an error and left alone.
+- The unit gains `DeviceAllow=/dev/rfkill rw` (section 8.9's sandbox otherwise unchanged; the
+  daemon already has `CAP_NET_ADMIN`). `/sys` stays read-only under `ProtectKernelTunables`.
+- Only the gateway's own adapter is touched: a radio someone else blocked stays blocked.
+- The image stays stock (D-045): the daemon handles the saved block wherever it comes from,
+  including a dongle moved to another port that some earlier boot saved as blocked.
+
+Also from the same run, for the image's Imager entry: Raspberry Pi Imager 2.0.12 offers
+customisation (user, SSH key, hostname, Wi-Fi) only for an OS chosen from a list whose entry
+has an `init_format`; an image picked with "Use custom" is written without any. The README
+now says to open Imager with the release's `.json`, and the entry copies the base's
+`"capabilities": ["rpi_connect"]` from Raspberry Pi's own entry.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

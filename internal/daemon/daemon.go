@@ -26,6 +26,7 @@ import (
 	"palm-gw/internal/event"
 	"palm-gw/internal/ppp"
 	"palm-gw/internal/profile"
+	"palm-gw/internal/rfkill"
 	"palm-gw/internal/state"
 )
 
@@ -286,6 +287,18 @@ func (d *Daemon) attach(ctx context.Context) (func(), error) {
 			return nil, err
 		}
 		d.log.Debug("adapter not ready", "err", err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	// A soft-blocked adapter cannot be powered (D-046).
+	if was, err := rfkill.Unblock(adapter.HCI); err != nil {
+		d.log.Error("adapter is rfkill-blocked", "event", "rfkill_blocked", "hci", adapter.HCI, "err", err)
+	} else if was {
+		d.log.Warn("adapter was rfkill soft-blocked; unblocked it", "event", "rfkill_unblocked", "hci", adapter.HCI)
+		// bluetoothd refuses Powered for a moment after the unblock.
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()

@@ -24,7 +24,10 @@ again any time). `sudo palm-gw upgrade` installs a newer release later.
 
 Or flash the ready-made image (`palm-gw-<ver>-rpi-arm64.img.xz`, Raspberry Pi OS Lite with
 palm-gw installed) with Raspberry Pi Imager, set the user, SSH and Wi-Fi in Imager as usual,
-and run `sudo palm-gw setup` after the first login.
+and run `sudo palm-gw setup` after the first login. Open Imager with the release's `.json`
+so it offers those settings (`rpi-imager --repo palm-gw-<ver>-rpi-arm64.json`; on a Mac,
+`"/Applications/Raspberry Pi Imager.app/Contents/MacOS/rpi-imager" --repo …`). Imager's
+"Use custom" writes the image without them: no user, no SSH.
 
 Developers build the package on their own machine and install it on the Pi:
 

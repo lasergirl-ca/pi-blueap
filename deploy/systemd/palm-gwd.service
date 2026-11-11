@@ -43,6 +43,8 @@ DevicePolicy=closed
 DeviceAllow=/dev/ppp rw
 DeviceAllow=/dev/ptmx rw
 DeviceAllow=/dev/pts/* rw
+# To clear a soft rfkill block on the gateway's adapter (D-046).
+DeviceAllow=/dev/rfkill rw
 
 [Install]
 WantedBy=multi-user.target

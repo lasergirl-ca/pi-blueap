@@ -180,8 +180,9 @@ download_size=$(stat -c %s "$out")
 download_sha=$(sha256sum "$out" | cut -c1-64)
 (cd "$(dirname "$out")" && sha256sum "$(basename "$out")" >"$(basename "$out").sha256")
 
-# A Raspberry Pi Imager repository with this one image (field names and device tags as in
-# Raspberry Pi's own list). init_format cloudinit-rpi makes Imager offer its customisation.
+# A Raspberry Pi Imager repository with this one image (field names, device tags and
+# capabilities as in Raspberry Pi's own entry for the base). init_format cloudinit-rpi makes
+# Imager offer its customisation; an image opened with "Use custom" gets none (D-046).
 url=${IMAGE_URL:-$(basename "$out")}
 cat >"${out%.img.xz}.json" <<EOF
 {
@@ -218,7 +219,8 @@ cat >"${out%.img.xz}.json" <<EOF
       "image_download_sha256": "$download_sha",
       "release_date": "$(date -u +%Y-%m-%d)",
       "init_format": "cloudinit-rpi",
-      "devices": ["pi5-64bit", "pi4-64bit"]
+      "devices": ["pi5-64bit", "pi4-64bit"],
+      "capabilities": ["rpi_connect"]
     }
   ]
 }
