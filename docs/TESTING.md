@@ -1489,7 +1489,7 @@ radio, so the fake-palm acceptance scripts cannot run on this Pi. Re-enabling it
 the `dtoverlay=disable-bt` line and rebooting. The gateway stays pinned to the dongle by
 address, and the onboard radio becomes fake-palm's client.
 
-## Phase 6: Setup wizard and packaging (in progress)
+## Phase 6: Setup wizard and packaging (accepted 2026-11-11 on the Pi 5; Pi 4 untested)
 
 Started 2026-11-10 with Phase 5's Pi 4 runs outstanding (D-041).
 
@@ -2303,3 +2303,47 @@ $ diff /var/tmp/etc-before.sha256 /var/tmp/etc-after2.sha256
 `/etc` and `/boot/firmware` match the stock card apart from the shadow-utils backups.
 Reinstalled unattended (same answers) and rebooted for dongle mode. The Pi did not come back
 on 10.4.1.118 within several minutes of the reboot (no ping, no ssh); to be looked at.
+
+### Part 7: fresh flash of the image, 2026-11-11, third run (test14)
+
+`make image DEB_VERSION=0.6.0~test14` from 73a44f8 (D-046, D-047, D-048 and the remove fix):
+548,623,824 bytes, `extract_sha256` 90c52d61…0c43f. `scripts/image-diff.sh` against the
+stock base: boot partition identical; on the root partition only the package's files,
+`/etc/group` and `/etc/gshadow` (the `palm-gw` group, no members) with their `-` backups,
+dpkg/apt bookkeeping, and `NetworkManager.state` (`WirelessEnabled=true`); no palm-gw unit
+enabled. Imager (`--repo dist/palm-gw-0.6.0-test14-local.json`) wrote and verified the card
+with passwordless sudo ticked.
+
+First boot, before setup: `/etc/palm-gw-image` says test14, `sudo -n true` works, Wi-Fi
+enabled, the dongle's radio soft-blocked (stock), `sysadmin` not in `palm-gw`. Zoe ran
+`sudo palm-gw setup` (dongle, web UI on, pairing Yes), rebooted as the wizard asked, and paired
+with `palm-gwctl pair 5 --one`, without sudo. After the reboot:
+
+```
+$ dpkg-query -W palm-gw; id -nG | tr " " "\n" | grep -x palm-gw
+palm-gw	0.6.0~test14
+palm-gw
+$ for d in /sys/class/rfkill/*; do …; done
+rfkill0 hci0 bluetooth soft=0
+rfkill1 phy0 wlan soft=0
+$ nmcli radio wifi; sudo grep WirelessEnabled /var/lib/NetworkManager/NetworkManager.state
+enabled
+WirelessEnabled=true
+$ palm-gwctl status          (no sudo)
+palm-gwd 73a44f8, up 2m38s (phase 6)
+adapter:   hci0 60:15:6F:EA:00:81 (usb)  alias "Palm Gateway - Lyman"  class 0x420300  powered=yes discoverable=yes pairable=no  (configured by address)
+allowlist: 1 entries
+  00:07:E0:3C:5E:FA  dynamic  Zoë's Palm TX
+bluez devices: 1
+  00:07:E0:3C:5E:FA  "Zoë's Palm TX"      class 0x100114  paired,trusted,connected
+$ sudo journalctl -u palm-gwd -b | grep pair      (trimmed)
+23:34:21 pairing window opened  minutes=5 one=true
+23:35:13 device paired  00:07:E0:3C:5E:FA "Zoë's Palm TX" trusted=true
+23:35:13 pairing window closed  reason=one_device
+$ sudo grep palm-gw /etc/group
+palm-gw:x:985:sysadmin
+```
+
+The image now goes from Imager to a paired Palm with no hand fixes: the dongle unblocked
+(D-046), Wi-Fi and passwordless sudo kept (D-047), `palm-gwctl` without sudo (D-048). This
+boot's journal holds no `sudo palm-gwctl`, so the pairing ran as `sysadmin`.

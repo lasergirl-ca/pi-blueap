@@ -826,6 +826,21 @@ Zoe's answers to the open questions in docs/WEB-UI.md, 2026-11-11:
 - Phase 6 is finished before Phase 7 starts: the one-liner on a freshly flashed Pi OS Lite card
   with the interactive wizard is still to run.
 
+### D-050: Phase 6 accepted on the Pi 5; dongle mode pairs after the reboot
+
+Phase 6's accept text says the wizard "pairs a Palm during setup, and the Palm has internet
+before the wizard exits". With the USB dongle chosen, the onboard radio is switched off by
+`dtoverlay=disable-bt`, which takes effect only at the next boot, so the wizard ends with
+"pair after the reboot: sudo reboot, then palm-gwctl pair" (part 3's design) instead of pairing.
+On the onboard adapter no reboot is needed and the wizard pairs in place. Zoe's gateway uses the
+dongle, so the fresh-card runs on 2026-11-11 (the one-liner on stock Pi OS Lite, and the test14
+image) paired right after the reboot, and the T|X loaded a page in Blazer. Phase 6 is accepted
+on the Pi 5 with that reading. The Pi 4 stays untested, as for Phase 5 (section 10 allows it).
+
+Left open: the first Connect after pairing on the stock-card run timed out on the T|X ("Serial:
+timeout", PPP up, no IP data from the Pi, 40 s); the next Connects worked. It has not recurred;
+a btmon trace of a failing attempt is the next step if it does.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

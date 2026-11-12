@@ -6,8 +6,8 @@ and gets routed, NAT'd internet over Bluetooth (Serial Port, LAN Access or Dial-
 profile, all PPP over RFCOMM). Pocket PCs, Android phones and laptops get the same through
 Bluetooth PAN. Palms are firewalled away from the home LAN unless you allow a host.
 
-**Status: Phase 6 of 8 (setup wizard and packaging).** Pairing, PPP, PAN, the firewall and
-the setup wizard work on a Pi 5; the web UI and the Palm admin app come in Phase 7. See
+**Status: Phase 6 of 8 (setup wizard and packaging) accepted on a Pi 5.** Pairing, PPP, PAN,
+the firewall, the setup wizard, the .deb, the one-line installer and the image work on a Pi 5; the web UI and the Palm admin app come in Phase 7. See
 [PLAN.md](PLAN.md) for the full specification and build phases, and
 [docs/TESTING.md](docs/TESTING.md) for what has been verified so far.
 
