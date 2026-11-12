@@ -1116,6 +1116,24 @@ docs/WEB-UI.md:
   mismatch as well as the self-signed warning. This amends D-054 and D-056, which said a new
   uplink makes a new certificate; the settings page now says only a new Palm network does.
 
+### D-060: SPP and LAP wait 10 s for `CLIENT`, and the handshake settings apply on reload
+
+- **Found with Zoe's Pocket PC** (Windows Mobile, "Bluetooth Null Modem" on LAN Access,
+  2026-11-12; TESTING.md part 6). Two of its three tries sent nothing for 3 s.
+  `ms_timeout_ms` ran out, pppd started blind, and the Pocket PC, still waiting to say `CLIENT`
+  and hear `CLIENTSERVER`, hung up ("The answering modem has disconnected"). The third try sent
+  `CLIENT` after 1.2 s and connected.
+- **`ms_timeout_ms` now defaults to 10000** (was 3000), as D-023 did for DUN. Nothing is lost
+  on SPP and LAP: a Palm on LAP starts PPP at once and is recognised by its first byte (0x7E),
+  and a CLIENT sender is answered as soon as it speaks. Only a peer that stays silent waiting
+  for our LCP would wait longer, and none has been seen. PLAN.md section 7's config block and
+  `config.example.toml` say 10000. A config file that names the old value keeps it: there is
+  no release yet to migrate. The test Pi was set with `palm-gwctl set handshake.ms_timeout_ms
+  10000`.
+- **The `[handshake]` settings now apply on reload,** to the next connection
+  (`profile.Server.SetHandshake`, added to D-030's live set). Changing them no longer needs a
+  restart that drops the Palms already connected.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

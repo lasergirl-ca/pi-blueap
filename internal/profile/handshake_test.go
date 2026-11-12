@@ -222,3 +222,18 @@ func TestParseATLine(t *testing.T) {
 		}
 	}
 }
+
+// D-060: SetHandshake replaces the settings the next connection uses.
+func TestSetHandshake(t *testing.T) {
+	cfg := config.Default()
+	s := &Server{cfg: cfg}
+	if s.handshakeCfg().MSTimeoutMS != 10000 {
+		t.Errorf("default ms_timeout_ms = %d, want 10000", s.handshakeCfg().MSTimeoutMS)
+	}
+	h := cfg.Handshake
+	h.MSTimeoutMS = 4000
+	s.SetHandshake(h)
+	if s.handshakeCfg().MSTimeoutMS != 4000 || cfg.Handshake.MSTimeoutMS != 10000 {
+		t.Errorf("after SetHandshake: %d (config %d)", s.handshakeCfg().MSTimeoutMS, cfg.Handshake.MSTimeoutMS)
+	}
+}

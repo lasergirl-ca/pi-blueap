@@ -20,10 +20,11 @@ func TestLiveMergeSplitsAppliedFromRestart(t *testing.T) {
 	next.Web.PasswordHash = "$argon2id$x"
 	next.Web.SessionHours = 1
 	next.LAP.Channel = 5
+	next.Handshake.MSTimeoutMS = 4000
 
 	merged := liveMerge(cur, next)
 	applied := diffKeys(cur, merged)
-	want := []string{"bluetooth.allow", "bluetooth.name", "firewall.allow", "firewall.palm_to_pi", "network.dns_upstream", "ppp.debug", "web.password_hash"}
+	want := []string{"bluetooth.allow", "bluetooth.name", "firewall.allow", "firewall.palm_to_pi", "handshake.ms_timeout_ms", "network.dns_upstream", "ppp.debug", "web.password_hash"}
 	if !reflect.DeepEqual(applied, want) {
 		t.Errorf("applied = %v, want %v", applied, want)
 	}

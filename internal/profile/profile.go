@@ -42,6 +42,23 @@ type Server struct {
 
 	mu         sync.Mutex
 	registered map[Kind]bool
+	handshake  *config.Handshake // set by SetHandshake on reload; nil = cfg's (D-060)
+}
+
+// SetHandshake applies new [handshake] settings to the next connection.
+func (s *Server) SetHandshake(h config.Handshake) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.handshake = &h
+}
+
+func (s *Server) handshakeCfg() config.Handshake {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.handshake != nil {
+		return *s.handshake
+	}
+	return s.cfg.Handshake
 }
 
 // New builds the server; nothing touches D-Bus until Export.
@@ -226,7 +243,7 @@ func (s *Server) serve(k Kind, sess *ppp.Session, replaced []*ppp.Session, f *os
 		s.events.Emit("session_replaced", info.Addr, info.Name, "old_profile", oi.Profile)
 		old.Terminate("replaced")
 	}
-	res, err := Run(sess.Context(), int(f.Fd()), k, s.cfg.Handshake)
+	res, err := Run(sess.Context(), int(f.Fd()), k, s.handshakeCfg())
 	if err != nil {
 		s.log.Info("connection ended during the handshake", "addr", info.Addr, "profile", k, "err", err)
 		sess.Abort("handshake: " + err.Error())

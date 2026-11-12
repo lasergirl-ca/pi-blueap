@@ -2941,3 +2941,16 @@ Modem".
   - A firewall rule's effect seen from a Palm.
   - A support bundle downloaded from the browser.
   - The Palm app's checks (part 7).
+
+**D-060, Zoe's "Yes, fix it" for the Pocket PC:** `ms_timeout_ms` defaults to 10000, and the
+`[handshake]` keys apply on reload. On test31:
+
+```
+$ palm-gwctl set handshake.ms_timeout_ms 10000
+handshake.ms_timeout_ms saved.
+applied now: handshake.ms_timeout_ms
+$ palm-gwctl get handshake.ms_timeout_ms
+10000
+```
+
+Still to see: the Pocket PC connecting on the first try.

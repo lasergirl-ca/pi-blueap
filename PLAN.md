@@ -352,7 +352,7 @@ bridge  = "br-palm"
 
 [handshake]
 ms_null_modem        = true        # answer "CLIENT" with "CLIENTSERVER"
-ms_timeout_ms        = 3000        # how long to wait for CLIENT or PPP before starting pppd blind
+ms_timeout_ms        = 10000       # SPP/LAP: how long to wait for CLIENT or PPP before starting pppd blind (D-060)
 at_emulator          = true        # DUN channel: answer AT commands, CONNECT on ATD
 at_connect_banner    = "CONNECT 115200"
 at_timeout_ms        = 10000       # DUN channel: how long to wait for the first AT command (D-023)

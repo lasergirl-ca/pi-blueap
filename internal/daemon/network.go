@@ -153,6 +153,8 @@ func liveMerge(cur, next *config.Config) *config.Config {
 	m.Bluetooth.Name = next.Bluetooth.Name
 	m.PPP.Debug = next.PPP.Debug
 	m.PPP.IdleSeconds = next.PPP.IdleSeconds
+	// The handshake settings apply to the next connection (D-060).
+	m.Handshake = next.Handshake
 	// The web UI reads its accounts on every login (D-051).
 	m.Web.Username = next.Web.Username
 	m.Web.PasswordHash = next.Web.PasswordHash
@@ -215,6 +217,9 @@ func (d *Daemon) reload(ctx context.Context) (ctl.ReloadReply, error) {
 	d.cfgp.Store(merged)
 	d.allow.Reconfigure(merged.Bluetooth.Allow, merged.Bluetooth.AllowAny)
 	d.ppp.SetLive(merged.PPP.Debug, merged.PPP.IdleSeconds)
+	if d.profiles != nil {
+		d.profiles.SetHandshake(merged.Handshake)
+	}
 	if merged.Bluetooth.Name != cur.Bluetooth.Name {
 		if a := d.currentAdapter(); a != nil {
 			if err := a.Set("Alias", merged.Bluetooth.Name); err != nil {

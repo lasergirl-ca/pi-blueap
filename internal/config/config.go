@@ -154,7 +154,7 @@ func Default() *Config {
 		PAN: PAN{Enabled: true, Bridge: "br-palm"},
 		Handshake: Handshake{
 			MSNullModem:     true,
-			MSTimeoutMS:     3000,
+			MSTimeoutMS:     10000, // a Pocket PC can take over 3 s to send CLIENT (D-060)
 			ATEmulator:      true,
 			ATConnectBanner: "CONNECT 115200",
 			ATTimeoutMS:     10000,
