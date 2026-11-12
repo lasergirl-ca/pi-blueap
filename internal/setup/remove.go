@@ -124,14 +124,8 @@ func RemoveSystem(o RemoveOptions) error {
 	a.say("Removing the firewall table")
 	_, _ = a.run("nft", "delete", "table", "inet", "palm_gw")
 	if data, err := os.ReadFile(a.path(nftConfPath)); err == nil {
-		var keep []string
-		for _, l := range strings.Split(string(data), "\n") {
-			if t := strings.TrimSpace(l); t == "# palm-gw" || t == nftInclude {
-				continue
-			}
-			keep = append(keep, l)
-		}
-		if err := os.WriteFile(a.path(nftConfPath), []byte(strings.Join(keep, "\n")), 0o755); err != nil {
+		text := removeLines(string(data), func(t string) bool { return t == "# palm-gw" || t == nftInclude })
+		if err := os.WriteFile(a.path(nftConfPath), []byte(text), 0o755); err != nil {
 			return err
 		}
 	}

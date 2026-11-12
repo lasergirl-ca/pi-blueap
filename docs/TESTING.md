@@ -2136,3 +2136,108 @@ allowlist: 1 entries
 
 The image path with no hand fixes now runs from Imager to pairing, once the next image carries
 D-048. Next: the `curl | sudo bash` installer with the interactive wizard on `/dev/tty`.
+
+### Part 7: the one-liner on a freshly flashed stock card, 2026-11-11 (Phase 6 accept)
+
+Stock Raspberry Pi OS Lite (64-bit) 2026-10-06, the same file as the image's base (download
+sha256 483db18a…2843), written by Imager from a one-entry local list
+(`dist/pios-lite-2026-10-06-local.json`, `file://` URL to `dist/base/`), because Zoe could not
+find the entry in Imager's own list. Imager customisation: hostname `palmgw-test`, user
+`sysadmin` with Zoe's key, passwordless sudo (ticked), Wi-Fi country only. Same Pi 5 and UB500
+dongle. Before the install: no palm-gw, the dongle `hci1` soft-blocked (stock `default_state=0`),
+and a checksum list of every file in `/etc` and `/boot/firmware` saved to
+`/var/tmp/etc-before.sha256` (1171 files).
+
+The release: `make deb DEB_VERSION=0.6.0~test12` from 51a60b2, laid out as `make release` does
+(`palm-gw_0.6.0-test12_arm64.deb`, `install.sh` with `v0.6.0-test12` baked in, `SHA256SUMS`),
+copied to `/var/tmp/rel12` on the Pi. Zoe ran the one-liner from her own terminal:
+
+```
+$ ssh -t sysadmin@10.4.1.118 'curl -fsSL file:///var/tmp/rel12/install.sh | sudo PALM_GW_BASE_URL=file:///var/tmp/rel12 bash'
+==> Raspberry Pi 5 Model B Rev 1.0, Debian GNU/Linux 13 (trixie)
+==> Downloading the release from file:///var/tmp/rel12/
+==> palm-gw_0.6.0-test12_arm64.deb: checksum OK
+==> Installing palm-gw_0.6.0-test12_arm64.deb and its dependencies (apt-get)
+…
+Setting up palm-gw (0.6.0~test12) ...
+palm-gw: sysadmin added to group palm-gw (takes effect at next login)
+palm-gw is installed. Run 'sudo palm-gw setup' to finish.
+==> Starting the setup wizard
+palm-gw setup: looking at this Pi
+board:     pi5 (Raspberry Pi 5 Model B Rev 1.0)
+adapters:  hci0 2C:CF:67:2E:E7:4A  onboard (serial)  powered=yes
+           hci1 60:15:6F:EA:00:81  USB dongle (usb)  powered=no
+uplinks:   eth0 via 10.4.0.1 metric 100
+power:     supply 3000 mA, get_throttled=0x50000
+config:    none yet (/etc/palm-gw/config.toml)
+subnet:    10.42.0.0/24 free
+warnings:
+  - the Pi has been under-voltage since boot (get_throttled=0x50000)
+  - Pi 5 supply negotiated 3000 mA (under 5 A), so USB ports share 600 mA; …
+Gateway name, as the Palm will see it: Palm Gateway - Lyman
+Which Bluetooth adapter should the gateway use? USB dongle (hci1 60:15:6F:EA:00:81), turn the onboard radio off (reboot needed)
+  uplink: eth0 (the only interface with a default route)
+Enable the web UI? Yes
+Web UI username: sysadmin
+Web UI password: ********
+Web UI password again: ********
+Use HTTPS with a self-signed certificate? Yes
+Pair a Palm now? Yes
+==> Configuration
+…
+==> Bluetooth adapter mode
+    dtoverlay=disable-bt added to /boot/firmware/config.txt
+    adapter = "60:15:6F:EA:00:81" is the USB dongle
+==> palm-gw group
+    sysadmin already in palm-gw
+==> Units
+…
+==> Web UI certificate
+    /var/lib/palm-gw/tls/cert.pem created
+
+The adapter mode changed, so pair after the reboot: sudo reboot, then palm-gwctl pair
+
+palm-gw is running.
+  Web UI:    https://10.4.1.118:8042   (user: sysadmin; the web UI itself arrives in Phase 7)
+  Cert:      SHA-256 CD:9F:82:E9:…:43:7D
+…
+Reboot required: YES (the Bluetooth adapter mode changed)
+```
+
+- The wizard ran on `/dev/tty` under `curl | sudo bash`, detected the board and the uplink
+  without asking, and asked only for the name, the adapter, the web UI and pairing.
+- The postinst added `sysadmin` (the `SUDO_USER`) to `palm-gw`; setup's D-048 step found it
+  already there.
+- **Pairing during setup:** with the dongle chosen, the onboard radio must be switched off by a
+  reboot first, so the wizard defers pairing to after the reboot (Phase 6 part 3's design). This
+  is the one way this run differs from the accept text ("pairs a Palm during setup, and the Palm
+  has internet before the wizard exits"); on the onboard adapter no reboot is needed and the
+  wizard pairs in place (part 3).
+
+After `sudo reboot`, Zoe ran `sudo palm-gwctl pair 5 --one`. palm-gwd's log (trimmed):
+
+```
+21:56:04 pairing window opened  minutes=5 one=true
+21:56:30 device connected / 21:56:45 PIN requested / 21:56:46 device disconnected
+21:57:13 PIN requested / device paired  00:07:E0:3C:5E:FA "Zoë's Palm TX" trusted=true
+21:57:13 pairing window closed  reason=one_device
+21:57:46 RFCOMM connection  profile=lap channel=2 ; session started ; PPP link up  peer=10.42.0.10
+21:58:25 IPCP terminated by peer ; Sent 0 bytes, received 4 bytes. ; session ended  duration=40s
+```
+
+The dongle came up unblocked (D-046) and powered as `hci0`. The first Connect after pairing
+failed on the T|X with "Error: Serial: timeout. Could be bad cable or faulty Modem. (0x0305)":
+PPP and IPCP came up on the Pi, the Pi sent no IP data, and the T|X closed the link after 40 s.
+The bridge, dnsmasq (10.42.0.1:53 and :67), nftables and the PPP device were all up. A btmon
+capture was started (`/var/tmp/retry.btsnoop` on the Pi) before a second tap, which worked:
+
+```
+22:14:24 RFCOMM connection  profile=lap channel=2 ; PPP link up  peer=10.42.0.10
+22:25:14 Sent 580020 bytes, received 4637272 bytes. ; session ended  duration=10m50s
+22:36:07 session started ; PPP link up  peer=10.42.0.10
+```
+
+Blazer on the T|X loaded a page (Zoe, 22:36). **The first failure is not explained.** It
+happened once, on the first Connect after pairing, before any capture was running; the second
+and third Connects worked. If it recurs, the btmon trace of a failing attempt is the next step.
+Recorded as an open observation, not a fix.

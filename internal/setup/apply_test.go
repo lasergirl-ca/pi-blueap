@@ -201,6 +201,12 @@ func TestApplyDongleMode(t *testing.T) {
 
 func TestRemoveSystem(t *testing.T) {
 	root := sysRoot(t, "[network]\nuplink = \"eth0\"\n")
+	// Debian's stock nftables.conf; remove must give back these bytes exactly.
+	stockNft := "#!/usr/sbin/nft -f\n\nflush ruleset\n\ntable inet filter {\n\tchain input {\n\t\ttype filter hook input priority filter;\n\t}\n}\n"
+	if err := os.WriteFile(filepath.Join(root, nftConfPath), []byte(stockNft), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stockBoot, _ := os.ReadFile(filepath.Join(root, bootConfig))
 	if _, err := InstallStatic(root, SourceLayout, root, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -233,8 +239,11 @@ func TestRemoveSystem(t *testing.T) {
 		t.Errorf("nftables.conf:\n%s", nftConf)
 	}
 	boot, _ := os.ReadFile(filepath.Join(root, bootConfig))
-	if strings.Contains(string(boot), "disable-bt") {
-		t.Errorf("config.txt:\n%s", boot)
+	if string(boot) != string(stockBoot) {
+		t.Errorf("config.txt not restored:\n%q\nwant\n%q", boot, stockBoot)
+	}
+	if string(nftConf) != stockNft {
+		t.Errorf("nftables.conf not restored:\n%q\nwant\n%q", nftConf, stockNft)
 	}
 	rec.index(t, "systemctl disable --now palm-gwd")
 	rec.index(t, "nft delete table inet palm_gw")
@@ -297,6 +306,20 @@ func TestApplySystemOperatorGroup(t *testing.T) {
 	for _, c := range rec.cmds {
 		if strings.HasPrefix(c, "id ") || strings.HasPrefix(c, "usermod") {
 			t.Errorf("ran %q for root", c)
+		}
+	}
+}
+
+func TestRemoveLines(t *testing.T) {
+	ours := func(l string) bool { return l == "# palm-gw" || l == "x" }
+	for _, c := range []struct{ in, want string }{
+		{"a\n\n# palm-gw\nx\n", "a\n"},     // as setup appends it
+		{"a\n\n\n# palm-gw\nx\n", "a\n\n"}, // a blank line of the user's own stays
+		{"a\nx\nb\n", "a\nb\n"},            // no separator: the line alone
+		{"a\nb\n", "a\nb\n"},               // nothing of ours
+	} {
+		if got := removeLines(c.in, ours); got != c.want {
+			t.Errorf("removeLines(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

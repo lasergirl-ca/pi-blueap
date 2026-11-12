@@ -443,15 +443,29 @@ func removeDisableBT(p string) error {
 	if err != nil {
 		return err
 	}
-	var keep []string
-	for _, l := range strings.Split(string(data), "\n") {
-		t := strings.TrimSpace(l)
-		if t == disableBTLine || t == disableBTMark {
+	text := removeLines(string(data), func(t string) bool { return t == disableBTLine || t == disableBTMark })
+	return os.WriteFile(p, []byte(text), 0o644)
+}
+
+// removeLines takes out the lines palm-gw appended (ours reports them, trimmed) and
+// the blank line that ensureNftInclude and adapterMode put before them, so the
+// file is back to its bytes before setup (Phase 6 purge check, 2026-11-11).
+func removeLines(text string, ours func(string) bool) string {
+	lines := strings.Split(text, "\n")
+	keep := make([]string, 0, len(lines))
+	inBlock := false
+	for _, l := range lines {
+		if !ours(strings.TrimSpace(l)) {
+			keep = append(keep, l)
+			inBlock = false
 			continue
 		}
-		keep = append(keep, l)
+		if n := len(keep); !inBlock && n > 0 && keep[n-1] == "" {
+			keep = keep[:n-1] // the separator added before the block
+		}
+		inBlock = true
 	}
-	return os.WriteFile(p, []byte(strings.Join(keep, "\n")), 0o644)
+	return strings.Join(keep, "\n")
 }
 
 func (a *applier) readInstallInfo() InstallInfo {
