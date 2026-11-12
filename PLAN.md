@@ -956,7 +956,7 @@ Served by `palm-gwd` itself (same process, so it reads the session table directl
 
 1. Refuse to run without root; detect board (section 3); refuse non-arm64 OS.
 2. `apt-get install -y bluez ppp dnsmasq nftables` (and `network-manager` if missing, with a warning that this changes network management).
-3. Create group `palm-gw`; add the invoking `SUDO_USER` to it.
+3. Create group `palm-gw`; add the invoking `SUDO_USER` to it (`palm-gw setup` does this too, for the image, D-048).
 4. Install binary to `/usr/local/bin/palm-gwd`, symlink `palm-gwctl`.
 5. Place all `deploy/` files, substituting `GATEWAY`, `PREFIX`, `UPLINK`, `DHCP_*` from the config (write config from `config.example.toml` first if none exists, honouring `UPLINK=`).
 6. Append `include "/etc/nftables.d/palm-gw.nft"` to `/etc/nftables.conf` if absent; `nft -c -f /etc/nftables.conf` to check; enable `nftables.service`.

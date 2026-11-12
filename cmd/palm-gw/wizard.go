@@ -177,6 +177,7 @@ func runWizard(f wizardFlags, cfgPath string, stdout, stderr io.Writer) int {
 		Board:       r.Board,
 		Version:     version,
 		StartDaemon: true,
+		Operator:    os.Getenv("SUDO_USER"),
 		Run:         runCombined,
 		Out:         stdout,
 	})
@@ -205,7 +206,7 @@ func runWizard(f wizardFlags, cfgPath string, stdout, stderr io.Writer) int {
 		paired = pairNow(cfg, stdout, stderr)
 	}
 
-	summary(stdout, cfg, fingerprint, paired, res.RebootRequired)
+	summary(stdout, cfg, fingerprint, paired, res.GroupAdded, res.RebootRequired)
 	return 0
 }
 
@@ -277,7 +278,7 @@ func gatewayStatus(socket string) (*ctl.StatusReply, error) {
 	return &st, nil
 }
 
-func summary(w io.Writer, cfg *config.Config, fingerprint, paired string, reboot bool) {
+func summary(w io.Writer, cfg *config.Config, fingerprint, paired, groupAdded string, reboot bool) {
 	fmt.Fprintln(w, "\npalm-gw is running.")
 	if cfg.Web.Enabled {
 		host := lanAddress(cfg.Network.Uplink)
@@ -292,6 +293,9 @@ func summary(w io.Writer, cfg *config.Config, fingerprint, paired string, reboot
 	}
 	fmt.Fprintln(w, "  CLI:       palm-gwctl status")
 	fmt.Fprintln(w, "  Pair:      palm-gwctl pair")
+	if groupAdded != "" {
+		fmt.Fprintf(w, "             (%s was added to the palm-gw group: log out and in again before palm-gwctl works without sudo)\n", groupAdded)
+	}
 	doc := "docs/PALM-SETUP.md in the source tree"
 	if currentLayout().Name == "deb" {
 		doc = "/usr/share/doc/palm-gw/PALM-SETUP.md"

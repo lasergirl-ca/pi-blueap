@@ -802,6 +802,17 @@ Two more changes to the image (D-045), both from the first fresh flash:
   its warning) to the user step. The image's Imager entry declares it. Nothing is baked in:
   without the box ticked, sudo asks for the password, as on stock.
 
+### D-048: `palm-gw setup` adds the sudo user to the palm-gw group
+
+Section 8.11 step 3 adds the invoking `SUDO_USER` to `palm-gw`, and the .deb's `postinst` does
+it (D-043). In the image (D-045) the package is installed at build time, before Imager creates
+the user, so nobody joins the group: after the first fresh flash, `palm-gwctl pair` without sudo
+failed with "permission denied on /run/palm-gw/ctl.sock". `palm-gw setup` (the wizard and
+`--apply`) now does the same step: it adds `SUDO_USER` to `palm-gw` if they are not in it, says so,
+and the wizard's summary tells them to log in again before `palm-gwctl` works without sudo.
+Running as root directly (no `SUDO_USER`) skips the step. A failed `usermod` is a warning, not a
+failure of setup.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

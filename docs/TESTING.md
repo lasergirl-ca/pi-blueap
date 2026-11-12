@@ -2020,3 +2020,119 @@ Next: the same run from a fixed image (`0.6.0-test10`: the D-046 daemon, Wi-Fi k
 Imager's passwordless sudo box), so that `sudo palm-gw setup` goes through to pairing with
 no hand fixes; then the `curl | sudo bash` installer with the interactive wizard on
 `/dev/tty`.
+
+### Part 7: fresh flash of the image, 2026-11-11, second run (test10)
+
+The test10 image (`extract_sha256` 93dcd0c3…fdbe) was written with Imager opened on the
+release's `.json` (`--repo palm-gw-0.6.0-test10-local.json`). Imager offered its customisation,
+including the new "passwordless sudo" box (D-047), which was ticked. Its log shows the
+cloud-init it wrote: `sudo: ALL=(ALL) NOPASSWD:ALL`, hostname `palmgw-test`, Wi-Fi country only
+(no network). The written card verified against the image. Same Pi 5, same UB500 dongle in the
+same port. Zoe ran `sudo palm-gw setup` (dongle mode, alias "Palm Gateway - Lyman") and
+rebooted. After the reboot, before pairing:
+
+```
+$ cat /etc/palm-gw-image; dpkg-query -W palm-gw
+PALM_GW_VERSION=0.6.0~test10
+BASE_IMAGE=2026-10-06-raspios-trixie-arm64-lite.img.xz
+BUILT=2026-11-12T00:45:00Z
+palm-gw	0.6.0~test10
+$ sudo -n true && echo "passwordless sudo OK"
+passwordless sudo OK
+$ for d in /sys/class/rfkill/*; do echo "$(basename $d) $(cat $d/name) $(cat $d/type) soft=$(cat $d/soft) hard=$(cat $d/hard)"; done
+rfkill0 hci0 bluetooth soft=0 hard=0
+rfkill1 phy0 wlan soft=0 hard=0
+$ nmcli radio
+WIFI-HW  WIFI     WWAN-HW  WWAN
+enabled  enabled  missing  enabled
+$ sudo grep WirelessEnabled /var/lib/NetworkManager/NetworkManager.state
+WirelessEnabled=true
+$ for f in /var/lib/systemd/rfkill/*; do echo "$f: $(sudo cat $f)"; done
+/var/lib/systemd/rfkill/platform-1001100000.mmc:wlan: 0
+/var/lib/systemd/rfkill/platform-107d50c000.serial:bluetooth: 0
+…  (the stock image's serial and soc entries, all 0, dated Oct  5)
+/var/lib/systemd/rfkill/platform-xhci-hcd.1-usb-0:1:1.0:bluetooth: 0
+$ sudo palm-gwctl status
+palm-gwd c454e89, up 2m11s (phase 6)
+bluez:     ok, agent registered since 20:08:44
+adapter:   hci0 60:15:6F:EA:00:81 (usb)  alias "Palm Gateway - Lyman"  class 0x420300  powered=yes discoverable=yes pairable=no  (configured by address)
+pairing:   closed (palm-gwctl pair to open)
+allowlist: 0 entries
+…
+```
+
+- **Wi-Fi survives the reboot (D-047):** not soft-blocked, NetworkManager's switch on.
+- **sudo needs no password (D-047).**
+- **The dongle stays unblocked after the reboot (D-046):** palm-gwd configured it at boot with
+  no error and no unblock needed. The stock image has no saved state for the USB port; the
+  `xhci-hcd.1-usb-0:1:1.0:bluetooth` entry (0, unblocked) was saved after palm-gwd cleared the
+  block on the first boot. The first boot's `rfkill_unblocked` line itself is gone: Pi OS keeps
+  the journal in memory (`Storage=volatile`), so only the current boot's log exists.
+- The Pi still reports under-voltage since boot (`throttled=0x50000`), not at the time of
+  reading: the supply, as in the first run.
+
+**Found:** `palm-gwctl pair` without sudo failed:
+
+```
+$ ssh sysadmin@10.4.1.118 palm-gwctl pair 5 --one
+palm-gwctl: permission denied on /run/palm-gw/ctl.sock: add your user to the palm-gw group or use sudo
+$ id; getent group palm-gw
+uid=1000(sysadmin) gid=1000(sysadmin) groups=1000(sysadmin),4(adm),…,27(sudo),…
+palm-gw:x:985:
+```
+
+In the image the package is installed before the user exists, so the postinst's `SUDO_USER`
+step adds nobody. `palm-gw setup` now adds the sudo user to the group (D-048).
+
+Pairing, with sudo on this card:
+
+```
+$ ssh sysadmin@10.4.1.118 sudo palm-gwctl pair 5 --one
+…
+$ sudo journalctl -u palm-gwd -b | grep -E "pair"     (trimmed)
+21:17:33 "pairing window opened" minutes=5 one=true
+21:17:47 "device paired" addr=00:07:E0:3C:5E:FA name="Zoë's Palm TX" trusted=true
+21:17:47 "pairing window closed" reason=one_device
+$ sudo palm-gwctl status
+…
+allowlist: 1 entries
+  00:07:E0:3C:5E:FA  dynamic  Zoë's Palm TX
+```
+
+The D-048 fix, as `0.6.0~test11` on the same card. Installing with `sudo apt-get install` adds
+`sysadmin` through the postinst, so the user was taken out of the group again to test setup's
+step:
+
+```
+$ sudo apt-get install -y /var/tmp/palm-gw_0.6.0~test11_arm64.deb
+…
+$ getent group palm-gw
+palm-gw:x:985:sysadmin
+$ sudo gpasswd -d sysadmin palm-gw
+Removing user sysadmin from group palm-gw
+$ getent group palm-gw
+palm-gw:x:985:
+$ sudo palm-gw setup --apply
+==> palm-gw group
+    sysadmin added to palm-gw (takes effect at the next login)
+$ getent group palm-gw
+palm-gw:x:985:sysadmin
+$ sudo palm-gw setup --apply
+==> palm-gw group
+    sysadmin already in palm-gw
+```
+
+A new ssh login, no sudo:
+
+```
+$ id -nG
+sysadmin adm dialout cdrom sudo audio video plugdev games users netdev palm-gw gpio i2c spi render input lpadmin
+$ palm-gwctl status
+palm-gwd c454e89-dirty, up 2s (phase 6)
+…
+allowlist: 1 entries
+  00:07:E0:3C:5E:FA  dynamic  Zoë's Palm TX
+```
+
+The image path with no hand fixes now runs from Imager to pairing, once the next image carries
+D-048. Next: the `curl | sudo bash` installer with the interactive wizard on `/dev/tty`.

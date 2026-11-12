@@ -256,3 +256,47 @@ func TestRemoveSystem(t *testing.T) {
 		}
 	}
 }
+
+// The operator who ran setup under sudo joins palm-gw, once (D-048).
+func TestApplySystemOperatorGroup(t *testing.T) {
+	root := sysRoot(t, "[network]\nuplink = \"eth0\"\n")
+	rec := &recorder{}
+	res, err := ApplySystem(ApplyOptions{Root: root, Layout: SourceLayout, Run: rec.run, Operator: "sysadmin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.index(t, "usermod -aG palm-gw sysadmin")
+	if res.GroupAdded != "sysadmin" {
+		t.Errorf("GroupAdded = %q", res.GroupAdded)
+	}
+
+	member := func(name string, args ...string) ([]byte, error) {
+		if name == "id" {
+			return []byte("sysadmin adm sudo palm-gw\n"), nil
+		}
+		return rec.run(name, args...)
+	}
+	rec.cmds = nil
+	res, err = ApplySystem(ApplyOptions{Root: root, Layout: SourceLayout, Run: member, Operator: "sysadmin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range rec.cmds {
+		if strings.HasPrefix(c, "usermod") {
+			t.Errorf("ran %q for a member", c)
+		}
+	}
+	if res.GroupAdded != "" {
+		t.Errorf("GroupAdded = %q for a member", res.GroupAdded)
+	}
+
+	rec.cmds = nil
+	if _, err := ApplySystem(ApplyOptions{Root: root, Layout: SourceLayout, Run: rec.run, Operator: "root"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range rec.cmds {
+		if strings.HasPrefix(c, "id ") || strings.HasPrefix(c, "usermod") {
+			t.Errorf("ran %q for root", c)
+		}
+	}
+}

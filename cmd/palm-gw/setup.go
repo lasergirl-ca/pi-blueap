@@ -108,6 +108,7 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 			Board:       host.DetectBoard(),
 			Version:     version,
 			StartDaemon: !*noStart,
+			Operator:    os.Getenv("SUDO_USER"),
 			Run:         runCombined,
 			Out:         stdout,
 		})
