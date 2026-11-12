@@ -37,6 +37,7 @@ type session struct {
 	csrf    string
 	side    Side
 	expires time.Time
+	api     bool // an /api/v1 bearer token, not a browser cookie (D-058)
 }
 
 // sessions is the in-memory login table. A daemon restart logs everyone out.
@@ -69,6 +70,15 @@ func (s *sessions) create(user string, role Role, side Side, ttl time.Duration) 
 	}
 	se := &session{token: randomHex(32), user: user, role: role, csrf: randomHex(16), side: side, expires: now.Add(ttl)}
 	s.byID[se.token] = se
+	return se
+}
+
+// createAPI is create for an /api/v1 login: the token is a bearer token.
+func (s *sessions) createAPI(user string, role Role, side Side, ttl time.Duration) *session {
+	se := s.create(user, role, side, ttl)
+	s.mu.Lock()
+	se.api = true
+	s.mu.Unlock()
 	return se
 }
 

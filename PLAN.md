@@ -963,6 +963,7 @@ Served by `palm-gwd` itself (same process, so it reads the session table directl
 | `/logs` | Last 500 journal lines for `palm-gwd`, `palm-gw-dnsmasq`, `bluetooth` (via `journalctl -o json -u … -n 500`), filterable by event name and device address; Follow toggle (SSE). |
 | `/diagnostics` | Output of `palm-gw setup --check` (board, adapters, PSU, UART conflict, Wi-Fi band, module presence, unit states); **Capture 60 s of btmon** button that produces a downloadable `.btsnoop`; **Download support bundle** button (`scripts/support-bundle.sh` equivalent in Go: journals, configs with password hash redacted, install-info, last capture). |
 | `/about` | Version, build, update check (`palm-gw upgrade --check`; opt-in, off by default, never automatic). |
+| `/api/v1/` | (D-058) The API for the Palm app and scripts, on both listeners: bearer tokens from `POST /api/v1/login`, JSON or `?format=text` (Windows-1252 `key=value`). Calls and formats in `docs/WEB-UI.md` section 6. |
 
 **"You are connected" page** (amended by D-039): served **only** on the gateway address (the opposite binding rule), a small HTML5 page for Linux laptops on PAN, showing "You are connected. IP: x. Gateway: y." and a link to `https://10.42.0.1:8042/`, at `http://10.42.0.1/`. It is on port 80, read-only and unauthenticated. Palms use the app instead of Blazer.
 

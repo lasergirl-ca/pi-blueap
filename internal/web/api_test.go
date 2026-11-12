@@ -1,0 +1,263 @@
+package web
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"palm-gw/internal/config"
+)
+
+type apiFixture struct {
+	f   *daemonFake
+	lan *httptest.Server
+	bt  *httptest.Server
+	clk *clock
+	t   *testing.T
+}
+
+func newAPIFixture(t *testing.T) *apiFixture {
+	t.Helper()
+	ah, vh := hashes(t)
+	cfg := config.Default()
+	cfg.Web.PasswordHash = ah
+	cfg.Web.ViewerUsername, cfg.Web.ViewerPasswordHash = "viewer", vh
+	cfg.Web.SessionHours = 1
+	clk := &clock{t: time.Now().UTC().Truncate(time.Second)}
+	f := newDaemonFake()
+	s, err := New(Options{Config: func() *config.Config { return cfg }, Backend: f, Now: clk.now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &apiFixture{f: f, clk: clk, t: t, lan: httptest.NewServer(s.Handler(SideLAN, false)), bt: httptest.NewServer(s.Handler(SideBluetooth, true))}
+	t.Cleanup(a.lan.Close)
+	t.Cleanup(a.bt.Close)
+	return a
+}
+
+// do sends a request with an optional bearer token and form; it returns
+// the status, the body and the headers.
+func (a *apiFixture) do(base, method, path, token string, form url.Values) (int, string, http.Header) {
+	a.t.Helper()
+	var body io.Reader
+	if form != nil {
+		body = strings.NewReader(form.Encode())
+	}
+	req, _ := http.NewRequest(method, base+path, body)
+	if form != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b), resp.Header
+}
+
+func (a *apiFixture) login(base, user, pw string) string {
+	a.t.Helper()
+	code, body, _ := a.do(base, "POST", "/api/v1/login", "", url.Values{"username": {user}, "password": {pw}})
+	var r struct {
+		Status, Token, Role string
+		ExpiresIn           int64 `json:"expires_in"`
+	}
+	if err := json.Unmarshal([]byte(body), &r); err != nil || code != 200 || r.Status != "ok" || len(r.Token) != 64 || r.ExpiresIn != 3600 {
+		a.t.Fatalf("login %s: %d %s", user, code, body)
+	}
+	return r.Token
+}
+
+func TestAPILogin(t *testing.T) {
+	a := newAPIFixture(t)
+	// Wrong username and wrong password: the same reply.
+	c1, b1, h := a.do(a.lan.URL, "POST", "/api/v1/login", "", url.Values{"username": {"nobody"}, "password": {"admin-pw"}})
+	c2, b2, _ := a.do(a.lan.URL, "POST", "/api/v1/login", "", url.Values{"username": {"admin"}, "password": {"wrong"}})
+	if c1 != 401 || c1 != c2 || b1 != b2 || !strings.Contains(b1, `"error":"login_required"`) || h.Get("WWW-Authenticate") == "" {
+		t.Errorf("%d %s / %d %s", c1, b1, c2, b2)
+	}
+	if _, b, _ := a.do(a.lan.URL, "GET", "/api/v1/status", "", nil); !strings.Contains(b, "Bearer <token>") {
+		t.Errorf("%d %s / %d %s", c1, b1, c2, b2)
+	}
+	tok := a.login(a.lan.URL, "admin", "admin-pw")
+	if code, body, _ := a.do(a.lan.URL, "GET", "/api/v1/status", tok, nil); code != 200 || !strings.Contains(body, `"gateway":"Palm Gateway"`) {
+		t.Errorf("status %d %s", code, body)
+	}
+	// No token, a bad token, a token from the other side.
+	for _, c := range []struct{ base, tok string }{{a.lan.URL, ""}, {a.lan.URL, "nope"}, {a.bt.URL, tok}} {
+		if code, _, _ := a.do(c.base, "GET", "/api/v1/status", c.tok, nil); code != 401 {
+			t.Errorf("%q on %s = %d", c.tok, c.base, code)
+		}
+	}
+	// A token is not a cookie.
+	jar := client(t)
+	u, _ := url.Parse(a.lan.URL)
+	jar.Jar.SetCookies(u, []*http.Cookie{{Name: cookieName, Value: tok}})
+	if code, _, _ := get(t, jar, a.lan.URL+"/"); code != http.StatusSeeOther {
+		t.Errorf("token as cookie = %d", code)
+	}
+	// Expiry, then logout.
+	a.clk.add(61 * time.Minute)
+	if code, _, _ := a.do(a.lan.URL, "GET", "/api/v1/status", tok, nil); code != 401 {
+		t.Errorf("expired token = %d", code)
+	}
+	tok = a.login(a.lan.URL, "admin", "admin-pw")
+	if code, _, _ := a.do(a.lan.URL, "POST", "/api/v1/logout", tok, url.Values{}); code != 200 {
+		t.Errorf("logout = %d", code)
+	}
+	if code, _, _ := a.do(a.lan.URL, "GET", "/api/v1/status", tok, nil); code != 401 {
+		t.Errorf("after logout = %d", code)
+	}
+}
+
+func TestAPICookieIsNotAToken(t *testing.T) {
+	_, ts, c, _ := loggedIn(t, "admin", "admin-pw")
+	u, _ := url.Parse(ts.URL)
+	var cookie string
+	for _, ck := range c.Jar.Cookies(u) {
+		if ck.Name == cookieName {
+			cookie = ck.Value
+		}
+	}
+	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/status", nil)
+	req.Header.Set("Authorization", "Bearer "+cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if cookie == "" || resp.StatusCode != 401 {
+		t.Errorf("browser cookie as bearer = %d", resp.StatusCode)
+	}
+}
+
+func TestAPIRateLimit(t *testing.T) {
+	a := newAPIFixture(t)
+	for i := 0; i < maxFailures; i++ {
+		a.do(a.lan.URL, "POST", "/api/v1/login", "", url.Values{"username": {"admin"}, "password": {"wrong"}})
+	}
+	code, body, h := a.do(a.lan.URL, "POST", "/api/v1/login", "", url.Values{"username": {"admin"}, "password": {"admin-pw"}})
+	if code != 429 || h.Get("Retry-After") == "" || !strings.Contains(body, "too_many_requests") {
+		t.Errorf("%d %s", code, body)
+	}
+	// The other listener has its own count.
+	a.login(a.bt.URL, "admin", "admin-pw")
+}
+
+func TestAPIViewer(t *testing.T) {
+	a := newAPIFixture(t)
+	tok := a.login(a.lan.URL, "viewer", "viewer-pw")
+	for _, p := range []string{"/api/v1/pair", "/api/v1/pair/close", "/api/v1/devices/00:07:E0:3C:5E:FA/forget", "/api/v1/firewall/allow", "/api/v1/firewall/remove", "/api/v1/settings"} {
+		if code, body, _ := a.do(a.lan.URL, "POST", p, tok, url.Values{}); code != 403 || !strings.Contains(body, "read-only") {
+			t.Errorf("viewer POST %s = %d", p, code)
+		}
+	}
+	a.f.mu.Lock()
+	a.f.window.Open, a.f.window.PIN, a.f.window.Expires = true, "4821", time.Now().Add(time.Minute)
+	a.f.mu.Unlock()
+	if _, body, _ := a.do(a.lan.URL, "GET", "/api/v1/status", tok, nil); !strings.Contains(body, `"pairing":true`) || strings.Contains(body, "4821") {
+		t.Errorf("viewer status shows the PIN: %s", body)
+	}
+	if code, _, _ := a.do(a.lan.URL, "POST", "/api/v1/logout", tok, url.Values{}); code != 200 {
+		t.Errorf("viewer logout = %d", code)
+	}
+}
+
+func TestAPITextFormat(t *testing.T) {
+	a := newAPIFixture(t)
+	tok := a.login(a.lan.URL, "admin", "admin-pw")
+	code, body, h := a.do(a.lan.URL, "GET", "/api/v1/sessions?format=text", tok, nil)
+	if code != 200 || h.Get("Content-Type") != "text/plain; charset=windows-1252" {
+		t.Fatalf("%d %v", code, h)
+	}
+	want := "status=ok\r\ncount=1\r\n\r\nname=Zo\xebs Palm TX\r\naddr=00:07:E0:3C:5E:FA\r\nprofile=lap\r\nifname=ppp0\r\nip=10.42.0.10\r\n"
+	want = strings.Replace(want, "Zo\xebs", "Zo\xeb's", 1)
+	if !strings.HasPrefix(body, want) || !strings.HasSuffix(body, "\r\n\r\n") {
+		t.Errorf("text:\n%q", body)
+	}
+	if got := Windows1252("Zoë’s “Palm” – 5 € 日本"); !bytes.Equal(got, []byte("Zo\xeb\x92s \x93Palm\x94 \x96 5 \x80 ??")) {
+		t.Errorf("%q", got)
+	}
+	_, body, _ = a.do(a.lan.URL, "GET", "/api/v1/nothing?format=text", tok, nil)
+	if !strings.HasPrefix(body, "error=not_found\r\nmessage=") {
+		t.Errorf("text error %q", body)
+	}
+	// Values cannot break lines.
+	var b bytes.Buffer
+	rec{{"name", "two\r\nlines"}, {"on", true}, {"ports", []string{"tcp/22", "icmp"}}}.text(&b)
+	if b.String() != "name=two  lines\r\non=1\r\nports=tcp/22 icmp\r\n" {
+		t.Errorf("%q", b.String())
+	}
+}
+
+func TestAPIActions(t *testing.T) {
+	a := newAPIFixture(t)
+	tok := a.login(a.lan.URL, "admin", "admin-pw")
+	// Pairing: the PIN comes back.
+	code, body, _ := a.do(a.lan.URL, "POST", "/api/v1/pair", tok, url.Values{"minutes": {"2"}, "one": {"1"}})
+	if code != 200 || !strings.Contains(body, `"pin":"4821"`) || !strings.Contains(body, `"one":true`) {
+		t.Errorf("pair %d %s", code, body)
+	}
+	if _, body, _ := a.do(a.lan.URL, "GET", "/api/v1/status", tok, nil); !strings.Contains(body, `"pin":"4821"`) {
+		t.Errorf("admin status lacks the PIN: %s", body)
+	}
+	if _, body, _ := a.do(a.lan.URL, "POST", "/api/v1/pair/close", tok, url.Values{}); !strings.Contains(body, `"was_open":true`) {
+		t.Errorf("close %s", body)
+	}
+	// Devices.
+	if _, body, _ := a.do(a.lan.URL, "GET", "/api/v1/devices", tok, nil); !strings.Contains(body, `{"name":"Zoë's Palm TX","addr":"00:07:E0:3C:5E:FA","connected":true,"via":"lap ppp0 10.42.0.10"`) {
+		t.Errorf("devices %s", body)
+	}
+	if code, _, _ := a.do(a.lan.URL, "POST", "/api/v1/devices/00:07:e0:3c:5e:fa/rename", tok, url.Values{"name": {"TX"}}); code != 200 {
+		t.Errorf("rename %d", code)
+	}
+	if req, _ := a.f.last("rename"); req.Addr != "00:07:E0:3C:5E:FA" || req.Label != "TX" {
+		t.Errorf("rename req %+v", req)
+	}
+	if code, _, _ := a.do(a.lan.URL, "POST", "/api/v1/devices/11:22:33:44:55:66/rename", tok, url.Values{"name": {"x"}}); code != http.StatusConflict {
+		t.Errorf("rename refused = %d", code)
+	}
+	if code, _, _ := a.do(a.lan.URL, "POST", "/api/v1/devices/zz/forget", tok, url.Values{}); code != 404 {
+		t.Errorf("bad addr = %d", code)
+	}
+	// Firewall: add, then remove by number and by host.
+	code, body, _ = a.do(a.lan.URL, "POST", "/api/v1/firewall/allow", tok, url.Values{"host": {"192.168.1.30"}, "ports": {"tcp/22 icmp"}, "comment": {"NAS"}})
+	if code != 200 || !strings.Contains(body, `"count":2`) || !strings.Contains(body, `"ports":["tcp/22","icmp"]`) {
+		t.Errorf("allow %d %s", code, body)
+	}
+	if code, _, _ := a.do(a.lan.URL, "POST", "/api/v1/firewall/remove", tok, url.Values{"n": {"9"}}); code != 400 {
+		t.Errorf("remove 9 = %d", code)
+	}
+	if _, body, _ := a.do(a.lan.URL, "POST", "/api/v1/firewall/remove", tok, url.Values{"host": {"192.168.1.30"}}); !strings.Contains(body, `"count":1`) {
+		t.Errorf("remove host %s", body)
+	}
+	if _, body, _ := a.do(a.lan.URL, "POST", "/api/v1/firewall/remove", tok, url.Values{"n": {"1"}}); !strings.Contains(body, `"count":0`) || !strings.Contains(body, `"rules":[]`) {
+		t.Errorf("remove 1 %s", body)
+	}
+	// Settings.
+	code, body, _ = a.do(a.lan.URL, "POST", "/api/v1/settings", tok, url.Values{"name": {"Lyman GW"}, "adapter": {"hci1"}})
+	if code != 200 || !strings.Contains(body, `"saved":["bluetooth.name","bluetooth.adapter"]`) || !strings.Contains(body, `"needs_restart":["bluetooth.adapter"]`) {
+		t.Errorf("settings %d %s", code, body)
+	}
+	if code, _, _ := a.do(a.lan.URL, "POST", "/api/v1/settings", tok, url.Values{}); code != 400 {
+		t.Errorf("empty settings = %d", code)
+	}
+	// Events: the PIN never appears; since filters.
+	if _, body, _ := a.do(a.lan.URL, "GET", "/api/v1/events", tok, nil); !strings.Contains(body, `"event":"paired"`) || !strings.Contains(body, `"last":`) {
+		t.Errorf("events %s", body)
+	}
+	// Me: 127.0.0.1 has no session.
+	if _, body, _ := a.do(a.lan.URL, "GET", "/api/v1/me?format=text", tok, nil); !strings.Contains(body, "session=none\r\nip=127.0.0.1") {
+		t.Errorf("me %q", body)
+	}
+}

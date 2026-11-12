@@ -130,7 +130,7 @@ daemon's ctl handlers do the work and the API is a thin layer over them, as the 
 | `POST /api/v1/firewall/allow` / `POST /api/v1/firewall/remove` | add or remove an allow rule, then reload |
 | `POST /api/v1/settings` | the settings section 8.12 exposes; replies name anything that needs a restart |
 
-- **Auth.** `Authorization: Bearer <token>`. The token is 128 random bits, kept in memory, and
+- **Auth.** `Authorization: Bearer <token>`. The token is 256 random bits (D-058), kept in memory, and
   expires after `session_hours`. A token is not sent automatically the way a cookie is, so CSRF
   tokens are not needed on the API. The browser UI keeps its cookie and CSRF scheme. A viewer
   token gets 403 on every `POST` except login and logout.
@@ -148,6 +148,24 @@ daemon's ctl handlers do the work and the API is a thin layer over them, as the 
 
   ```
 
+- **As built (D-058).**
+  - Every reply starts with `status=ok`, or `error=<code>` and `message=`. The codes are
+    `login_required` (401, with `WWW-Authenticate: Bearer`), `forbidden`, `bad_request`,
+    `not_found`, `too_many_requests` (with `Retry-After`) and `failed`.
+  - A list reply (`sessions`, `devices`, `events`, `firewall`) is the head record, then one
+    record per item, each followed by a blank line. In JSON the items are an array under that
+    name (`rules` for the firewall).
+  - In text, booleans are `1`/`0`, lists are space-separated, and a line break inside a
+    value becomes a space.
+  - Login returns `token`, `expires` (RFC 3339), `expires_in` (seconds) and `role`.
+  - `status` gives the PIN only to the admin. `events?since=N` returns `last`, to pass back
+    as the next `since`; with no `since`, it returns the last 20 events.
+  - `firewall/allow` takes `host`, `ports` (space-separated) and `comment`. `firewall/remove`
+    takes `n` (the rule's number as listed) or `host` (all of its rules).
+  - `settings` takes any of `name`, `adapter`, `idle_seconds` and `ppp_debug`, and replies
+    with `saved` and `needs_restart`.
+  - `devices/<addr>/rename` takes `name`.
+  - An unknown path under `/api/` is `not_found`.
 - **Size.** Replies are kept under 2 KB in normal use. That is small for a Bluetooth link but
   kind to Palm memory.
 

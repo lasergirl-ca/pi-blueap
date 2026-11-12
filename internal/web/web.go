@@ -148,6 +148,7 @@ func (s *Server) Handler(side Side, isTLS bool) http.Handler {
 	s.settingsRoutes(mux, side)
 	s.internetRoutes(mux, side)
 	s.diagRoutes(mux, side)
+	s.apiRoutes(mux, side)
 	var h http.Handler = mux
 	if side == SideLAN && len(s.o.AllowCIDRs) > 0 {
 		h = s.allowCIDRs(h)
@@ -192,6 +193,9 @@ func (s *Server) auth(side Side, h http.Handler) http.Handler {
 		var se *session
 		if c, err := r.Cookie(cookieName); err == nil {
 			se = s.sessions.get(c.Value, side)
+		}
+		if se != nil && se.api {
+			se = nil // an API token is not a cookie (D-058)
 		}
 		if se == nil {
 			if r.Method == http.MethodGet {

@@ -69,6 +69,9 @@ func (s *Server) dashboardData(r *http.Request) map[string]any {
 	}
 	data["Status"] = st
 	data["Events"] = s.recentEvents(r.Context(), 10)
+	if sessionOf(r).side == SideBluetooth { // "This device" (docs/WEB-UI.md section 5)
+		data["Me"], data["MeIP"] = meRec(st, clientIP(r)), clientIP(r)
+	}
 	return data
 }
 

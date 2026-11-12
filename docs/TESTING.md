@@ -2794,3 +2794,36 @@ $ sudo ls -l /var/lib/palm-gw/captures      # while recording
 
 No bundle was made from the browser yet; the bundle's contents were checked from the shell
 above.
+
+### Part 5: the /api/v1 API (D-058), 2026-11-12
+
+`httptest` covers what `docs/WEB-UI.md`'s test list asks of the API:
+- the same reply for a wrong username and a wrong password;
+- token expiry and logout;
+- a token is not a cookie and a cookie is not a token;
+- a token from one side is refused on the other;
+- a viewer token gets 403 on every POST but logout, and never sees the PIN;
+- the rate limit, counted per side;
+- the text format encodes Windows-1252 (`ë` is 0xEB, `’` 0x92, `€` 0x80) and degrades to `?`;
+- every call: pair and close, device rename/forget/disconnect, firewall allow and remove,
+  settings, events, me.
+
+On test27/test28, from the Mac, with no login (logging in needs Zoe's password):
+
+```
+$ curl -sk -D - https://10.4.1.118:8042/api/v1/status
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+Www-Authenticate: Bearer realm="palm-gw"
+{"error":"login_required","message":"log in first: POST /api/v1/login, then send Authorization: Bearer <token>"}
+$ curl -sk 'https://10.4.1.118:8042/api/v1/status?format=text' | od -c | head -2
+0000000    e   r   r   o   r   =   l   o   g   i   n   _   r   e   q   u
+0000020    i   r   e   d  \r  \n   m   e   s   s   a   g   e   =   l   o
+$ curl -sk -H 'Authorization: Bearer 00' https://10.4.1.118:8042/api/v1/nothing
+{"error":"not_found","message":"no such API call: GET /api/v1/nothing"}
+$ curl -s -m 5 http://10.4.1.118:8042/api/v1/status; echo "exit $?"
+exit 52                                     # plain HTTP on the TLS port: no reply
+```
+
+test27 HTML-escaped `<token>` as `<token>`; test28 does not. Still to do: Zoe logging
+in through the API with her password, and the Bluetooth side (part 6).

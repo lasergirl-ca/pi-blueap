@@ -1077,6 +1077,31 @@ docs/WEB-UI.md:
   restarts bluetooth and palm-gwd. If the apply cannot start, the stored class is put back. The
   Pair page's "Palm can't see the gateway?" card has the button.
 
+### D-058: Web UI part 5: the /api/v1 API
+
+- **Built as `docs/WEB-UI.md` section 6 lists it,** on both listeners. Each call is a thin layer
+  over the ctl command the browser page uses, so the API, the pages and `palm-gwctl` cannot
+  disagree. Section 6's "As built" notes fill in what the table left open (error codes, list
+  replies, field names).
+- **Tokens are API sessions** in the browser's in-memory session table, with an `api` flag. A
+  token is not accepted as a cookie, and a browser cookie is not accepted as a bearer token. A
+  page's CSRF protection therefore cannot be bypassed by presenting the cookie as a token, and
+  a token leaked to a page cannot ride along on a form. Tokens are bound to the side they
+  logged in on, expire after `session_hours`, and end at logout or a palm-gwd restart. They are
+  256 bits like the cookies, not the 128 the design gave: same generator, and more is free.
+- **Login shares everything with the browser's:** the same accounts, the same argon2id check
+  with the dummy hash (a wrong username costs the same as a wrong password, and gets the same
+  reply), and the same per-side, per-IP limit of 5 failures a minute, then 429 with
+  `Retry-After`. No CSRF token on the API: a browser never sends a bearer token on its own, and
+  no CORS headers are sent, so other origins cannot read replies.
+- **Viewers** get 403 on every POST but logout, and never see the PIN.
+- **Text format:** `key=value`, CRLF, Windows-1252. 0xA0 to 0xFF map from Latin-1, the 0x80 to
+  0x9F row from its table (curly quotes, en and em dashes, €, …), and anything else becomes
+  `?`. Values cannot break a line.
+- **JSON is not HTML-escaped** (`<` stays `<`): it is never served as a page.
+- **"This device"** (section 5): the Bluetooth side's dashboard shows the requester's own PPP
+  session or PAN lease, found by source address; `GET /api/v1/me` is the same.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

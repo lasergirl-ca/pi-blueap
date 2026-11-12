@@ -6,6 +6,11 @@
 
 {{define "dash-body"}}
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if eq .Side "bluetooth"}}<section class="card">
+  <h2>This device</h2>
+  {{with .Me}}<dl>{{range .}}<dt>{{.K}}</dt><dd>{{.V}}</dd>{{end}}</dl>
+  {{else}}<p class="muted">{{.MeIP}} has no PPP session or PAN lease here.</p>{{end}}
+</section>{{end}}
 {{with .Status}}
 <section class="card">
   <h2>Adapter</h2>
