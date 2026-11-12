@@ -2851,3 +2851,93 @@ $ palm-gwctl internet use wifi      → on wifi: 26:AA:9F:DB:90:CC:DE:0E  uplink
 $ palm-gwctl internet use ethernet  → back:    26:AA:9F:DB:90:CC:DE:0E  uplink=eth0
 palm-gw-apply: /var/lib/palm-gw/tls/cert.pem unchanged   (both times)
 ```
+
+### Part 6: acceptance from the Bluetooth side, 2026-11-12
+
+Both Pis are in dongle mode with one adapter each, so fake-palm ran on a separate machine, as
+section 9 first intended. That machine was the first Pi (10.4.0.241, its palm-gwd stopped for
+the run, at Zoe's OK), with a current fake-palm build. The gateway was the test Pi on test30.
+The client side lived in network namespace `fakepalm` on the first Pi. Pairing went through
+`palm-gwctl pair 2 --one` on the gateway (SSP, passkey confirmed by fake-palm, 4.9 s).
+
+**PPP peer** (`fake-palm connect … --channel 2 --mode ppp --netns fakepalm --hold 1200s`; ppp1,
+10.42.0.11), with the T|X connected as 10.42.0.10 at the same time:
+
+```
+PASS: TLS 1.3 to 10.42.0.1:8042, login page (200)        certificate 26:AA:9F:DB:90:CC:DE:0E…
+PASS: TLS 1.2 refused (curl exit 35)
+PASS: plain HTTP on 8042: no answer (curl exit 52)
+PASS: port 80: connected page
+PASS: the Pi LAN address 10.4.1.118:8042 dropped (timeout)
+PASS: 10.4.1.118:22 dropped
+PASS: 10.4.1.118:80 dropped
+PASS: TCP open on 10.42.0.1: 53 80 8042                    (nmap -sT -p-, the second run)
+      UDP 53 open, 67 open; 68, 123, 5353 open|filtered (no answer: dropped)
+PASS: ICMP echo answered
+PASS: DNS on 10.42.0.1:53
+```
+
+**The API over the Bluetooth side, with Zoe's password** (she typed it into a prompt in her own
+terminal, in the same namespace, over the PPP link):
+
+```
+login: ok admin expires_in 259199
+--- me (text)            session=yes name=Palm Gateway addr=60:15:6F:E9:EB:03 profile=lap ifname=ppp1 ip=10.42.0.11 …
+--- status (text)        gateway=Palm Gateway - Lyman … sessions=2 pool_in_use=2 uplink=eth0 pairing=0
+--- sessions (text)      name=Zoë's Palm TX (Windows-1252, decoded with iconv) … name=Palm Gateway …
+--- pair 1 minute, one device
+{"status":"ok","pin":"5640","expires_in":59,"one":true}
+--- pair/close           {"status":"ok","was_open":true}
+--- logout               {"status":"ok"}
+--- status with the old token
+401
+```
+
+**PAN client** (`fake-palm pan … --netns fakepalm --hold 900s`): lease 10.42.0.103 in the DHCP
+pool after 7.4 s, ping and DNS OK. TLS 1.3 login page, TLS 1.2 refused, no plain HTTP on 8042,
+the connected page on port 80, and 10.4.1.118 dropped on 8042, 22 and 80: all PASS, as over PPP.
+
+```
+$ nmap -sT -Pn -n -p- --max-rate 300 --max-retries 3 10.42.0.1      # 438 s
+Not shown: 65532 filtered tcp ports (no-response)
+53/tcp   open  domain
+80/tcp   open  http
+8042/tcp open  fs-agent
+$ nmap -sU -p 53,67,68,123,5353 10.42.0.1
+53/udp open, 67/udp open, 68/123/5353 open|filtered
+```
+
+**The scan rate matters on Bluetooth.** At `--min-rate 1500` the first scan missed 8042 over
+both PPP and PAN. nmap probes common ports such as 53 and 80 first, and by the time it reached
+8042 the link was saturated. Over PAN the scan straight after found nothing and ping failed
+until the backlog cleared. The ruleset has no rate limit; at 300/s with three retries the
+result is exact.
+
+Clean-up: the first Pi's pairing with the gateway was removed (`RemoveDevice`), the namespace
+deleted, and its palm-gwd started again. `palm-gwctl forget 60:15:6F:E9:EB:03` on the gateway.
+
+**Seen on the way: Zoe's Pocket PC** (ASUS, Windows Mobile, `Zoe_PocketPC`, 00:1E:8C:EF:86:AD,
+class 0x3A0110) paired through a window at 11:29:43 and dials LAN Access with "Bluetooth Null
+Modem".
+- Its first two tries (11:29:43, straight after pairing, and 11:32:15) sent nothing for 3 s.
+  palm-gwd's `ms_timeout_ms` ran out and pppd started blind. The Pocket PC then said "The
+  answering modem has disconnected" and reset the link 24 s and 12 s later.
+- The third try (11:39:15) sent `CLIENT` after 1.2 s, got `CLIENTSERVER`, and PPP came up as
+  10.42.0.12.
+- Its own "Network Log On" user and password do nothing here: palm-gw's PPP has no
+  authentication (`noauth`, section 7).
+- A longer `ms_timeout_ms` would cover the slow `CLIENT`, at no cost to Palms, which send PPP
+  at once. Not changed yet.
+
+**Phase 7's accept, where it stands:**
+- **Done:**
+  - LAN browser: log in, pairing window with its PIN, pair a Palm and watch the feed, rename
+    and re-scan, a capture in Wireshark.
+  - PAN: the connected page.
+  - Bluetooth side: login over TLS only, no plain HTTP, a pairing window and PIN through the
+    API, the LAN address on 8042 dropped, and nmap.
+- **Still to do:**
+  - Disconnect and forget from the Devices page in a browser.
+  - A firewall rule's effect seen from a Palm.
+  - A support bundle downloaded from the browser.
+  - The Palm app's checks (part 7).
