@@ -10,7 +10,7 @@ section: net
 priority: optional
 maintainer: "palm-gw maintainers <palm-gw@users.noreply.github.com>"
 homepage: https://github.com/lasergirl-ca/pi-blueap
-license: MIT
+license: GPL-3.0-only
 description: |
   Bluetooth access point for Palm OS handhelds.
   Turns a Raspberry Pi 4 or 5 into a Bluetooth gateway for Palm OS devices:

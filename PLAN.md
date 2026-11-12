@@ -92,7 +92,7 @@ Appendix D: pppd option rationale
 | Packaging | **Debian package** (`palm-gw_<ver>_arm64.deb`, built with `nfpm`) as the primary install path, with a bootstrap `install.sh` that downloads the right release and installs it. `make install` from source remains for developers. Upgrades are `apt install ./newer.deb` or `palm-gwctl upgrade`. |
 | Setup wizard | `palm-gw setup`: interactive terminal wizard (Go, `charmbracelet/huh` for prompts, falls back to plain prompts when not a TTY) that writes `/etc/palm-gw/config.toml` and the templated system files. Fully scriptable with flags for unattended installs. |
 | Web UI | **Yes, in v1.** Go `net/http` with embedded templates and htmx; no JS build step, no Node. Full UI on the Pi's LAN address(es), port 8042; the same UI and API, **TLS only**, on the gateway address `10.42.0.1:8042` for the Bluetooth side, used by a native ARM Palm OS app with full admin (amended by D-026 and D-039, design in `docs/WEB-UI.md`). Username and password set during `setup`, session cookie (bearer token for the Palm app's API), TLS optional via self-signed cert generated at setup. |
-| Licence | MIT. |
+| Licence | GPLv3 (amended by D-061; was MIT). The Palm app links wolfSSL, which is GPLv3, and Zoe chose one licence for the whole repository. |
 
 ---
 

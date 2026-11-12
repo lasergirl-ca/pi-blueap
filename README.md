@@ -56,4 +56,4 @@ ssh pi 'sudo apt install ./palm-gw_*_arm64.deb && sudo palm-gw setup'
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+GNU General Public License, version 3. See [LICENSE](LICENSE). The Palm app in `palm-app/` links wolfSSL, which is GPLv3, and the whole project carries the same licence (D-061).

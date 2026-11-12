@@ -1134,6 +1134,31 @@ docs/WEB-UI.md:
   (`profile.Server.SetHandshake`, added to D-030's live set). Changing them no longer needs a
   restart that drops the Palms already connected.
 
+### D-061: The repository is GPLv3 (amends section 2)
+
+- The Palm app (`palm-app/`, Phase 7 part 7) links wolfSSL for TLS 1.3, which is GPLv3, as
+  Tessera's and CradleServer's Palm apps do. Asked whether the app alone or the whole
+  repository should carry GPLv3, Zoe chose the whole repository (2026-11-12). `LICENSE` is now
+  the GPLv3 text (the same file wolfSSL ships), `packaging/nfpm.yaml` says `GPL-3.0-only`, and
+  section 2's licence row and the README say so. The project was MIT until this commit.
+
+### D-062: The Palm app: a 68K app with CradleServer's ARM TLS module, trust on first use, several gateways
+
+Zoe's answers, 2026-11-12 (design in `docs/PALM-APP.md`; her Palm development context, the
+FuelLog lessons, is `docs/PALM-DEV.md`):
+- **Target ARM devices; the UI stays 68K.** The forms, the Net Library and HTTP are 68K, and
+  TLS 1.3 is a native ARM module. The context's "68K only" is for apps with no crypto. The
+  module is CradleServer's wolfSSL client behind its step buffer, which has synced on the
+  T|X. Its loader and `palmlink` are copied as is. The client changes: ALPN `http/1.1`, no
+  SNI or name check for a server given by IP (the pin decides), and a first-use mode that
+  reports the certificate's SHA-256 as well as the SPKI hash.
+- **Trust on first use:** the app shows the certificate fingerprint the web login page
+  shows, and pins the key once it is trusted.
+- **Several gateways:** all are `10.42.0.1` over Bluetooth, so the app knows a gateway by its
+  pin and offers all of its pins in a handshake.
+- `docs/WEB-UI.md` section 7 said "C, ARM only": this is that, with the ARM part where it
+  pays, as Tessera's and CradleServer's apps do.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08
