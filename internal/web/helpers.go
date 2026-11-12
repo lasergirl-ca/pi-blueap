@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"html/template"
 	"net"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"palm-gw/internal/fw"
 )
 
 func subtleEq(a, b string) int { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) }
@@ -49,6 +53,25 @@ var funcs = template.FuncMap{
 	"pinDigits": func(pin string) string { return strings.Join(strings.Split(pin, ""), " ") },
 	"inc":       func(i int) int { return i + 1 },
 	"join":      strings.Join,
+	"hostport": func(a netip.Addr, port uint16) string {
+		if port == 0 {
+			return a.String()
+		}
+		return net.JoinHostPort(a.String(), strconv.Itoa(int(port)))
+	},
+	// natState is the TCP state, or for UDP and ICMP whether the far end
+	// has answered.
+	"natState": func(c fw.Conn) string {
+		switch {
+		case c.State != "":
+			return c.State
+		case c.Assured:
+			return "two-way"
+		case c.Replied:
+			return "answered"
+		}
+		return "no answer yet"
+	},
 	"yesno": func(b bool) string {
 		if b {
 			return "yes"

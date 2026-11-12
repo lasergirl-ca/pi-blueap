@@ -2641,3 +2641,23 @@ ends a section (`TestSetKeyMissingBeforeArrayTables`).
 Not tried on the Pi: changing the uplink (wlan0 is down, so eth0 is the only choice) or the
 subnet. Both go through the same apply, and the unit tests cover the edits. The subnet change
 also makes a new certificate, because the gateway address is in it.
+
+### Part 3c: the NAT table (D-055), 2026-11-12
+
+Zoe asked for the NAT table to be shown. On test21 (no Palm connected at that moment; the
+T|X had been online shortly before):
+
+```
+$ ls /proc/net/nf_conntrack; which conntrack
+ls: cannot access '/proc/net/nf_conntrack': No such file or directory
+$ cat /proc/sys/net/netfilter/nf_conntrack_count
+67
+$ palm-gwctl nat
+DEVICE             PROTO FROM                  TO                    OUT AS                STATE        TIMEOUT
+unknown            tcp   10.42.0.10:46924      209.121.220.108:14244 10.4.1.118:46924      time-wait    45s
+1 from 10.42.0.0/24, of 19 tracked.
+```
+
+The ctnetlink dump works from inside palm-gwd's sandbox. The entry is the T|X's last
+connection closing after its session ended, so it has no device name (D-055). Still to see:
+the card in a browser with the T|X connected and loading a page.

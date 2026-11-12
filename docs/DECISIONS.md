@@ -975,6 +975,25 @@ docs/WEB-UI.md:
 - `palm-gwctl choices` and `palm-gwctl network [--uplink] [--subnet] [--tls] [--bluetooth-side]`
   are the same commands.
 
+### D-055: The NAT table, on the firewall page and `palm-gwctl nat`
+
+- **Added at Zoe's request** (not in section 8.12): the connections Palms have open now. Each row
+  shows the device, protocol, the Palm's address and port, the destination, and the address
+  and port the far end sees after masquerading. It also shows the TCP state (or whether a
+  UDP/ICMP flow has been answered), the seconds until the kernel drops the entry, and traffic
+  when `nf_conntrack_acct` is on (it is off by default, and the column is hidden then). The
+  firewall page shows it as a card refreshed every 5 s from `/partials/nat`; viewers see it.
+- **Read over ctnetlink, not a tool.** Raspberry Pi OS has neither `/proc/net/nf_conntrack`
+  (the kernel is built without the procfs interface) nor the `conntrack` package. palm-gwd
+  already has `CAP_NET_ADMIN` and `AF_NETLINK`, so `internal/fw` sends one
+  `IPCTNL_MSG_CT_GET` dump request for IPv4 and decodes only the attributes it shows. It uses
+  `golang.org/x/sys/unix`, so there is no new dependency and no new package on the Pi.
+- **Only flows started from the Palm subnet are listed;** the total the Pi tracks is shown
+  beside them. A flow to the gateway itself (DNS, the web UI) is "not translated".
+- **Device names** come from live PPP sessions (the peer address) and PAN leases. A flow that
+  outlives its session (time-wait after a disconnect) shows "unknown", since pool addresses are
+  reused.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

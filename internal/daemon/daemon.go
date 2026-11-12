@@ -24,6 +24,7 @@ import (
 	"palm-gw/internal/config"
 	"palm-gw/internal/ctl"
 	"palm-gw/internal/event"
+	"palm-gw/internal/fw"
 	"palm-gw/internal/ppp"
 	"palm-gw/internal/profile"
 	"palm-gw/internal/rfkill"
@@ -51,6 +52,8 @@ type Options struct {
 	SetupBin string
 	Command  func(ctx context.Context, name string, args ...string) ([]byte, error)
 	HostRoot string
+	// Conntrack reads the connection tracking table (nil = ctnetlink).
+	Conntrack func() ([]fw.Conn, error)
 	// OnReady is called once, the first time the agent is registered
 	// (sd_notify READY=1 lives in main).
 	OnReady func()

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"palm-gw/internal/config"
 	"palm-gw/internal/ctl"
 	"palm-gw/internal/event"
+	"palm-gw/internal/fw"
 	"palm-gw/internal/ppp"
 	"palm-gw/internal/setup"
 )
@@ -167,6 +169,12 @@ func (f *daemonFake) Call(ctx context.Context, req ctl.Request, emit func(json.R
 			},
 			Subnet: &setup.Subnet{Want: "10.42.0.0/24", Free: true},
 		})
+	case "nat":
+		return send(ctl.NATReply{Subnet: "10.42.0.0/24", Total: 70, Entries: []ctl.NATEntry{
+			{Device: "Zoë's Palm TX", Conn: fw.Conn{Proto: "tcp", Src: netip.MustParseAddr("10.42.0.10"), SrcPort: 1028, Dst: netip.MustParseAddr("93.184.215.14"), DstPort: 80,
+				NATAddr: netip.MustParseAddr("10.4.1.118"), NATPort: 1028, State: "established", Assured: true, Replied: true, Timeout: 431990}},
+			{Conn: fw.Conn{Proto: "udp", Src: netip.MustParseAddr("10.42.0.10"), SrcPort: 1029, Dst: netip.MustParseAddr("10.42.0.1"), DstPort: 53, Replied: true, Timeout: 25}},
+		}})
 	case "network.set":
 		n := req.Network
 		if n.Subnet == "10.4.0.0/24" {

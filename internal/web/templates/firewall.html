@@ -37,6 +37,11 @@
   {{end}}
 </section>
 
+<section class="card" id="nat">
+  <h2>NAT table <span class="muted">connections Palms have open now</span></h2>
+  <div hx-get="/partials/nat" hx-trigger="every 5s" hx-swap="innerHTML">{{template "nat-body" .}}</div>
+</section>
+
 <section class="card">
   <h2>Test reachability</h2>
   <p class="muted">A TCP connection from the Pi, and whether a rule lets Palms through.</p>
@@ -60,3 +65,16 @@
   <p class="muted">On the Pi itself Palms may reach DNS, DHCP, ICMP, the gateway page and this UI (TLS){{if .PalmToPi}}, plus {{join .PalmToPi " "}}{{end}}.</p>
 </section>
 {{template "foot" .}}{{end}}
+
+{{define "nat-body"}}{{with .NATError}}<p class="error">{{.}}</p>{{else}}{{with .NAT}}
+{{if .Entries}}<div class="scroll"><table>
+  <tr><th>Device</th><th>Protocol</th><th>From</th><th>To</th><th>Out to the internet as</th><th>State</th><th>Forgotten in</th>{{if .Accounting}}<th>Traffic</th>{{end}}</tr>
+  {{$acct := .Accounting}}{{range .Entries}}<tr>
+    <td>{{or .Device "unknown"}}</td><td>{{.Proto}}</td><td><code>{{hostport .Src .SrcPort}}</code></td><td><code>{{hostport .Dst .DstPort}}</code></td>
+    <td>{{if .NATAddr.IsValid}}<code>{{hostport .NATAddr .NATPort}}</code>{{else}}<span class="muted">not translated (the gateway itself)</span>{{end}}</td>
+    <td>{{natState .Conn}}</td><td>{{secs .Timeout}}</td>{{if $acct}}<td>{{bytes .Bytes}}</td>{{end}}
+  </tr>{{end}}
+</table></div>
+<p class="muted">{{len .Entries}} from the Palm network {{.Subnet}}, of {{.Total}} connections the Pi tracks.</p>
+{{else}}<p class="muted">No Palm has a connection open now. ({{.Total}} other connections tracked on the Pi.)</p>{{end}}
+{{end}}{{end}}{{end}}

@@ -63,6 +63,26 @@ func TestFirewallPage(t *testing.T) {
 	}
 }
 
+func TestNATTable(t *testing.T) {
+	_, ts, c, _ := loggedIn(t, "viewer", "viewer-pw")
+	_, page, _ := get(t, c, ts.URL+"/firewall")
+	for _, want := range []string{
+		`hx-get="/partials/nat"`,
+		"<td>Zoë&#39;s Palm TX</td><td>tcp</td><td><code>10.42.0.10:1028</code></td><td><code>93.184.215.14:80</code></td>",
+		"<code>10.4.1.118:1028</code>", "established", "4d23h",
+		"<td>unknown</td><td>udp</td>", "not translated (the gateway itself)", "answered",
+		"2 from the Palm network 10.42.0.0/24, of 70 connections",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("firewall page lacks %s", want)
+		}
+	}
+	code, part, _ := get(t, c, ts.URL+"/partials/nat")
+	if code != 200 || !strings.Contains(part, "93.184.215.14:80") || strings.Contains(part, "<html") {
+		t.Errorf("partial %d:\n%s", code, part)
+	}
+}
+
 func TestSettingsPage(t *testing.T) {
 	f, ts, c, tok := loggedIn(t, "admin", "admin-pw")
 	cfg := config.Default()

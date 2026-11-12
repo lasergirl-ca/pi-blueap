@@ -158,6 +158,8 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 		return c.restart()
 	case "choices":
 		return c.choices()
+	case "nat":
+		return c.nat()
 	case "network":
 		switch *btSide {
 		case "":
@@ -215,6 +217,7 @@ Commands:
   firewall counters           packets the drop rules have stopped
   firewall test <host> <port> TCP connect from the Pi
   restart                     restart palm-gwd
+  nat                         the NAT table: connections Palms have open now
   choices / network           adapters, uplinks and the Palm network check, and the last apply
   network [--uplink IF] [--subnet A.B.C.0/24] [--tls self-signed|off] [--bluetooth-side on|off]
                               change them; runs palm-gw setup --apply, which restarts palm-gwd
@@ -984,5 +987,42 @@ func (c *cli) network(nc setup.NetworkChange) int {
 	}
 	fmt.Fprintf(c.stdout, "Saved %s.\n", strings.Join(r.Changed, ", "))
 	fmt.Fprintf(c.stdout, "Applying with palm-gw setup --apply (journalctl -u %s); palm-gwd restarts when it is done.\n", r.Unit)
+	return 0
+}
+
+func (c *cli) nat() int {
+	var r NATReply
+	printed, err := c.call(Request{Cmd: "nat"}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	if len(r.Entries) == 0 {
+		fmt.Fprintf(c.stdout, "No Palm has a connection open now (%d other connections tracked).\n", r.Total)
+		return 0
+	}
+	hp := func(a fmt.Stringer, p uint16) string {
+		if p == 0 {
+			return a.String()
+		}
+		return a.String() + ":" + strconv.Itoa(int(p))
+	}
+	fmt.Fprintf(c.stdout, "%-18s %-5s %-21s %-21s %-21s %-12s %s\n", "DEVICE", "PROTO", "FROM", "TO", "OUT AS", "STATE", "TIMEOUT")
+	for _, e := range r.Entries {
+		dev, out, state := e.Device, "-", e.State
+		if dev == "" {
+			dev = "unknown"
+		}
+		if e.NATAddr.IsValid() {
+			out = hp(e.NATAddr, e.NATPort)
+		}
+		if state == "" {
+			state = map[bool]string{true: "answered", false: "no answer"}[e.Replied]
+		}
+		fmt.Fprintf(c.stdout, "%-18s %-5s %-21s %-21s %-21s %-12s %ds\n", dev, e.Proto, hp(e.Src, e.SrcPort), hp(e.Dst, e.DstPort), out, state, e.Timeout)
+	}
+	fmt.Fprintf(c.stdout, "%d from %s, of %d tracked.\n", len(r.Entries), r.Subnet, r.Total)
 	return 0
 }

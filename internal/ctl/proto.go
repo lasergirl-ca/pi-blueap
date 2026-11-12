@@ -17,6 +17,7 @@ import (
 	"palm-gw/internal/allow"
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
+	"palm-gw/internal/fw"
 	"palm-gw/internal/ppp"
 	"palm-gw/internal/profile"
 	"palm-gw/internal/setup"
@@ -244,4 +245,20 @@ type NetworkSetReply struct {
 	Changed  []string `json:"changed"`  // section.key, empty when nothing changed
 	Applying bool     `json:"applying"` // false when nothing changed
 	Unit     string   `json:"unit,omitempty"`
+}
+
+// NATEntry is one tracked connection a Palm started, with the device it
+// came from when a session or PAN lease has that address.
+type NATEntry struct {
+	fw.Conn
+	Device string `json:"device,omitempty"` // device name, or its Bluetooth address
+}
+
+// NATReply is the answer to nat: the kernel's connection tracking entries
+// from the Palm network (D-055).
+type NATReply struct {
+	Subnet     string     `json:"subnet"`
+	Entries    []NATEntry `json:"entries"`
+	Total      int        `json:"total"`      // every tracked connection on the Pi, Palm or not
+	Accounting bool       `json:"accounting"` // nf_conntrack_acct is on, so bytes and packets are counted
 }

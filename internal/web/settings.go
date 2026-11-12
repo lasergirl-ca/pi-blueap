@@ -27,6 +27,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux, side Side) {
 	mux.Handle("POST /firewall/{n}/save", a(s.firewallSave))
 	mux.Handle("POST /firewall/{n}/delete", a(s.firewallDelete))
 	mux.Handle("POST /firewall/test", a(s.firewallTest))
+	mux.Handle("GET /partials/nat", a(s.natPartial))
 	mux.Handle("GET /settings", a(s.settingsPage))
 	mux.Handle("POST /settings", a(s.settingsSave))
 	mux.Handle("POST /settings/network", a(s.networkSave))
@@ -100,10 +101,27 @@ func (s *Server) renderFirewall(w http.ResponseWriter, r *http.Request, code int
 	}
 	data["Counters"] = cs.Counters
 	data["PalmToPi"] = s.o.Config().Firewall.PalmToPi
+	s.natData(r, data)
 	for k, v := range extra {
 		data[k] = v
 	}
 	s.render(w, r, code, "firewall", data)
+}
+
+// natData adds the NAT table (D-055).
+func (s *Server) natData(r *http.Request, data map[string]any) {
+	var n ctl.NATReply
+	if err := s.call(r.Context(), ctl.Request{Cmd: "nat"}, &n); err != nil {
+		data["NATError"] = err.Error()
+		return
+	}
+	data["NAT"] = n
+}
+
+func (s *Server) natPartial(w http.ResponseWriter, r *http.Request) {
+	data := s.page(r, "NAT")
+	s.natData(r, data)
+	s.render(w, r, http.StatusOK, "nat-body", data)
 }
 
 // saveRules writes the list and renders the page with what happened.
