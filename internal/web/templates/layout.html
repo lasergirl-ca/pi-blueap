@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · {{.Gateway}}</title>
+{{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
 <link rel="stylesheet" href="/static/style.css">
 <meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}'>
 <script src="/static/htmx.min.js" defer></script>
@@ -16,6 +17,8 @@
     <a href="/">Dashboard</a>
     <a href="/pair">Pair</a>
     <a href="/devices">Devices</a>
+    <a href="/firewall">Firewall</a>
+    <a href="/settings">Settings</a>
   </nav>
   <form method="post" action="/logout" class="logout">
     <input type="hidden" name="csrf" value="{{.CSRF}}">

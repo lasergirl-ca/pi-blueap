@@ -12,6 +12,7 @@ package fw
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"os/exec"
@@ -197,4 +198,61 @@ func (n Nft) TablePresent(ctx context.Context) bool {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	return exec.CommandContext(ctx, n.path(), "list", "table", "inet", "palm_gw").Run() == nil
+}
+
+// Counter is one counted rule in the palm_gw table, named by its comment.
+type Counter struct {
+	Chain   string `json:"chain"`
+	Comment string `json:"comment"`
+	Packets uint64 `json:"packets"`
+	Bytes   uint64 `json:"bytes"`
+}
+
+// Counters lists the palm_gw table's rules that have a counter and a comment:
+// the drops (palm->rfc1918, palm->pi, ...) the web UI's firewall page shows
+// so an operator can see what a Palm tried to reach (PLAN.md section 8.12).
+func (n Nft) Counters(ctx context.Context) ([]Counter, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, n.path(), "-j", "list", "table", "inet", "palm_gw").Output()
+	if err != nil {
+		return nil, fmt.Errorf("nft -j list table inet palm_gw: %w", err)
+	}
+	return ParseCounters(out)
+}
+
+// ParseCounters reads `nft -j list table` output.
+func ParseCounters(b []byte) ([]Counter, error) {
+	var doc struct {
+		Nftables []struct {
+			Rule *struct {
+				Chain   string            `json:"chain"`
+				Comment string            `json:"comment"`
+				Expr    []json.RawMessage `json:"expr"`
+			} `json:"rule"`
+		} `json:"nftables"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return nil, fmt.Errorf("nft JSON: %w", err)
+	}
+	var out []Counter
+	for _, item := range doc.Nftables {
+		r := item.Rule
+		if r == nil || r.Comment == "" {
+			continue
+		}
+		for _, e := range r.Expr {
+			var c struct {
+				Counter *struct {
+					Packets uint64 `json:"packets"`
+					Bytes   uint64 `json:"bytes"`
+				} `json:"counter"`
+			}
+			if json.Unmarshal(e, &c) == nil && c.Counter != nil {
+				out = append(out, Counter{Chain: r.Chain, Comment: r.Comment, Packets: c.Counter.Packets, Bytes: c.Counter.Bytes})
+				break
+			}
+		}
+	}
+	return out, nil
 }

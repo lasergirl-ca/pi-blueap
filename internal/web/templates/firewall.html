@@ -1,0 +1,62 @@
+{{define "firewall"}}{{template "head" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Done}}<p class="notice">{{.Done}}</p>{{end}}
+<section class="card">
+  <h1>LAN hosts Palms may reach</h1>
+  <p class="muted">Palms reach the internet. On the home LAN they reach only these hosts and ports; everything else in 10/8, 172.16/12 and 192.168/16 is dropped.</p>
+  {{$admin := eq .Role "admin"}}{{$csrf := .CSRF}}
+  {{if .Rules}}
+  <div class="scroll"><table>
+    <tr><th>#</th><th>Host</th><th>Ports</th><th>Comment</th>{{if $admin}}<th></th>{{end}}</tr>
+    {{range $i, $r := .Rules}}{{$n := inc $i}}<tr>
+      {{if $admin}}
+      <td>{{$n}}</td>
+      <td colspan="3"><form method="post" action="/firewall/{{$n}}/save" class="inline wide">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <input name="host" value="{{$r.Host}}" aria-label="Host of rule {{$n}}" required>
+        <input name="ports" value="{{join $r.Ports " "}}" aria-label="Ports of rule {{$n}}" required>
+        <input name="comment" value="{{$r.Comment}}" aria-label="Comment of rule {{$n}}" placeholder="comment">
+        <button type="submit" class="secondary">Save</button>
+      </form></td>
+      <td><form method="post" action="/firewall/{{$n}}/delete"><input type="hidden" name="csrf" value="{{$csrf}}"><button type="submit" class="danger">Delete</button></form></td>
+      {{else}}
+      <td>{{$n}}</td><td><code>{{$r.Host}}</code></td><td>{{join $r.Ports " "}}</td><td>{{$r.Comment}}</td>
+      {{end}}
+    </tr>{{end}}
+  </table></div>
+  {{else}}<p>No rules: Palms reach nothing on the LAN.</p>{{end}}
+  {{if $admin}}
+  <h2>Add a rule</h2>
+  <form method="post" action="/firewall/add" class="row">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Host or CIDR <input name="host" placeholder="192.168.1.20" required></label>
+    <label>Ports <input name="ports" placeholder="tcp/14238 udp/53 icmp" required></label>
+    <label>Comment <input name="comment" placeholder="NetSync"></label>
+    <button type="submit">Add</button>
+  </form>
+  {{end}}
+</section>
+
+<section class="card">
+  <h2>Test reachability</h2>
+  <p class="muted">A TCP connection from the Pi, and whether a rule lets Palms through.</p>
+  {{with .Test}}<p class="{{if .OK}}notice{{else}}error{{end}}">{{.Host}}:{{.Port}} {{if .OK}}answers from the Pi ({{.Millis}} ms){{else}}does not answer from the Pi: {{.Problem}}{{end}}.
+    {{if .Allowed}}A rule lets Palms reach it.{{else}}No rule covers it, so Palms cannot reach it.{{end}}</p>{{end}}
+  {{if eq .Role "admin"}}<form method="post" action="/firewall/test" class="row">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Host <input name="host" placeholder="192.168.1.20" required></label>
+    <label>TCP port <input name="port" placeholder="14238" inputmode="numeric" required></label>
+    <button type="submit" class="secondary">Test</button>
+  </form>{{end}}
+</section>
+
+<section class="card">
+  <h2>What the drop rules have stopped</h2>
+  {{if .CountersError}}<p class="error">{{.CountersError}}</p>{{end}}
+  {{if .Counters}}<div class="scroll"><table>
+    <tr><th>Rule</th><th>Chain</th><th>Packets</th><th>Bytes</th></tr>
+    {{range .Counters}}<tr><td>{{.Comment}}</td><td>{{.Chain}}</td><td>{{.Packets}}</td><td>{{.Bytes}}</td></tr>{{end}}
+  </table></div>{{end}}
+  <p class="muted">On the Pi itself Palms may reach DNS, DHCP, ICMP, the gateway page and this UI (TLS){{if .PalmToPi}}, plus {{join .PalmToPi " "}}{{end}}.</p>
+</section>
+{{template "foot" .}}{{end}}

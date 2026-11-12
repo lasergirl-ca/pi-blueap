@@ -22,12 +22,15 @@ type Conn struct {
 	r *bufio.Reader
 }
 
+// ErrNotRunning means there is no control socket: palm-gwd is not running.
+var ErrNotRunning = errors.New("palm-gwd is not running")
+
 // Dial connects to the control socket.
 func Dial(path string) (*Conn, error) {
 	c, err := net.DialTimeout("unix", path, 2*time.Second)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("palm-gwd is not running (no socket at %s)", path)
+			return nil, fmt.Errorf("%w (no socket at %s)", ErrNotRunning, path)
 		}
 		if errors.Is(err, os.ErrPermission) {
 			return nil, fmt.Errorf("permission denied on %s: add your user to the palm-gw group or use sudo", path)

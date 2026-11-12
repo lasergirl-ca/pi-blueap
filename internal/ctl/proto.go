@@ -39,6 +39,8 @@ type Request struct {
 	NoWait  bool            `json:"no_wait,omitempty"` // events: send only the past events, then end
 	Path    string          `json:"path,omitempty"`    // config.get / config.set
 	Value   json.RawMessage `json:"value,omitempty"`   // config.set
+	Host    string          `json:"host,omitempty"`    // firewall.test
+	Port    int             `json:"port,omitempty"`    // firewall.test
 }
 
 // ErrorReply is the line the server writes when a command fails.
@@ -182,4 +184,41 @@ type RenameReply struct {
 type PairCloseReply struct {
 	OK      bool `json:"ok"`
 	WasOpen bool `json:"was_open"`
+}
+
+// ConfigValue is the answer to config.get: the value at path (secrets
+// redacted), or the whole configuration for an empty path.
+type ConfigValue struct {
+	Path  string          `json:"path"`
+	Value json.RawMessage `json:"value"`
+}
+
+// ConfigSetReply reports a config.set: the file was written and reloaded.
+type ConfigSetReply struct {
+	OK     bool        `json:"ok"`
+	Path   string      `json:"path"`
+	Reload ReloadReply `json:"reload"`
+}
+
+// FirewallCounter is one counted rule in the palm_gw table.
+type FirewallCounter struct {
+	Chain   string `json:"chain"`
+	Comment string `json:"comment"`
+	Packets uint64 `json:"packets"`
+	Bytes   uint64 `json:"bytes"`
+}
+
+// CountersReply is the answer to firewall.counters.
+type CountersReply struct {
+	Counters []FirewallCounter `json:"counters"`
+}
+
+// TestReply is the answer to firewall.test: a TCP connect from the Pi.
+type TestReply struct {
+	OK      bool   `json:"ok"`
+	Host    string `json:"host"`
+	Port    int    `json:"port"`
+	Millis  int64  `json:"millis"`
+	Problem string `json:"problem,omitempty"` // why the connection failed ("error" would read as a failed command)
+	Allowed bool   `json:"allowed"`           // a [[firewall.allow]] rule lets Palms reach it
 }

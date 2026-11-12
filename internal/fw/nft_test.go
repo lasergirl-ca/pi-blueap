@@ -148,3 +148,20 @@ func TestTemplateWebRules(t *testing.T) {
 		t.Errorf("listen port 9443 not followed:\n%s", table)
 	}
 }
+
+func TestParseCounters(t *testing.T) {
+	// Trimmed from `nft -j list table inet palm_gw` on the Pi.
+	in := `{"nftables": [{"metainfo": {"version": "1.1.3"}}, {"table": {"family": "inet", "name": "palm_gw"}},
+ {"rule": {"family": "inet", "table": "palm_gw", "chain": "palm_forward", "comment": "palm->rfc1918",
+   "expr": [{"match": {"op": "==", "left": {"payload": {"protocol": "ip", "field": "daddr"}}, "right": {"set": []}}}, {"counter": {"packets": 12, "bytes": 720}}, {"drop": null}]}},
+ {"rule": {"family": "inet", "table": "palm_gw", "chain": "palm_input", "comment": "the you-are-connected page (D-039)", "expr": [{"accept": null}]}},
+ {"rule": {"family": "inet", "table": "palm_gw", "chain": "palm_input", "comment": "palm->pi", "expr": [{"counter": {"packets": 3, "bytes": 180}}, {"drop": null}]}},
+ {"rule": {"family": "inet", "table": "palm_gw", "chain": "palm_input", "expr": [{"counter": {"packets": 9, "bytes": 9}}, {"drop": null}]}}]}`
+	got, err := ParseCounters([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != (Counter{"palm_forward", "palm->rfc1918", 12, 720}) || got[1].Comment != "palm->pi" || got[1].Packets != 3 {
+		t.Errorf("counters %+v", got)
+	}
+}

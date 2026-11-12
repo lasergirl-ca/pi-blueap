@@ -47,6 +47,8 @@ var funcs = template.FuncMap{
 	},
 	"rfc3339":   func(t time.Time) string { return t.UTC().Format(time.RFC3339) },
 	"pinDigits": func(pin string) string { return strings.Join(strings.Split(pin, ""), " ") },
+	"inc":       func(i int) int { return i + 1 },
+	"join":      strings.Join,
 	"yesno": func(b bool) string {
 		if b {
 			return "yes"

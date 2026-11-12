@@ -1,0 +1,61 @@
+{{define "settings"}}{{template "head" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Done}}<p class="notice">{{.Done}}</p>{{end}}
+{{if .NeedsRestart}}<section class="card">
+  <p>Waiting for a restart: {{join .NeedsRestart ", "}}.</p>
+  <form method="post" action="/settings/restart"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Restart palm-gwd</button></form>
+  <p class="muted">Connected Palms are disconnected, and everyone has to log in again.</p>
+</section>{{end}}
+{{$admin := eq .Role "admin"}}
+<section class="card">
+  <h1>Settings</h1>
+  <form method="post" action="/settings">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{$v := .Values}}
+    {{range .Fields}}<label>{{.Label}}
+      <input name="{{.Key}}" value="{{index $v .Key}}"{{if not $admin}} disabled{{end}}>
+      <span class="muted">{{.Help}}</span>
+    </label>{{end}}
+    {{with .Adapter}}<p class="muted">In use now: {{.HCI}} <code>{{.Address}}</code> ({{.HWBus}}).</p>{{end}}
+    <label class="check"><input type="checkbox" name="ppp.debug" value="1"{{if .Config.PPP.Debug}} checked{{end}}{{if not $admin}} disabled{{end}}> PPP debug logging (LCP/IPCP packets in the journal; next connection)</label>
+    {{if $admin}}<button type="submit">Save</button>{{end}}
+  </form>
+</section>
+
+<section class="card">
+  <h2>Changed with <code>sudo palm-gw setup</code></h2>
+  <p class="muted">These also rewrite the firewall, the DHCP server or the bridge, which only setup does.</p>
+  {{with .Config}}<dl>
+    <dt>Uplink</dt><dd>{{.Network.Uplink}}</dd>
+    <dt>Palm subnet</dt><dd>{{.Network.Subnet}}, gateway {{.Network.Gateway}}</dd>
+    <dt>Web TLS</dt><dd>{{.Web.TLS}}{{if .Web.BluetoothSide}}, Bluetooth side on{{else}}, Bluetooth side off{{end}}</dd>
+  </dl>{{end}}
+</section>
+
+{{if $admin}}
+<section class="card">
+  <h2>Change the web password</h2>
+  {{if .PasswordError}}<p class="error">{{.PasswordError}}</p>{{end}}
+  {{if .PasswordDone}}<p class="notice">{{.PasswordDone}}</p>{{end}}
+  <form method="post" action="/settings/password" class="narrow-form">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Current password <input name="current" type="password" autocomplete="current-password" required></label>
+    <label>New password <input name="new" type="password" autocomplete="new-password" minlength="8" required></label>
+    <label>New password again <input name="again" type="password" autocomplete="new-password" minlength="8" required></label>
+    <button type="submit">Change password</button>
+  </form>
+</section>
+<section class="card">
+  <h2>Restart</h2>
+  <form method="post" action="/settings/restart"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="secondary">Restart palm-gwd</button></form>
+  <p class="muted">Connected Palms are disconnected, and everyone has to log in again.</p>
+</section>
+{{end}}
+{{template "foot" .}}{{end}}
+
+{{define "restarting"}}{{template "head" .}}
+<section class="card narrow">
+  <h1>Restarting</h1>
+  <p>palm-gwd is restarting. This page goes to the login page in 10 seconds.</p>
+</section>
+{{template "foot" .}}{{end}}

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"palm-gw/internal/config"
 )
 
 var btAddrRe = regexp.MustCompile(`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`)
@@ -56,6 +58,7 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 	socket := fs.String("socket", DefaultSocket, "control socket path")
 	asJSON := fs.Bool("json", false, "print the raw JSON reply")
 	one := fs.Bool("one", false, "pair: close the window after one device pairs")
+	comment := fs.String("comment", "", "firewall add: a comment for the rule")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() { usage(stderr) }
 	rest, err := parseInterleaved(fs, args)
@@ -127,7 +130,27 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 		return c.events(recent)
 	case "unpair":
 		return c.pairClose()
-	case "capture", "get", "set", "firewall", "check", "class", "bundle":
+	case "get":
+		if len(cmdArgs) > 1 {
+			fmt.Fprintln(stderr, "palm-gwctl get: expected [section.key]")
+			return 2
+		}
+		key := ""
+		if len(cmdArgs) == 1 {
+			key = cmdArgs[0]
+		}
+		return c.get(key)
+	case "set":
+		if len(cmdArgs) < 2 {
+			fmt.Fprintln(stderr, "palm-gwctl set: expected <section.key> <value>")
+			return 2
+		}
+		return c.set(cmdArgs[0], cliValue(strings.Join(cmdArgs[1:], " ")))
+	case "firewall":
+		return c.firewall(cmdArgs, *comment)
+	case "restart":
+		return c.restart()
+	case "capture", "check", "class", "bundle":
 		fmt.Fprintf(stderr, "palm-gwctl %s: not implemented until Phase 6 or 7\n", cmd)
 		return 2
 	default:
@@ -163,8 +186,13 @@ Commands:
   reload                      re-read config, re-apply firewall and dnsmasq
   capture [seconds]           record a btmon trace
   events [n]                  stream daemon events, after the last n past ones
-  get <key> / set <key> <v>   read or change a config value
-  firewall add|rm ...         edit [[firewall.allow]]
+  get [key] / set <key> <v>   read or change a config value (validated, then reloaded)
+  firewall list               the [[firewall.allow]] rules, numbered
+  firewall add <host> <proto/port>... [--comment TEXT]
+  firewall rm <n>             remove rule n
+  firewall counters           packets the drop rules have stopped
+  firewall test <host> <port> TCP connect from the Pi
+  restart                     restart palm-gwd
   check                       health report
   class toggle                swap Class of Device with class_fallback
   bundle                      write a support bundle
@@ -667,4 +695,195 @@ func (c *cli) events(recent int) int {
 		}
 		fmt.Fprintln(c.stdout, line)
 	}
+}
+
+// cliValue turns a command-line value into JSON: anything that already is
+// JSON (5, true, ["a","b"], "quoted") as it is, anything else as a string.
+func cliValue(v string) json.RawMessage {
+	if json.Valid([]byte(v)) {
+		return json.RawMessage(v)
+	}
+	b, _ := json.Marshal(v)
+	return b
+}
+
+func (c *cli) get(key string) int {
+	var r ConfigValue
+	printed, err := c.call(Request{Cmd: "config.get", Path: key}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	var v any
+	_ = json.Unmarshal(r.Value, &v)
+	if s, ok := v.(string); ok {
+		fmt.Fprintln(c.stdout, s)
+		return 0
+	}
+	b, _ := json.MarshalIndent(v, "", "  ")
+	fmt.Fprintln(c.stdout, string(b))
+	return 0
+}
+
+func (c *cli) set(key string, value json.RawMessage) int {
+	var r ConfigSetReply
+	printed, err := c.call(Request{Cmd: "config.set", Path: key, Value: value}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	fmt.Fprintf(c.stdout, "%s saved.\n", key)
+	c.printReload(r.Reload)
+	return 0
+}
+
+func (c *cli) printReload(r ReloadReply) {
+	if len(r.Applied) > 0 {
+		fmt.Fprintf(c.stdout, "applied now: %s\n", strings.Join(r.Applied, ", "))
+	}
+	if len(r.NeedsRestart) > 0 {
+		fmt.Fprintf(c.stdout, "takes effect when palm-gwd restarts: %s (palm-gwctl restart)\n", strings.Join(r.NeedsRestart, ", "))
+	}
+	for _, e := range r.Errors {
+		fmt.Fprintln(c.stdout, "error:", e)
+	}
+}
+
+func (c *cli) allowRules() ([]config.AllowRule, error) {
+	var r ConfigValue
+	if err := Call(c.socket, Request{Cmd: "config.get", Path: "firewall.allow"}, &r); err != nil {
+		return nil, err
+	}
+	var rules []config.AllowRule
+	if err := json.Unmarshal(r.Value, &rules); err != nil {
+		return nil, err
+	}
+	return rules, nil
+}
+
+var portRe = regexp.MustCompile(`^(tcp|udp)/[0-9]{1,5}$|^icmp$`)
+
+func (c *cli) firewall(args []string, comment string) int {
+	sub := "list"
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	switch sub {
+	case "list":
+		rules, err := c.allowRules()
+		if err != nil {
+			return c.fail(err)
+		}
+		if c.json {
+			b, _ := json.Marshal(rules)
+			printJSON(c.stdout, b)
+			return 0
+		}
+		if len(rules) == 0 {
+			fmt.Fprintln(c.stdout, "No [[firewall.allow]] rules: Palms reach the internet and nothing on the LAN.")
+		}
+		for i, r := range rules {
+			line := fmt.Sprintf("%2d  %-18s %s", i+1, r.Host, strings.Join(r.Ports, " "))
+			if r.Comment != "" {
+				line += "  # " + r.Comment
+			}
+			fmt.Fprintln(c.stdout, line)
+		}
+		return 0
+	case "add":
+		if len(args) < 2 {
+			fmt.Fprintln(c.stderr, "palm-gwctl firewall add: expected <host> <proto/port>... [--comment TEXT]")
+			return 2
+		}
+		for _, p := range args[1:] {
+			if !portRe.MatchString(p) {
+				fmt.Fprintf(c.stderr, "palm-gwctl firewall add: %q is not tcp/N, udp/N or icmp\n", p)
+				return 2
+			}
+		}
+		rules, err := c.allowRules()
+		if err != nil {
+			return c.fail(err)
+		}
+		rules = append(rules, config.AllowRule{Host: args[0], Ports: args[1:], Comment: comment})
+		b, _ := json.Marshal(rules)
+		return c.set("firewall.allow", b)
+	case "rm":
+		if len(args) != 1 {
+			fmt.Fprintln(c.stderr, "palm-gwctl firewall rm: expected the rule's number from firewall list")
+			return 2
+		}
+		rules, err := c.allowRules()
+		if err != nil {
+			return c.fail(err)
+		}
+		n, err := strconv.Atoi(args[0])
+		if err != nil || n < 1 || n > len(rules) {
+			fmt.Fprintf(c.stderr, "palm-gwctl firewall rm: no rule %q (there are %d)\n", args[0], len(rules))
+			return 2
+		}
+		rules = append(rules[:n-1], rules[n:]...)
+		b, _ := json.Marshal(rules)
+		return c.set("firewall.allow", b)
+	case "counters":
+		var r CountersReply
+		printed, err := c.call(Request{Cmd: "firewall.counters"}, &r)
+		if err != nil {
+			return c.fail(err)
+		}
+		if printed {
+			return 0
+		}
+		for _, x := range r.Counters {
+			fmt.Fprintf(c.stdout, "%-14s %-26s %8d packets %10d bytes\n", x.Chain, x.Comment, x.Packets, x.Bytes)
+		}
+		return 0
+	case "test":
+		if len(args) != 2 {
+			fmt.Fprintln(c.stderr, "palm-gwctl firewall test: expected <host> <port>")
+			return 2
+		}
+		port, err := strconv.Atoi(args[1])
+		if err != nil {
+			fmt.Fprintf(c.stderr, "palm-gwctl firewall test: port %q is not a number\n", args[1])
+			return 2
+		}
+		var r TestReply
+		printed, err := c.call(Request{Cmd: "firewall.test", Host: args[0], Port: port}, &r)
+		if err != nil {
+			return c.fail(err)
+		}
+		if printed {
+			return 0
+		}
+		if r.OK {
+			fmt.Fprintf(c.stdout, "%s:%d answers from the Pi (%d ms).", r.Host, r.Port, r.Millis)
+		} else {
+			fmt.Fprintf(c.stdout, "%s:%d does not answer from the Pi: %s.", r.Host, r.Port, r.Problem)
+		}
+		if r.Allowed {
+			fmt.Fprintln(c.stdout, " An allow rule lets Palms reach it.")
+		} else {
+			fmt.Fprintln(c.stdout, " No allow rule covers it, so Palms cannot reach it.")
+		}
+		return 0
+	}
+	fmt.Fprintf(c.stderr, "palm-gwctl firewall: unknown subcommand %q (list, add, rm, counters, test)\n", sub)
+	return 2
+}
+
+func (c *cli) restart() int {
+	var r OKReply
+	printed, err := c.call(Request{Cmd: "restart"}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if !printed {
+		fmt.Fprintln(c.stdout, "palm-gwd is restarting.")
+	}
+	return 0
 }

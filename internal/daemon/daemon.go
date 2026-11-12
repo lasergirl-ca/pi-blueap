@@ -84,6 +84,8 @@ type Daemon struct {
 	fwMu sync.Mutex
 	fw   ctl.FirewallStatus
 
+	cfgEditMu sync.Mutex // serialises config.set
+
 	panMu sync.Mutex
 	pan   panState
 

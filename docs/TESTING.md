@@ -2490,3 +2490,89 @@ from the Devices page was not exercised in this run.
 first Connect after `palm-gwctl pair` ended after 39 s (23:35:46 to 23:36:25, `pppd_exit`) and
 the next after 15 s (23:36:34 to 23:36:49); later Connects held. The first Connect after the
 web pairing above held. Still open; a btmon trace of a failing attempt is the next step.
+
+### Part 3: firewall and settings pages, config.set, `palm-gw web set-password` (D-053), 2026-11-12
+
+`go test -race ./internal/web/ ./internal/daemon/ ./internal/setup/`:
+- firewall page: lists rules and the drop counters; add (ports split on spaces and commas,
+  lower-cased) sets the whole list; bad ports never reach the daemon; edit rule 2, delete rule
+  1, an out-of-range rule number is 400; test reachability shows "answers from the Pi (3 ms)" /
+  "does not answer … connection refused" and whether a rule covers it;
+- settings: only changed keys are set; a live key gives no restart prompt; `bluetooth.adapter`
+  gives "Waiting for a restart" and the Restart button; the daemon's validation message is
+  shown; a non-numeric idle timeout is refused; Restart sends the browser to `/login` after 10 s;
+- password change: wrong current password 401, short 400, mismatch 400, none of them saved; a
+  good change saves an argon2id hash that verifies;
+- a viewer gets no forms and a 403 on every POST, and changes nothing;
+- `EditConfig`: strings, bools, whole numbers (class keys in hex), string lists; unknown keys,
+  wrong types, fractions and negatives refused; comments survive; the firewall block replaces
+  itself, takes in hand-written tables and `allow = []`, and an empty list gives back the
+  original file; a rename and back gives back the file;
+- `ParseCounters` on `nft -j` output; `allowed()` for hosts and CIDRs; `writeAtomic` keeps the
+  mode and leaves no temporary file; reload's live set now includes the name, PPP debug and idle
+  timeout and the web accounts.
+
+On the test Pi, `0.6.0~test17`, then `~test18` with two fixes (below):
+
+```
+$ palm-gwctl get bluetooth.name
+Palm Gateway - Lyman
+$ palm-gwctl get web.password_hash
+(redacted)
+$ palm-gwctl set bluetooth.name Palm Gateway - Lyman test
+bluetooth.name saved.
+applied now: bluetooth.name
+$ palm-gwctl status | grep alias
+alias "Palm Gateway - Lyman test"
+$ palm-gwctl set bluetooth.name Palm Gateway - Lyman
+…
+alias "Palm Gateway - Lyman"
+$ palm-gwctl set bluetooth.adapter bogus
+palm-gwctl: not saved: config: bluetooth.adapter: must be "auto", hciN, or the adapter's address XX:XX:XX:XX:XX:XX, got "bogus"
+$ palm-gwctl set ppp.idle_seconds soon
+palm-gwctl: ppp.idle_seconds: want a whole number of 0 or more
+$ palm-gwctl firewall add 192.0.2.10 tcp/9 --comment "doc address test"
+firewall.allow saved.
+applied now: firewall.allow
+$ palm-gwctl firewall list
+ 1  192.0.2.10         tcp/9  # doc address test
+$ sudo nft list set inet palm_gw lan_allow | grep elements
+    elements = { 192.0.2.10 . tcp . 9 }
+$ palm-gwctl firewall test 192.0.2.10 9          # test18
+192.0.2.10:9 does not answer from the Pi: dial tcp4 192.0.2.10:9: i/o timeout. An allow rule lets Palms reach it.
+$ palm-gwctl firewall rm 1
+$ palm-gwctl firewall list
+No [[firewall.allow]] rules: Palms reach the internet and nothing on the LAN.
+$ palm-gwctl firewall counters
+palm_forward   palm->rfc1918                     0 packets          0 bytes
+palm_forward   palm->other                       0 packets          0 bytes
+palm_input     palm->webui-lan                   0 packets          0 bytes
+palm_input     palm->pi                          0 packets          0 bytes
+```
+
+(192.0.2.10 is a documentation address, not on the LAN.) **Found on test17:** (1) `firewall
+test` came back as an error, because its reply had an `error` field; renamed `problem`.
+(2) `config.toml` was 5 bytes longer after the rename and back: the comment the longer name
+pushed right stayed there. Fixed in the editor (D-053). On test18 the same rename and back
+took the file from `e071bb74…` (test17's drift) to `2951462f…`, its bytes before part 3, and
+the firewall add and remove left it there.
+
+`palm-gw web set-password`, on a root-owned copy of the config in `/var/tmp` with throwaway
+passwords and no daemon socket (the real config was not touched):
+
+```
+$ printf "x\n" | sudo palm-gw web set-password --viewer --config /var/tmp/pw-test.toml …
+palm-gw web set-password: the viewer account has no username yet; give one with --user
+$ printf "short\n…-1\n…-2\n…-1\n…-1\n" | sudo palm-gw web set-password --viewer --user lookonly …
+Password:   at least 8 characters
+Password: Again:   The two do not match; try again.
+Password: Again: Password set for "lookonly" in /var/tmp/pw-test.toml.
+palm-gwd is not running; it will use the new password when it starts.
+$ sudo grep ^viewer_ /var/tmp/pw-test.toml
+viewer_username = "lookonly"
+viewer_password_hash = "$argon2id$v=19$…"
+$ palm-gw web set-password --config /var/tmp/pw-test.toml
+palm-gw web set-password: run it as root: sudo palm-gw web set-password
+```
+
+The copy was shredded afterwards.

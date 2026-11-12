@@ -148,6 +148,11 @@ func liveMerge(cur, next *config.Config) *config.Config {
 	m.Network.DNSUpstream = next.Network.DNSUpstream
 	m.Network.DHCPPool = next.Network.DHCPPool
 	m.Firewall = next.Firewall
+	// The adapter's Alias is set again on reload, pppd options apply to the
+	// next session (D-053).
+	m.Bluetooth.Name = next.Bluetooth.Name
+	m.PPP.Debug = next.PPP.Debug
+	m.PPP.IdleSeconds = next.PPP.IdleSeconds
 	// The web UI reads its accounts on every login (D-051).
 	m.Web.Username = next.Web.Username
 	m.Web.PasswordHash = next.Web.PasswordHash
@@ -209,6 +214,16 @@ func (d *Daemon) reload(ctx context.Context) (ctl.ReloadReply, error) {
 	r := ctl.ReloadReply{OK: true, Applied: diffKeys(cur, merged), NeedsRestart: diffKeys(merged, next)}
 	d.cfgp.Store(merged)
 	d.allow.Reconfigure(merged.Bluetooth.Allow, merged.Bluetooth.AllowAny)
+	d.ppp.SetLive(merged.PPP.Debug, merged.PPP.IdleSeconds)
+	if merged.Bluetooth.Name != cur.Bluetooth.Name {
+		if a := d.currentAdapter(); a != nil {
+			if err := a.Set("Alias", merged.Bluetooth.Name); err != nil {
+				r.Errors = append(r.Errors, "bluetooth.name: "+err.Error())
+			} else {
+				d.log.Info("adapter renamed", "event", "adapter_renamed", "alias", merged.Bluetooth.Name)
+			}
+		}
+	}
 	d.untrustDisallowed("reload")
 	if err := d.applyFirewall(ctx, merged, "reload"); err != nil {
 		r.OK = false

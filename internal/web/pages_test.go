@@ -31,10 +31,12 @@ type daemonFake struct {
 	window agent.State
 	closed chan struct{}
 	events []event.Event
+	rules  []config.AllowRule
+	set    map[string]json.RawMessage // config.set calls by key
 }
 
 func newDaemonFake() *daemonFake {
-	return &daemonFake{events: []event.Event{
+	return &daemonFake{set: map[string]json.RawMessage{}, rules: []config.AllowRule{{Host: "192.168.1.20", Ports: []string{"tcp/14238"}, Comment: "NetSync"}}, events: []event.Event{
 		{Seq: 1, Time: time.Now(), Event: "paired", Addr: "00:07:E0:3C:5E:FA", Name: "Zoë's Palm TX"},
 		{Seq: 2, Time: time.Now(), Event: "display_pin", Fields: map[string]string{"pin": "4821"}},
 	}}
@@ -125,6 +127,32 @@ func (f *daemonFake) Call(ctx context.Context, req ctl.Request, emit func(json.R
 		return send(ctl.RenameReply{OK: true, Address: req.Addr, Label: req.Label})
 	case "allow":
 		return send(ctl.AllowReply{OK: true, Address: strings.ToUpper(req.Addr), Added: true})
+	case "config.get":
+		f.mu.Lock()
+		b, _ := json.Marshal(f.rules)
+		f.mu.Unlock()
+		return send(ctl.ConfigValue{Path: req.Path, Value: b})
+	case "config.set":
+		f.mu.Lock()
+		f.set[req.Path] = req.Value
+		if req.Path == "firewall.allow" {
+			_ = json.Unmarshal(req.Value, &f.rules)
+		}
+		f.mu.Unlock()
+		if req.Path == "bluetooth.adapter" && string(req.Value) == `"bogus"` {
+			return errors.New("not saved: config: bluetooth.adapter: must be hciN, auto or an address")
+		}
+		r := ctl.ConfigSetReply{OK: true, Path: req.Path, Reload: ctl.ReloadReply{OK: true, Applied: []string{req.Path}}}
+		if req.Path == "bluetooth.adapter" {
+			r.Reload = ctl.ReloadReply{OK: true, NeedsRestart: []string{"bluetooth.adapter"}}
+		}
+		return send(r)
+	case "firewall.counters":
+		return send(ctl.CountersReply{Counters: []ctl.FirewallCounter{{Chain: "palm_forward", Comment: "palm->rfc1918", Packets: 12, Bytes: 720}}})
+	case "firewall.test":
+		return send(ctl.TestReply{OK: req.Port == 14238, Host: req.Host, Port: req.Port, Millis: 3, Allowed: req.Port == 14238, Problem: "connection refused"})
+	case "restart":
+		return send(ctl.OKReply{OK: true})
 	}
 	return ctl.ErrUnknownCommand
 }

@@ -90,15 +90,24 @@ func setKey(lines []string, kv KV) []string {
 			continue
 		}
 		value, comment := splitComment(m[4])
-		pad := ""
 		if comment != "" {
-			// Keep the comment where it was when the new value fits.
-			if w := len(value) - len(kv.Value); w > 0 {
-				pad = strings.Repeat(" ", w)
-			} else {
-				pad = " "
+			// Keep the comment where it was when the new value fits. A
+			// comment that an earlier long value pushed right (one space
+			// after the value) moves back towards the column the section's
+			// other comments use, so setting a value and then setting it
+			// back gives back the line.
+			prefix := len(m[1]) + len(m[2]) + len(m[3])
+			oldCol, newEnd := prefix+len(value), prefix+len(kv.Value)
+			target := newEnd + 1
+			if newEnd < oldCol {
+				target = oldCol
+				// One space before the # means a long value pushed it there.
+				pushed := strings.HasSuffix(value, " ") && !strings.HasSuffix(value, "  ")
+				if home := commentColumn(lines, start); pushed && home > 0 && oldCol > home {
+					target = max(newEnd+1, home)
+				}
 			}
-			comment = pad + comment
+			comment = strings.Repeat(" ", target-newEnd) + comment
 		}
 		lines[i] = m[1] + m[2] + m[3] + kv.Value + strings.TrimRight(comment, " ")
 		if comment == "" {
@@ -138,4 +147,29 @@ func splitComment(s string) (value, comment string) {
 		}
 	}
 	return s, ""
+}
+
+// commentColumn is the commonest column of trailing comments on the key
+// lines of the section starting at line start (0 if none).
+func commentColumn(lines []string, start int) int {
+	count := map[int]int{}
+	for i := start + 1; i < len(lines); i++ {
+		if tomlSectionRe.MatchString(lines[i]) {
+			break
+		}
+		m := tomlKeyRe.FindStringSubmatch(lines[i])
+		if m == nil {
+			continue
+		}
+		if v, c := splitComment(m[4]); c != "" {
+			count[len(m[1])+len(m[2])+len(m[3])+len(v)]++
+		}
+	}
+	best, n := 0, 0
+	for col, k := range count {
+		if k > n || (k == n && col < best) {
+			best, n = col, k
+		}
+	}
+	return best
 }

@@ -30,8 +30,7 @@ func run(args []string) int {
 	case "upgrade":
 		return cmdUpgrade(args[1:], os.Stdout, os.Stderr)
 	case "web":
-		fmt.Fprintln(os.Stderr, "palm-gw web: not implemented until Phase 7 (web UI)")
-		return 2
+		return cmdWeb(args[1:], os.Stdin, os.Stdout, os.Stderr)
 	default:
 		fmt.Fprintf(os.Stderr, "palm-gw: unknown command %q\n", args[0])
 		usage()
@@ -44,7 +43,7 @@ func usage() {
 
   setup      interactive setup wizard (also flag-driven for unattended installs)
   status     gateway status (same as palm-gwctl status)
-  web        web UI management: set-password
+  web        web UI: set-password [--viewer] [--user NAME]
   upgrade    install the latest release (--check only looks)
   version    print version
 `)

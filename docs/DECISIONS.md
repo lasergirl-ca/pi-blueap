@@ -906,6 +906,36 @@ docs/WEB-UI.md:
 - `rename` stores a label for devices paired here; a device allowed only in `config.toml` has no
   state entry to label, and the daemon says so.
 
+### D-053: Web UI part 3: changing the configuration from the UI and palm-gwctl
+
+- **`config.set` edits `config.toml` in place.** Single-line keys are rewritten on their own line,
+  keeping comments and alignment (the wizard's `SetKeys`). `[[firewall.allow]]` is one managed
+  block at the end of the file (`# BEGIN palm-gw firewall.allow …` / `# END …`), as section 8.12
+  allows: hand-written tables are folded into it and a one-line `allow = []` under `[firewall]`
+  is dropped; an empty list removes the block. The edit is parsed and validated before the file
+  is replaced (atomically, keeping mode and owner), then `reload` runs. Values are JSON of the
+  key's type; `palm-gwctl set` passes anything that is not JSON as a string.
+- **Setting a value and setting it back gives back the file.** A comment that a long value
+  pushed right (one space after the value) moves back to the section's commonest comment column
+  when the value gets shorter; a comment placed further right on purpose stays. Found on the
+  Pi: renaming the gateway and back left the comment 5 columns out.
+- **`bluetooth.name`, `ppp.debug` and `ppp.idle_seconds` apply on reload** (D-030's live set):
+  the adapter's Alias is set at once, and pppd options apply to the next session. Phase 7's
+  accept asks for the gateway name to change from the browser; no restart is needed for it.
+- **The settings page edits only the gateway name, the adapter, the PPP idle timeout and debug,
+  and the web password.** The uplink, subnet and TLS mode are shown read-only with "changed
+  with `sudo palm-gw setup`": they also re-render nftables, dnsmasq and the bridge, which only
+  setup does. Keys that need a restart are named, with a Restart button (`restart`: palm-gwd
+  answers, then stops cleanly, and systemd's `Restart=always` starts it).
+- **Changing the web password needs the current one,** so a browser left logged in cannot be used
+  to lock the owner out; wrong current passwords count towards the login rate limit.
+- **The firewall page's "test reachability"** is `firewall.test`: a TCP connect from the Pi (3 s
+  timeout) plus whether an allow rule covers the host and TCP port. Its reply calls the failure
+  `problem`, since a reply with an `error` field reads as a failed command to ctl clients.
+- **The drop counters** come from `nft -j list table inet palm_gw` (`firewall.counters`).
+- `palm-gw web set-password [--viewer] [--user NAME]` prompts twice (no echo on a terminal; one
+  line each when piped), checks the length, writes the hash and reloads palm-gwd.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

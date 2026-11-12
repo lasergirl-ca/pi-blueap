@@ -25,6 +25,11 @@ func (d *Daemon) registerHandlers() {
 	d.ctl.Handle("events", d.handleEvents)
 	d.ctl.Handle("rename", d.handleRename)
 	d.ctl.Handle("pair.close", d.handlePairClose)
+	d.ctl.Handle("config.get", d.handleConfigGet)
+	d.ctl.Handle("config.set", d.handleConfigSet)
+	d.ctl.Handle("firewall.counters", d.handleFirewallCounters)
+	d.ctl.Handle("firewall.test", d.handleFirewallTest)
+	d.ctl.Handle("restart", d.handleRestart)
 }
 
 // handleEvents streams every daemon event until the client disconnects

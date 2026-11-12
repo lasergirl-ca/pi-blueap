@@ -49,3 +49,6 @@ a.button { display: inline-block; padding: 5px 12px; border-radius: 6px; text-de
 .danger, a.button.danger { color: var(--bad); border: 1px solid var(--bad); background: transparent; }
 button.danger { padding: 6px 14px; }
 ol { margin: 0; padding-left: 1.3em; }
+form.inline.wide input { width: auto; flex: 1 1 8em; }
+.narrow-form { max-width: 360px; }
+label .muted { display: block; font-size: 0.85em; margin-top: 2px; }

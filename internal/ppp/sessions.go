@@ -96,6 +96,14 @@ type Manager struct {
 	seq      uint64
 }
 
+// SetLive changes the options a new pppd gets: [ppp].debug and idle_seconds
+// apply to the next session after a reload (D-053).
+func (m *Manager) SetLive(debug bool, idleSeconds int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cfg.Debug, m.cfg.IdleSeconds = debug, idleSeconds
+}
+
 // NewManager builds a manager; nothing runs until Begin.
 func NewManager(cfg Config, log *slog.Logger, events *event.Bus) (*Manager, error) {
 	if cfg.PPPD == "" {
@@ -245,11 +253,14 @@ func (s *Session) Start(handshake string) error {
 		"linkname", fmt.Sprintf("palm-%d", b[3]),
 		"ipparam", s.info.Addr,
 	}
-	if m.cfg.Debug {
+	m.mu.Lock()
+	debug, idle := m.cfg.Debug, m.cfg.IdleSeconds
+	m.mu.Unlock()
+	if debug {
 		args = append(args, "debug")
 	}
-	if m.cfg.IdleSeconds > 0 {
-		args = append(args, "idle", strconv.Itoa(m.cfg.IdleSeconds))
+	if idle > 0 {
+		args = append(args, "idle", strconv.Itoa(idle))
 	}
 	cmd := exec.Command(m.cfg.PPPD, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

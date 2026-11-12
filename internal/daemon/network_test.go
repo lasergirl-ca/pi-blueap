@@ -16,16 +16,19 @@ func TestLiveMergeSplitsAppliedFromRestart(t *testing.T) {
 	next.Bluetooth.Allow = []string{"00:07:E0:3C:5E:FA"}
 	next.Network.Subnet = "10.43.0.0/24"
 	next.Bluetooth.Name = "Other"
+	next.PPP.Debug = true
+	next.Web.PasswordHash = "$argon2id$x"
+	next.Web.SessionHours = 1
 	next.LAP.Channel = 5
 
 	merged := liveMerge(cur, next)
 	applied := diffKeys(cur, merged)
-	want := []string{"bluetooth.allow", "firewall.allow", "firewall.palm_to_pi", "network.dns_upstream"}
+	want := []string{"bluetooth.allow", "bluetooth.name", "firewall.allow", "firewall.palm_to_pi", "network.dns_upstream", "ppp.debug", "web.password_hash"}
 	if !reflect.DeepEqual(applied, want) {
 		t.Errorf("applied = %v, want %v", applied, want)
 	}
 	restart := diffKeys(merged, next)
-	want = []string{"bluetooth.name", "lap.channel", "network.subnet"}
+	want = []string{"lap.channel", "network.subnet", "web.session_hours"}
 	if !reflect.DeepEqual(restart, want) {
 		t.Errorf("needs restart = %v, want %v", restart, want)
 	}
