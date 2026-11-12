@@ -164,6 +164,13 @@ func (s *Server) diagDownload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if kind == diag.Captures {
+		var d ctl.DiagnosticsReply
+		if err := s.call(r.Context(), ctl.Request{Cmd: "diagnostics"}, &d); err == nil && d.Capture.Running && d.Capture.Name == name {
+			http.Error(w, "This capture is still recording. Download it when it has finished.", http.StatusConflict)
+			return
+		}
+	}
 	f, err := os.Open(filepath.Join(s.o.StateDir, kind, name))
 	if err != nil {
 		http.NotFound(w, r)

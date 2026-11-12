@@ -2771,3 +2771,26 @@ published, as expected.
 
 Still to do from a browser (Phase 7's accept): the logs page with Follow; downloading a capture
 and opening it in Wireshark; downloading a bundle and confirming the hash is redacted.
+
+**From Zoe's browser (test25), 2026-11-12, "All works":** she logged in from 10.4.0.54 at
+11:04:51 and started a 60 s capture from Diagnostics at 11:05:49. At 11:05:51 she downloaded
+`capture-20261112-110549.btsnoop` and opened it in Wireshark. That was two seconds into the
+capture, so she got the file as btmon had written it by then. The page listed the running
+capture as a download, and the file was 0644 until the end.
+
+Fixed on test26:
+- The running capture is not listed until it ends.
+- A download request for it gets 409 "still recording".
+- The file is created 0640 before btmon opens it; btmon keeps an existing file's mode.
+
+On the Pi:
+
+```
+during: running True capture-20261112-110756.btsnoop listed: [the four earlier captures]
+after:  listed: ['capture-20261112-110756.btsnoop', …]
+$ sudo ls -l /var/lib/palm-gw/captures      # while recording
+-rw-r----- 1 root root 292 Nov 12 11:07 capture-20261112-110749.btsnoop
+```
+
+No bundle was made from the browser yet; the bundle's contents were checked from the shell
+above.

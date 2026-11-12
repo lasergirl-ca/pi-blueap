@@ -43,6 +43,13 @@ func TestBtmonCapture(t *testing.T) {
 	if err := f.call(t, ctl.Request{Cmd: "btmon", Seconds: 1}, &st); err != nil || !st.Running || !diag.ValidName(diag.Captures, st.Name) {
 		t.Fatalf("%+v %v", st, err)
 	}
+	var during ctl.DiagnosticsReply
+	if err := f.call(t, ctl.Request{Cmd: "diagnostics"}, &during); err != nil || len(during.Captures) != 0 {
+		t.Errorf("the running capture is offered: %+v %v", during.Captures, err)
+	}
+	if fi, err := os.Stat(filepath.Join(f.d.filesDir(diag.Captures), st.Name)); err != nil || fi.Mode().Perm() != 0o640 {
+		t.Errorf("capture file while running: %v %v", fi, err)
+	}
 	if err := f.call(t, ctl.Request{Cmd: "btmon", Seconds: 1}, &st); err == nil || !strings.Contains(err.Error(), "running until") {
 		t.Errorf("second capture: %v", err)
 	}

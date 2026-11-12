@@ -57,6 +57,11 @@ func TestDiagnosticsPage(t *testing.T) {
 	if !strings.Contains(page, "data-expires=") || strings.Contains(page, "Start capture") {
 		t.Error("running capture not shown")
 	}
+	_ = os.MkdirAll(filepath.Join(f.stateDir, "captures"), 0o750)
+	_ = os.WriteFile(filepath.Join(f.stateDir, "captures", "capture-20261112-110000.btsnoop"), []byte("partial"), 0o640)
+	if code, body, _ := get(t, c, ts.URL+"/diagnostics/files/captures/capture-20261112-110000.btsnoop"); code != http.StatusConflict || !strings.Contains(body, "still recording") {
+		t.Errorf("download while recording = %d", code)
+	}
 	_, _, body := post(t, c, ts.URL+"/diagnostics/bundle", url.Values{"csrf": {tok}, "with_capture": {"1"}})
 	if req, _ := f.last("bundle"); !req.WithCapture || !strings.Contains(body, `href="/diagnostics/files/bundles/palm-gw-support-20261112-110000.tar.gz"`) {
 		t.Errorf("bundle:\n%s", body)

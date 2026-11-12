@@ -120,6 +120,13 @@ func (d *Daemon) handleBtmon(_ context.Context, req ctl.Request, w *ctl.Writer) 
 	if bin == "" {
 		bin = "btmon"
 	}
+	// Made here first, 0640: btmon keeps the mode of a file that exists, and
+	// a capture taken during a pairing holds the link key.
+	pf, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	if err != nil {
+		return err
+	}
+	_ = pf.Close()
 	cmd := exec.Command(bin, "-w", filepath.Join(dir, name))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -147,7 +154,6 @@ func (d *Daemon) handleBtmon(_ context.Context, req ctl.Request, w *ctl.Writer) 
 			}
 		}
 		st := ctl.CaptureState{Name: name}
-		// A capture taken during a pairing holds the link key.
 		_ = os.Chmod(filepath.Join(dir, name), 0o640)
 		fi, statErr := os.Stat(filepath.Join(dir, name))
 		switch {
@@ -170,6 +176,15 @@ func (d *Daemon) handleDiagnostics(_ context.Context, _ ctl.Request, w *ctl.Writ
 	var err error
 	if r.Captures, err = diag.List(d.filesDir(diag.Captures), diag.Captures); err != nil {
 		return err
+	}
+	if r.Capture.Running { // not finished: not offered for download yet
+		done := r.Captures[:0]
+		for _, f := range r.Captures {
+			if f.Name != r.Capture.Name {
+				done = append(done, f)
+			}
+		}
+		r.Captures = done
 	}
 	if r.Bundles, err = diag.List(d.filesDir(diag.Bundles), diag.Bundles); err != nil {
 		return err
