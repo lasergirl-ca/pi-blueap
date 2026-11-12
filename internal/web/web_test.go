@@ -452,3 +452,24 @@ func TestWanted(t *testing.T) {
 		t.Errorf("bridge down: %v", got)
 	}
 }
+
+// After a restart (or expiry) an htmx refresh must send the browser to the
+// login page, not swap the login page into the dashboard (Zoe's screenshot,
+// 2026-11-12).
+func TestHtmxRefreshWithoutSession(t *testing.T) {
+	s, _ := newServer(t, nil)
+	ts := httptest.NewServer(s.Handler(SideLAN, false))
+	defer ts.Close()
+	for _, p := range []string{"/partials/dashboard", "/partials/nat", "/partials/logs", "/partials/internet-job"} {
+		req, _ := http.NewRequest("GET", ts.URL+p, nil)
+		req.Header.Set("HX-Request", "true")
+		resp, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized || resp.Header.Get("HX-Redirect") != "/login" {
+			t.Errorf("%s: %d HX-Redirect=%q", p, resp.StatusCode, resp.Header.Get("HX-Redirect"))
+		}
+	}
+}

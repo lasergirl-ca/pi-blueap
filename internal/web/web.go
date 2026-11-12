@@ -198,6 +198,14 @@ func (s *Server) auth(side Side, h http.Handler) http.Handler {
 			se = nil // an API token is not a cookie (D-058)
 		}
 		if se == nil {
+			if r.Header.Get("HX-Request") == "true" {
+				// An htmx refresh would follow a redirect and swap the whole
+				// login page into the part it refreshes; HX-Redirect makes
+				// the browser load the login page instead.
+				w.Header().Set("HX-Redirect", "/login")
+				http.Error(w, "not logged in", http.StatusUnauthorized)
+				return
+			}
 			if r.Method == http.MethodGet {
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
 			} else {

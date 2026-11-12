@@ -2827,3 +2827,16 @@ exit 52                                     # plain HTTP on the TLS port: no rep
 
 test27 HTML-escaped `<token>` as `<token>`; test28 does not. Still to do: Zoe logging
 in through the API with her password, and the Bluetooth side (part 6).
+
+**From Zoe's screenshot (test28), 2026-11-12:** after palm-gwd restarted for an install, an open
+dashboard showed the login page inside its own layout. The dashboard's 3 s htmx refresh got a
+303 to `/login`; htmx followed it and swapped the whole login page into the dashboard. Fixed
+on test29: a request with `HX-Request: true` and no session gets 401 with `HX-Redirect:
+/login`. htmx acts on that before any swap and loads the login page
+(`TestHtmxRefreshWithoutSession`).
+
+The same screenshot showed a different certificate fingerprint (`26:AA:9F:…`, was
+`D6:82:63:AA:…`). The journal of `palm-gw-apply` shows `cert.pem created` at 10:46:36 (to Wi-Fi)
+and at 10:47:28 (back to Ethernet): the certificate lists the uplink's address, so each switch
+made a new one. Its names are now the same as before (palmgw-test, palmgw-test.local,
+10.4.1.118, 10.42.0.1), but the key and fingerprint are new.
