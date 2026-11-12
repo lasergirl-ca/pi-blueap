@@ -813,6 +813,19 @@ and the wizard's summary tells them to log in again before `palm-gwctl` works wi
 Running as root directly (no `SUDO_USER`) skips the step. A failed `usermod` is a warning, not a
 failure of setup.
 
+### D-049: Web UI accounts and the Bluetooth side for browsers
+
+Zoe's answers to the open questions in docs/WEB-UI.md, 2026-11-11:
+- A laptop on PAN that logs in to `https://10.42.0.1:8042/` as admin gets full admin, the same
+  route set as the LAN and the Palm app (D-039). Browsers on the Bluetooth side are not limited
+  to read-only.
+- One admin account (with a username, default `admin`) plus the optional read-only viewer
+  account. Section 8.12's single account is kept rather than a list of admins.
+- The server, browser UI and `/api/v1/` come first in Phase 7; the Palm app waits for Zoe's
+  Palm development how-to.
+- Phase 6 is finished before Phase 7 starts: the one-liner on a freshly flashed Pi OS Lite card
+  with the interactive wizard is still to run.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

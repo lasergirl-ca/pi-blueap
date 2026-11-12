@@ -3,8 +3,7 @@
 **Status:** design, 2026-11-09, revised 2026-11-10. To be built in Phase 7 (section 10), in
 phase order. Recorded as DECISIONS.md D-026 (UI on the Bluetooth side), amended by D-039 (full
 admin from the Palm app over TLS). Both amend section 2. Section 8.12 stays the base design; this
-file describes only what changes. The open questions at the end need Zoe's answers before
-Phase 7.
+file describes only what changes. Zoe's answers to the open questions are at the end (D-049).
 
 ## What Zoe decided
 
@@ -210,14 +209,16 @@ viewer_password_hash = ""
   - Add and remove a firewall allow rule, and check its effect.
   - Measure the TLS handshake time.
 
-## Open questions for Zoe
+## Questions answered
 
-1. **Admin from laptops on PAN.** D-039 gives the Bluetooth listener the full route set, so a
-   laptop on PAN that logs in over HTTPS also gets admin. Is that what you want, or should
-   browsers on the Bluetooth side stay read-only and only the app get admin?
-2. **More than one admin.** Is one admin username enough, or do you want several accounts?
-3. **Your Palm development how-to.** Please drop it into the repository (for example
-   `docs/PALM-DEV.md`) or point to it before Phase 7 starts.
+Answered by Zoe on 2026-11-11 (D-049):
+1. **Admin from laptops on PAN: yes.** The Bluetooth listener serves the full route set to
+   anyone who logs in as admin over TLS, browser or app alike. There is no separate
+   browser-only read-only mode.
+2. **Accounts: one admin plus the optional viewer**, as in section 3 above. No list of admins.
+3. **The Palm development how-to** comes later: the server, browser UI and `/api/v1/` are built
+   first, and Zoe drops the how-to in (for example `docs/PALM-DEV.md`) before the app part
+   starts.
 
 Resolved on 2026-11-10 (D-039): the app is written in this repository, ARM only; it gets admin;
 it must use TLS; other devices are visible, since the app is an admin interface.
