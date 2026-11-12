@@ -777,13 +777,15 @@ Unix socket `/run/palm-gw/ctl.sock`, mode `0660`, owner `root:palm-gw`. Protocol
 | `allow` | `{"cmd":"allow","addr":"…"}` | add to dynamic allowlist without pairing (device paired some other way) |
 | `reload` | `{"cmd":"reload"}` | re-reads config, re-applies the nft sets, rewrites the dnsmasq conf and restarts dnsmasq if it changed; applies the allowlist and pairing settings; lists every other changed key as needing a restart (D-030) |
 | `btmon` | `{"cmd":"btmon","seconds":60}` | runs `btmon -w /var/lib/palm-gw/captures/<ts>.btsnoop` for N seconds; response has the path |
-| `events` | `{"cmd":"events"}` | streams every daemon event as it happens until the client disconnects (used by the web UI's SSE and by `palm-gwctl events`) |
+| `events` | `{"cmd":"events","recent":10,"since":0,"no_wait":false}` | streams every daemon event as it happens until the client disconnects (used by the web UI's SSE and by `palm-gwctl events`); `recent`/`since` first replay the bus's history (each event has a `seq`), `no_wait` stops after the history (D-052) |
+| `pair.close` | `{"cmd":"pair.close"}` | closes the pairing window whoever opened it; `{"ok":true,"was_open":…}` (D-052) |
+| `rename` | `{"cmd":"rename","addr":"…","label":"…"}` | sets the operator label in `state.json`; an empty label clears it |
 | `config.get` / `config.set` | `{"cmd":"config.set","path":"firewall.allow","value":[…]}` | typed edits to `config.toml` through the daemon, validated with `config.Validate()` before writing, followed by an implicit `reload`; this is how the web UI and `palm-gwctl set` change settings without anyone hand-editing TOML |
 | `check` | `{"cmd":"check"}` | the `setup --check` health report as JSON |
 | `class.toggle` | `{"cmd":"class.toggle"}` | swaps `bluetooth.class` with `class_fallback`, rewrites the managed block in `main.conf`, restarts `bluetooth.service`, waits for re-registration; response has the class now in effect |
 | `bundle` | `{"cmd":"bundle"}` | writes a support bundle to `/var/lib/palm-gw/bundles/<ts>.tar.gz` with secrets redacted; response has the path |
 
-CLI mapping: `palm-gwctl status [--json]`, `palm-gwctl pair [minutes] [--one]`, `palm-gwctl disconnect <addr>`, `palm-gwctl forget <addr>`, `palm-gwctl allow <addr>`, `palm-gwctl rename <addr> <label>`, `palm-gwctl reload`, `palm-gwctl capture [seconds]`, `palm-gwctl events`, `palm-gwctl get <key>`, `palm-gwctl set <key> <value>` (e.g. `palm-gwctl set bluetooth.name "Zoë's Palm GW"`), `palm-gwctl firewall add <host> <proto/port>… [--comment]`, `palm-gwctl firewall rm <index>`, `palm-gwctl check`, `palm-gwctl class toggle`, `palm-gwctl bundle`, `palm-gwctl upgrade [--check]`. Every command has `--json`. Human output for `pair`:
+CLI mapping: `palm-gwctl status [--json]`, `palm-gwctl pair [minutes] [--one]`, `palm-gwctl unpair`, `palm-gwctl disconnect <addr>`, `palm-gwctl forget <addr>`, `palm-gwctl allow <addr>`, `palm-gwctl rename <addr> <label>`, `palm-gwctl reload`, `palm-gwctl capture [seconds]`, `palm-gwctl events [n]`, `palm-gwctl get <key>`, `palm-gwctl set <key> <value>` (e.g. `palm-gwctl set bluetooth.name "Zoë's Palm GW"`), `palm-gwctl firewall add <host> <proto/port>… [--comment]`, `palm-gwctl firewall rm <index>`, `palm-gwctl check`, `palm-gwctl class toggle`, `palm-gwctl bundle`, `palm-gwctl upgrade [--check]`. Every command has `--json`. Human output for `pair`:
 
 ```
 Pairing window open for 5 minutes.

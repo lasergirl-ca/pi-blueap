@@ -13,6 +13,7 @@ import (
 // Event is one daemon event. Addr and Name identify the Bluetooth device when
 // there is one; Fields carries anything else (pin, reason, uuid, ifname).
 type Event struct {
+	Seq    uint64            `json:"seq"` // 1, 2, 3, ... in publish order, for "events since N"
 	Time   time.Time         `json:"time"`
 	Event  string            `json:"event"`
 	Addr   string            `json:"addr,omitempty"`
@@ -39,23 +40,34 @@ func (e Event) Attrs() []any {
 // that falls more than bufSize behind loses events rather than stalling the
 // daemon.
 type Bus struct {
-	mu   sync.Mutex
-	subs map[int]chan Event
-	next int
+	mu     sync.Mutex
+	subs   map[int]chan Event
+	next   int
+	seq    uint64
+	recent []Event // the last historySize events, oldest first
 }
 
-const bufSize = 64
+const (
+	bufSize     = 64
+	historySize = 200 // kept for the web UI's event list and "events since N"
+)
 
 // New returns an empty bus.
 func New() *Bus { return &Bus{subs: map[int]chan Event{}} }
 
-// Publish stamps and delivers e to every subscriber.
+// Publish stamps, numbers, records and delivers e to every subscriber.
 func (b *Bus) Publish(e Event) {
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.seq++
+	e.Seq = b.seq
+	b.recent = append(b.recent, e)
+	if len(b.recent) > historySize {
+		b.recent = append(b.recent[:0:0], b.recent[len(b.recent)-historySize:]...)
+	}
 	for _, ch := range b.subs {
 		select {
 		case ch <- e:
@@ -92,4 +104,21 @@ func (b *Bus) Subscribe() (<-chan Event, func()) {
 		}
 		b.mu.Unlock()
 	}
+}
+
+// Recent returns the recorded events with Seq above since, oldest first, at
+// most max of them (the newest; 0 = no limit).
+func (b *Bus) Recent(since uint64, max int) []Event {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []Event
+	for _, e := range b.recent {
+		if e.Seq > since {
+			out = append(out, e)
+		}
+	}
+	if max > 0 && len(out) > max {
+		out = out[len(out)-max:]
+	}
+	return append([]Event(nil), out...)
 }

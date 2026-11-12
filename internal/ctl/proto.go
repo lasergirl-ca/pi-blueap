@@ -34,6 +34,9 @@ type Request struct {
 	Name    string          `json:"name,omitempty"`    // allow: optional device name
 	Label   string          `json:"label,omitempty"`   // rename
 	Seconds int             `json:"seconds,omitempty"` // btmon
+	Recent  int             `json:"recent,omitempty"`  // events: send up to this many past events first
+	Since   uint64          `json:"since,omitempty"`   // events: send the past events after this seq first
+	NoWait  bool            `json:"no_wait,omitempty"` // events: send only the past events, then end
 	Path    string          `json:"path,omitempty"`    // config.get / config.set
 	Value   json.RawMessage `json:"value,omitempty"`   // config.set
 }
@@ -166,4 +169,17 @@ type AllowReply struct {
 	OK      bool   `json:"ok"`
 	Address string `json:"address"`
 	Added   bool   `json:"added"` // false if it was already there
+}
+
+// RenameReply reports a new operator label (empty clears it).
+type RenameReply struct {
+	OK      bool   `json:"ok"`
+	Address string `json:"address"`
+	Label   string `json:"label"`
+}
+
+// PairCloseReply reports whether a pairing window was open to close.
+type PairCloseReply struct {
+	OK      bool `json:"ok"`
+	WasOpen bool `json:"was_open"`
 }

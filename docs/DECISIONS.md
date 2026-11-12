@@ -877,6 +877,35 @@ docs/WEB-UI.md:
 - **`palm-gw setup` without HTTPS turns the Bluetooth side off** and says so, since
   `config.Validate()` now refuses `tls = "off"` with `bluetooth_side = true`.
 
+### D-052: Web UI part 2: dashboard, pairing and devices
+
+- **htmx 2.0.11 is vendored** as `internal/web/static/htmx.min.js` (52,182 bytes, 0BSD), taken
+  from the npm tarball after checking its SHA-512 against the registry's `dist.integrity`
+  (`sha512-Thx/WtpeOQqSrqBCw/A1cwGJ…tamA==`). It is configured by a meta tag with
+  `includeIndicatorStyles`, `allowEval` and `allowScriptTags` off, so the CSP can stay
+  `default-src 'self'`. Only the dashboard's 3 s refresh uses it. The pairing page's live list
+  and countdowns are a 2.5 KB script of our own (`static/app.js`) on `EventSource`. Front end in
+  all: 58 KB, under section 8.12's 60 KB.
+- **The pairing window a browser opens belongs to the server, not the request.** The ctl `pair`
+  command closes its window when its caller goes away; the web UI runs it for its own lifetime,
+  so the window lasts its minutes, closes after one device if asked, or on "Close the window",
+  which uses the new `pair.close` command (which also closes a window `palm-gwctl pair` opened;
+  `palm-gwctl unpair` is the CLI for it).
+- **PINs never go into event lists.** The dashboard's events, the SSE feed and
+  `palm-gwctl events` drop any `pin` field. The PIN appears only on the pairing page, and only
+  for the admin account: a viewer sees that a window is open but not its PIN, since the PIN is
+  what lets a device pair.
+- **The event bus numbers its events and keeps the last 200** (`seq`), so the dashboard shows the
+  last 10, a reconnecting SSE client resumes from `Last-Event-ID`, and `events` takes
+  `recent`, `since` and `no_wait`.
+- **Forget asks on a page of its own** (`GET /devices/<addr>/forget`, then a POST), not a
+  JavaScript dialog, so it works without scripts and under the CSP.
+- **The status reply gained what the pages show:** each session's byte counters (from
+  `/sys/class/net/<if>/statistics`) and each allowlisted device's first-paired and last-seen
+  times. `palm-gwctl status --json` shows them too.
+- `rename` stores a label for devices paired here; a device allowed only in `config.toml` has no
+  state entry to label, and the daemon says so.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

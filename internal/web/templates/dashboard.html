@@ -1,4 +1,10 @@
 {{define "dashboard"}}{{template "head" .}}
+<div id="live" hx-get="/partials/dashboard" hx-trigger="every 3s" hx-swap="innerHTML">
+{{template "dash-body" .}}
+</div>
+{{template "foot" .}}{{end}}
+
+{{define "dash-body"}}
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 {{with .Status}}
 <section class="card">
@@ -12,10 +18,53 @@
     <dt>Pairable</dt><dd>{{yesno .Pairable}}</dd>
   </dl>
   {{else}}<p class="error">No adapter: {{if .BlueZ.Present}}BlueZ has none that matches the configuration{{else}}BlueZ is not running{{end}}.</p>{{end}}
+  {{if .PairingWindow.Open}}<p class="notice">Pairing window open, closes in <span data-expires="{{rfc3339 .PairingWindow.Expires}}"></span>. <a href="/pair">Show the PIN</a></p>{{end}}
 </section>
+
 <section class="card">
-  <h2>Sessions</h2>
-  <p>{{len .Sessions}} PPP session(s), {{len .PAN.Clients}} PAN client(s), {{len .Allowlist}} allowlisted device(s). Up {{secs .UptimeSeconds}}.</p>
+  <h2>Sessions <span class="muted">{{len .Sessions}} PPP, pool {{.PoolInUse}} in use</span></h2>
+  {{if .Sessions}}
+  <div class="scroll"><table>
+    <tr><th>Device</th><th>Profile</th><th>Interface</th><th>IP</th><th>Up</th><th>To Palm</th><th>From Palm</th></tr>
+    {{range .Sessions}}<tr>
+      <td>{{if .Name}}{{.Name}}<br>{{end}}<code>{{.Addr}}</code></td>
+      <td>{{.Profile}}{{if .Handshake}} ({{.Handshake}}){{end}}</td>
+      <td>{{.Ifname}}</td><td>{{.Peer}}</td><td>{{since .Started}}</td>
+      <td>{{bytes .TxBytes}}</td><td>{{bytes .RxBytes}}</td>
+    </tr>{{end}}
+  </table></div>
+  {{else}}<p class="muted">No PPP sessions.</p>{{end}}
+</section>
+
+<section class="card">
+  <h2>PAN <span class="muted">{{if .PAN.Registered}}NAP on {{.PAN.Bridge}}{{else}}not registered{{end}}</span></h2>
+  {{if .PAN.Error}}<p class="error">{{.PAN.Error}}</p>{{end}}
+  {{if .PAN.Clients}}
+  <div class="scroll"><table>
+    <tr><th>Device</th><th>Interface</th><th>IP</th><th>Up</th></tr>
+    {{range .PAN.Clients}}<tr><td>{{if .Name}}{{.Name}}<br>{{end}}<code>{{.Addr}}</code></td><td>{{.Ifname}}</td><td>{{.IP}}</td><td>{{since .Since}}</td></tr>{{end}}
+  </table></div>
+  {{else}}<p class="muted">No PAN clients.</p>{{end}}
+</section>
+
+<section class="card">
+  <h2>Network</h2>
+  {{with .Config}}<dl>
+    <dt>Uplink</dt><dd>{{.Network.Uplink}}</dd>
+    <dt>Palm subnet</dt><dd>{{.Network.Subnet}}, gateway {{.Network.Gateway}}</dd>
+  </dl>{{end}}
+  <dl>
+    <dt>Firewall</dt><dd>{{if .Firewall.Error}}<span class="error">{{.Firewall.Error}}</span>{{else}}{{.Firewall.AllowRules}} allow rule(s), applied {{clock .Firewall.AppliedAt}}{{end}}</dd>
+    <dt>BlueZ</dt><dd>{{if .BlueZ.Present}}running, agent {{if .BlueZ.AgentRegistered}}registered{{else}}not registered{{end}}{{else}}<span class="error">not running</span>{{end}}</dd>
+    <dt>Daemon</dt><dd>{{.Version}}, up {{secs .UptimeSeconds}}</dd>
+  </dl>
 </section>
 {{end}}
-{{template "foot" .}}{{end}}
+
+<section class="card">
+  <h2>Last events</h2>
+  {{if .Events}}<ul class="events">
+    {{range .Events}}<li><span class="muted">{{clock .Time}}</span> {{.Event}}{{if .Name}} “{{.Name}}”{{end}}{{if .Addr}} <code>{{.Addr}}</code>{{end}}{{range $k, $v := .Fields}} <span class="muted">{{$k}}={{$v}}</span>{{end}}</li>{{end}}
+  </ul>{{else}}<p class="muted">None since palm-gwd started.</p>{{end}}
+</section>
+{{end}}

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"palm-gw/internal/agent"
@@ -19,6 +22,73 @@ func (d *Daemon) registerHandlers() {
 	d.ctl.Handle("allow", d.handleAllow)
 	d.ctl.Handle("disconnect", d.handleDisconnect)
 	d.ctl.Handle("reload", d.handleReload)
+	d.ctl.Handle("events", d.handleEvents)
+	d.ctl.Handle("rename", d.handleRename)
+	d.ctl.Handle("pair.close", d.handlePairClose)
+}
+
+// handleEvents streams every daemon event until the client disconnects
+// (PLAN.md section 8.8). With recent or since it first sends past events from
+// the bus's history, without gaps or repeats at the join.
+func (d *Daemon) handleEvents(ctx context.Context, req ctl.Request, w *ctl.Writer) error {
+	evCh, unsub := d.events.Subscribe()
+	defer unsub()
+	var last uint64
+	if req.Recent > 0 || req.Since > 0 {
+		for _, e := range d.events.Recent(req.Since, req.Recent) {
+			if err := w.Send(e); err != nil {
+				return nil
+			}
+			last = e.Seq
+		}
+	}
+	if req.NoWait {
+		return nil
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case e, ok := <-evCh:
+			if !ok {
+				return nil
+			}
+			if e.Seq <= last {
+				continue // already sent from the history
+			}
+			if err := w.Send(e); err != nil {
+				return nil
+			}
+		}
+	}
+}
+
+// handleRename sets the operator label of an allowlisted device (stored in
+// state.json; an empty label clears it).
+func (d *Daemon) handleRename(_ context.Context, req ctl.Request, w *ctl.Writer) error {
+	addr := state.Norm(req.Addr)
+	if addr == "" {
+		return errors.New("rename: addr is required")
+	}
+	label := strings.TrimSpace(req.Label)
+	if len(label) > 64 {
+		return errors.New("rename: the label is longer than 64 characters")
+	}
+	if err := d.store.SetLabel(addr, label); err != nil {
+		return err
+	}
+	d.log.Info("device renamed", "event", "renamed", "addr", addr, "label", label)
+	d.events.Emit("renamed", addr, label)
+	return w.Send(ctl.RenameReply{OK: true, Address: addr, Label: label})
+}
+
+// handlePairClose closes the pairing window, whoever opened it.
+func (d *Daemon) handlePairClose(_ context.Context, _ ctl.Request, w *ctl.Writer) error {
+	was := d.window.Close(agent.ReasonCancelled)
+	if was {
+		d.log.Info("pairing window closed by request", "event", "window_close_requested")
+	}
+	return w.Send(ctl.PairCloseReply{OK: true, WasOpen: was})
 }
 
 // handleReload re-reads config.toml and applies what can change live (D-030).
@@ -69,6 +139,9 @@ func (d *Daemon) handleStatus(_ context.Context, _ ctl.Request, w *ctl.Writer) e
 	st.PairingWindow = d.window.State()
 	st.Profiles = d.profiles.Status()
 	st.Sessions = d.ppp.Sessions()
+	for i := range st.Sessions {
+		st.Sessions[i].RxBytes, st.Sessions[i].TxBytes = ifBytes(st.Sessions[i].Ifname)
+	}
 	st.PoolInUse = d.ppp.PoolInUse()
 	st.Allowlist = d.allow.Entries()
 	st.AllowAny = d.allow.AllowAny()
@@ -197,4 +270,20 @@ func (d *Daemon) handleAllow(_ context.Context, req ctl.Request, w *ctl.Writer) 
 	d.log.Info("device allowlisted", "event", "allowed", "addr", addr, "name", name, "already", already)
 	d.events.Emit("allowed", addr, name)
 	return w.Send(ctl.AllowReply{OK: true, Address: addr, Added: !already})
+}
+
+// ifBytes reads an interface's byte counters (0, 0 if it has none yet).
+func ifBytes(ifname string) (rx, tx uint64) {
+	if ifname == "" || strings.ContainsAny(ifname, "/.") {
+		return 0, 0
+	}
+	read := func(f string) uint64 {
+		b, err := os.ReadFile("/sys/class/net/" + ifname + "/statistics/" + f)
+		if err != nil {
+			return 0
+		}
+		n, _ := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64)
+		return n
+	}
+	return read("rx_bytes"), read("tx_bytes")
 }

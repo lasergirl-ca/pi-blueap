@@ -65,6 +65,8 @@ type Server struct {
 	tmpl     *template.Template
 	sessions *sessions
 	limiter  *limiter
+	ctx      context.Context // the server's lifetime: owns pairing windows opened here
+	pair     pairRunner
 }
 
 // New prepares the server from the configuration at start; listeners follow
@@ -109,11 +111,15 @@ func New(o Options) (*Server, error) {
 		tmpl:     t,
 		sessions: newSessions(o.Now),
 		limiter:  newLimiter(o.Now),
+		ctx:      context.Background(),
 	}, nil
 }
 
 // Run keeps the listeners bound until ctx is done.
-func (s *Server) Run(ctx context.Context) { s.keepListeners(ctx, 5*time.Second) }
+func (s *Server) Run(ctx context.Context) {
+	s.ctx = ctx
+	s.keepListeners(ctx, 5*time.Second)
+}
 
 type ctxKey int
 
@@ -137,7 +143,7 @@ func (s *Server) Handler(side Side, isTLS bool) http.Handler {
 	mux.HandleFunc("GET /login", s.loginPage(side))
 	mux.HandleFunc("POST /login", s.login(side, isTLS))
 	mux.Handle("POST /logout", s.auth(side, s.logout(isTLS)))
-	mux.Handle("GET /{$}", s.auth(side, http.HandlerFunc(s.dashboard)))
+	s.routes(mux, side)
 	var h http.Handler = mux
 	if side == SideLAN && len(s.o.AllowCIDRs) > 0 {
 		h = s.allowCIDRs(h)
@@ -287,17 +293,6 @@ func (s *Server) call(ctx context.Context, req ctl.Request, out any) error {
 		got = true
 		return json.Unmarshal(line, out)
 	})
-}
-
-func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
-	var st ctl.StatusReply
-	err := s.call(r.Context(), ctl.Request{Cmd: "status"}, &st)
-	data := s.page(r, "Dashboard")
-	data["Status"] = st
-	if err != nil {
-		data["Error"] = err.Error()
-	}
-	s.render(w, r, http.StatusOK, "dashboard", data)
 }
 
 // page is the data every logged-in page gets.

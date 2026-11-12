@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -107,7 +108,26 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 			return 2
 		}
 		return c.reload()
-	case "rename", "events", "capture", "get", "set", "firewall", "check", "class", "bundle":
+	case "rename":
+		if len(cmdArgs) < 1 || !btAddrRe.MatchString(cmdArgs[0]) {
+			fmt.Fprintln(stderr, "palm-gwctl rename: expected <addr> [label] (no label clears it)")
+			return 2
+		}
+		return c.rename(cmdArgs[0], strings.Join(cmdArgs[1:], " "))
+	case "events":
+		recent := 0
+		if len(cmdArgs) > 0 {
+			n, err := strconv.Atoi(cmdArgs[0])
+			if err != nil || n < 0 {
+				fmt.Fprintf(stderr, "palm-gwctl events: the number of past events must be 0 or more, got %q\n", cmdArgs[0])
+				return 2
+			}
+			recent = n
+		}
+		return c.events(recent)
+	case "unpair":
+		return c.pairClose()
+	case "capture", "get", "set", "firewall", "check", "class", "bundle":
 		fmt.Fprintf(stderr, "palm-gwctl %s: not implemented until Phase 6 or 7\n", cmd)
 		return 2
 	default:
@@ -138,10 +158,11 @@ Commands:
   disconnect <addr>           tear down a device's session
   forget <addr>               remove a device from the allowlist and from BlueZ
   allow <addr>                allowlist a device paired some other way
-  rename <addr> <label>       set a local label for a device
+  unpair                      close the pairing window, whoever opened it
+  rename <addr> [label]       set a local label for a device (no label clears it)
   reload                      re-read config, re-apply firewall and dnsmasq
   capture [seconds]           record a btmon trace
-  events                      stream daemon events
+  events [n]                  stream daemon events, after the last n past ones
   get <key> / set <key> <v>   read or change a config value
   firewall add|rm ...         edit [[firewall.allow]]
   check                       health report
@@ -549,4 +570,101 @@ func execPalmGW(args []string, stderr io.Writer) int {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.Mode().IsRegular()
+}
+
+func (c *cli) rename(addr, label string) int {
+	var r RenameReply
+	printed, err := c.call(Request{Cmd: "rename", Addr: addr, Label: label}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	if r.Label == "" {
+		fmt.Fprintf(c.stdout, "%s: label cleared\n", r.Address)
+	} else {
+		fmt.Fprintf(c.stdout, "%s: label %q\n", r.Address, r.Label)
+	}
+	return 0
+}
+
+func (c *cli) pairClose() int {
+	var r PairCloseReply
+	printed, err := c.call(Request{Cmd: "pair.close"}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	if r.WasOpen {
+		fmt.Fprintln(c.stdout, "Pairing window closed.")
+	} else {
+		fmt.Fprintln(c.stdout, "No pairing window was open.")
+	}
+	return 0
+}
+
+// events streams the daemon's events until Ctrl-C, one line each (the JSON
+// line itself with --json).
+func (c *cli) events(recent int) int {
+	conn, err := Dial(c.socket)
+	if err != nil {
+		return c.fail(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := conn.Send(Request{Cmd: "events", Recent: recent}); err != nil {
+		return c.fail(err)
+	}
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+	go func() {
+		<-sigs
+		_ = conn.Close()
+	}()
+	for {
+		raw, err := conn.NextRaw()
+		if err != nil {
+			if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
+				return 0
+			}
+			return c.fail(err)
+		}
+		if c.json {
+			fmt.Fprintln(c.stdout, string(raw))
+			continue
+		}
+		var e struct {
+			Seq    uint64            `json:"seq"`
+			Time   time.Time         `json:"time"`
+			Event  string            `json:"event"`
+			Addr   string            `json:"addr"`
+			Name   string            `json:"name"`
+			Fields map[string]string `json:"fields"`
+		}
+		if err := json.Unmarshal(raw, &e); err != nil {
+			return c.fail(err)
+		}
+		line := fmt.Sprintf("%s  %-20s", e.Time.Local().Format("15:04:05"), e.Event)
+		if e.Addr != "" {
+			line += "  " + e.Addr
+		}
+		if e.Name != "" {
+			line += fmt.Sprintf("  %q", e.Name)
+		}
+		keys := make([]string, 0, len(e.Fields))
+		for k := range e.Fields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if k == "pin" {
+				continue // never echo a PIN into a scrolling log
+			}
+			line += fmt.Sprintf("  %s=%s", k, e.Fields[k])
+		}
+		fmt.Fprintln(c.stdout, line)
+	}
 }

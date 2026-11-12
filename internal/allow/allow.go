@@ -8,6 +8,7 @@ package allow
 import (
 	"sort"
 	"sync"
+	"time"
 
 	"palm-gw/internal/state"
 )
@@ -23,10 +24,12 @@ const (
 
 // Entry is one allowlisted address for status output.
 type Entry struct {
-	Address string `json:"address"`
-	Source  Source `json:"source"`
-	Name    string `json:"name,omitempty"`
-	Label   string `json:"label,omitempty"`
+	Address     string    `json:"address"`
+	Source      Source    `json:"source"`
+	Name        string    `json:"name,omitempty"`
+	Label       string    `json:"label,omitempty"`
+	FirstPaired time.Time `json:"first_paired,omitzero"` // dynamic entries only
+	LastSeen    time.Time `json:"last_seen,omitzero"`
 }
 
 // List is the combined allowlist.
@@ -110,7 +113,7 @@ func (l *List) Entries() []Entry {
 	}
 	if l.store != nil {
 		for _, d := range l.store.Devices() {
-			out = append(out, Entry{Address: d.Address, Source: SourceDynamic, Name: d.Name, Label: d.Label})
+			out = append(out, Entry{Address: d.Address, Source: SourceDynamic, Name: d.Name, Label: d.Label, FirstPaired: d.FirstPaired, LastSeen: d.LastSeen})
 		}
 	}
 	return out

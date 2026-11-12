@@ -5,12 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · {{.Gateway}}</title>
 <link rel="stylesheet" href="/static/style.css">
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}'>
+<script src="/static/htmx.min.js" defer></script>
+<script src="/static/app.js" defer></script>
 </head>
 <body>
 <header>
   <span class="brand">{{.Gateway}}</span>
   {{if .User}}<nav>
     <a href="/">Dashboard</a>
+    <a href="/pair">Pair</a>
+    <a href="/devices">Devices</a>
   </nav>
   <form method="post" action="/logout" class="logout">
     <input type="hidden" name="csrf" value="{{.CSRF}}">

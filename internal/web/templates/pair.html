@@ -1,0 +1,43 @@
+{{define "pair"}}{{template "head" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Window.Open}}
+<section class="card pairing">
+  <h1>Pairing window open</h1>
+  {{if eq .Role "admin"}}
+  <p>When the Palm asks for a passkey, enter:</p>
+  <p class="pin">{{pinDigits .Window.PIN}}</p>
+  {{else}}<p class="muted">The PIN is shown to the admin account only.</p>{{end}}
+  <p>Closes in <span data-expires="{{rfc3339 .Window.Expires}}"></span>{{if .Window.One}}, or after one device pairs{{end}}.</p>
+  {{if eq .Role "admin"}}<form method="post" action="/pair/close">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit" class="secondary">Close the window</button>
+  </form>{{end}}
+</section>
+<section class="card">
+  <h2>On a Palm T|X, LifeDrive or Tungsten</h2>
+  <ol>
+    <li>Prefs ▸ Communication ▸ Bluetooth. Bluetooth: <b>On</b>.</li>
+    <li>Setup Devices ▸ Trusted Devices ▸ <b>Add Device</b>. Wait for the search (about 10 s).</li>
+    <li>Tap <b>{{.Gateway}}</b>, then enter the passkey above.</li>
+  </ol>
+  <p class="muted">Then set up a Connection and a Network service as in PALM-SETUP.md.</p>
+</section>
+{{else}}
+<section class="card">
+  <h1>Pair a device</h1>
+  {{if eq .Role "admin"}}
+  <p>Open a pairing window, then add the gateway on the Palm. A new PIN is made for each window.</p>
+  <form method="post" action="/pair" class="row">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Open for <select name="minutes">{{$d := .Default}}{{range .Minutes}}<option value="{{.}}"{{if eq . $d}} selected{{end}}>{{.}} min</option>{{end}}</select></label>
+    <label class="check"><input type="checkbox" name="one" value="1" checked> close after one device</label>
+    <button type="submit">Open pairing window</button>
+  </form>
+  {{else}}<p class="muted">Only the admin account can open a pairing window.</p>{{end}}
+</section>
+{{end}}
+<section class="card">
+  <h2>Events</h2>
+  <ul id="feed" class="events" data-src="/events?recent=15"><li class="muted">Connecting…</li></ul>
+</section>
+{{template "foot" .}}{{end}}

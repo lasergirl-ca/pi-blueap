@@ -2428,3 +2428,40 @@ $ sudo nft list chain inet palm_gw palm_input | grep -E "dport (80|8042)"
 
 Logging in with Zoe's password is hers to do from a LAN browser (no password was set or typed
 here). The Palm-side checks (fake-palm, a PAN laptop, `nmap`) are part 6.
+
+### Part 2: dashboard, pairing, devices, the event feed (D-052), 2026-11-12
+
+`go test -race ./internal/web/ ./internal/event/ ./internal/ctl/`, against a fake daemon with
+a paired T|X in a LAP session, a static allowlist entry and a BlueZ-only device:
+- the dashboard shows the adapter, the session (ppp0, 10.42.0.10, `566.4 KB` to the Palm),
+  the last events with no PIN, and refreshes `/partials/dashboard` (the body alone);
+- the pairing page opens a window (`minutes=2`, `one`), which **stays open after the request
+  ends**, shows the PIN as `4 8 2 1` with a countdown, refuses a second window with a message,
+  and closes on "Close the window" (`pair.close`); out-of-range minutes fall back to the default;
+- a viewer sees that a window is open but not the PIN, gets no admin buttons, and every POST
+  (pair, close, forget, allow) is 403 without reaching the daemon;
+- devices: rows for "paired here", "config" and "BlueZ only"; forget asks on a page first and
+  acts only on the POST; disconnect, rename (trimmed) and add-by-address reach the daemon; a
+  daemon error is shown on the page; a malformed address is refused before the daemon and 404s
+  in a path; mutations without the CSRF token are 403;
+- `/events` is `text/event-stream` with `id:` lines and no PIN;
+- the event bus numbers events and keeps the last 200 (`Recent(since, max)`); `ctl.Call` runs
+  handlers in-process.
+
+On the test Pi, `0.6.0~test16`:
+
+```
+$ palm-gwctl events 5
+23:57:32  bluez_found
+23:57:32  firewall_applied      why=start
+23:57:33  pan_registered        bridge=br-palm
+$ palm-gwctl rename 00:07:E0:3C:5E:FA "Zoe T|X"
+00:07:E0:3C:5E:FA: label "Zoe T|X"
+$ palm-gwctl rename 00:07:E0:3C:5E:FA
+00:07:E0:3C:5E:FA: label cleared
+$ palm-gwctl unpair
+No pairing window was open.
+```
+
+From the Mac: `/static/htmx.min.js` (52,182 bytes), `app.js` and `style.css` are served;
+`/pair` and `/events` without a session redirect to `/login`.

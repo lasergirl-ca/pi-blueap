@@ -64,6 +64,8 @@ type Info struct {
 	Peer      string    `json:"peer,omitempty"`
 	PID       int       `json:"pid,omitempty"`
 	Started   time.Time `json:"started"`
+	RxBytes   uint64    `json:"rx_bytes,omitempty"` // from the Palm, /sys/class/net/<ifname>/statistics (filled by status)
+	TxBytes   uint64    `json:"tx_bytes,omitempty"` // to the Palm
 }
 
 // Session is a handle on one connection from NewConnection to pppd exit.

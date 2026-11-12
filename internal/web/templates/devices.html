@@ -1,0 +1,54 @@
+{{define "devices"}}{{template "head" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Done}}<p class="notice">{{.Done}}</p>{{end}}
+<section class="card">
+  <h1>Devices</h1>
+  {{if .Rows}}
+  <div class="scroll"><table>
+    <tr><th>Device</th><th>Allowed</th><th>First paired</th><th>Last seen</th><th>Connected</th>{{if eq $.Role "admin"}}<th></th>{{end}}</tr>
+    {{range .Rows}}<tr>
+      <td>{{if .Label}}<b>{{.Label}}</b><br>{{end}}{{if .Name}}{{.Name}}<br>{{end}}<code>{{.Address}}</code></td>
+      <td>{{if .Allowed}}yes ({{.Source}}){{else}}<span class="muted">no ({{.Source}})</span>{{end}}{{if .Trusted}}<br><span class="muted">trusted in BlueZ</span>{{end}}</td>
+      <td>{{date .FirstPaired}}</td>
+      <td>{{date .LastSeen}}</td>
+      <td>{{if .Connected}}{{.Connected}}{{else}}<span class="muted">no</span>{{end}}</td>
+      {{if eq $.Role "admin"}}<td class="actions">
+        {{if .Connected}}<form method="post" action="/devices/{{.Address}}/disconnect"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="secondary">Disconnect</button></form>{{end}}
+        <a class="button danger" href="/devices/{{.Address}}/forget">Forget…</a>
+        {{if .Dynamic}}<form method="post" action="/devices/{{.Address}}/rename" class="inline">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}">
+          <input name="label" value="{{.Label}}" placeholder="label" maxlength="64" aria-label="Label for {{.Address}}">
+          <button type="submit" class="secondary">Rename</button>
+        </form>{{end}}
+        {{if not .Allowed}}<form method="post" action="/devices/allow"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="addr" value="{{.Address}}"><button type="submit" class="secondary">Allow</button></form>{{end}}
+      </td>{{end}}
+    </tr>{{end}}
+  </table></div>
+  {{else}}<p class="muted">No devices yet. <a href="/pair">Pair one.</a></p>{{end}}
+</section>
+{{if eq .Role "admin"}}
+<section class="card">
+  <h2>Add by address</h2>
+  <p class="muted">For a device paired with this Pi some other way. It is allowlisted without pairing.</p>
+  <form method="post" action="/devices/allow" class="row">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Address <input name="addr" placeholder="00:07:E0:12:34:56" required pattern="[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}"></label>
+    <label>Name <input name="name" placeholder="optional" maxlength="64"></label>
+    <button type="submit">Allow</button>
+  </form>
+</section>
+{{end}}
+{{template "foot" .}}{{end}}
+
+{{define "forget"}}{{template "head" .}}
+<section class="card narrow">
+  <h1>Forget {{.Addr}}?</h1>
+  {{with .Row}}<p>{{if .Label}}<b>{{.Label}}</b> {{end}}{{.Name}}</p>{{end}}
+  <p>This removes it from the allowlist and from BlueZ (its link key), and ends any session it has. To use the gateway again it must pair again.</p>
+  <form method="post" action="/devices/{{.Addr}}/forget" class="row">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit" class="danger">Forget</button>
+    <a href="/devices">Cancel</a>
+  </form>
+</section>
+{{template "foot" .}}{{end}}
