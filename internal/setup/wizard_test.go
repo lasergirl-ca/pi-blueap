@@ -117,7 +117,36 @@ func TestEnsureCert(t *testing.T) {
 	names.IPs = append(names.IPs, net.ParseIP("10.4.0.243").To4())
 	fp3, created, err := EnsureCert(dir, names)
 	if err != nil || !created || fp3 == fp {
-		t.Fatalf("new address should make a new cert: %v %v", created, err)
+		t.Fatalf("without a gateway, a new address makes a new cert: %v %v", created, err)
+	}
+}
+
+// D-059: a new uplink or LAN address keeps the certificate; a new gateway
+// address or host name makes a new one.
+func TestEnsureCertKeepsAcrossUplinks(t *testing.T) {
+	dir := t.TempDir()
+	gw := net.ParseIP("10.42.0.1").To4()
+	eth := CertNames{DNS: []string{"palmgw-test", "palmgw-test.local"}, IPs: []net.IP{net.ParseIP("10.4.1.118").To4(), gw}, Gateway: gw}
+	fp, created, err := EnsureCert(dir, eth)
+	if err != nil || !created {
+		t.Fatal(err)
+	}
+	wifi := eth
+	wifi.IPs = []net.IP{net.ParseIP("10.4.1.119").To4(), gw}
+	if fp2, created, err := EnsureCert(dir, wifi); err != nil || created || fp2 != fp {
+		t.Errorf("uplink switch remade the cert: %v %v", created, err)
+	}
+	moved := wifi
+	moved.Gateway = net.ParseIP("10.43.0.1").To4()
+	moved.IPs = []net.IP{moved.Gateway}
+	fp3, created, err := EnsureCert(dir, moved)
+	if err != nil || !created || fp3 == fp {
+		t.Errorf("new gateway kept the cert: %v %v", created, err)
+	}
+	renamed := moved
+	renamed.DNS = []string{"lyman", "lyman.local"}
+	if fp4, created, err := EnsureCert(dir, renamed); err != nil || !created || fp4 == fp3 {
+		t.Errorf("new host name kept the cert: %v %v", created, err)
 	}
 }
 

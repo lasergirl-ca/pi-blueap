@@ -15,7 +15,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -26,30 +25,56 @@ const TLSDir = "/var/lib/palm-gw/tls"
 // CertNames are the names a self-signed certificate covers: the host name
 // (and its .local form), the Pi's current addresses, and the gateway address,
 // so the same certificate serves the Bluetooth-side listener (D-039).
+//
+// Gateway is the address the Palm app and the Bluetooth side use. An
+// existing certificate is kept as long as it covers the host names and
+// Gateway, even when the LAN addresses differ: a new uplink or DHCP address
+// must not change the fingerprint the Palm app pinned (D-059). With no
+// Gateway, every address in IPs must be covered.
 type CertNames struct {
-	DNS []string
-	IPs []net.IP
+	DNS     []string
+	IPs     []net.IP
+	Gateway net.IP
 }
 
-func (n CertNames) key() string {
-	parts := append([]string{}, n.DNS...)
-	for _, ip := range n.IPs {
-		parts = append(parts, ip.String())
+// coveredBy reports whether certificate c serves every name n requires.
+func (n CertNames) coveredBy(c *x509.Certificate) bool {
+	has := map[string]bool{}
+	for _, d := range c.DNSNames {
+		has["dns:"+strings.ToLower(d)] = true
 	}
-	sort.Strings(parts)
-	return strings.Join(parts, ",")
+	for _, ip := range c.IPAddresses {
+		has["ip:"+ip.String()] = true
+	}
+	need := []string{}
+	for _, d := range n.DNS {
+		need = append(need, "dns:"+strings.ToLower(d))
+	}
+	ips := n.IPs
+	if n.Gateway != nil {
+		ips = []net.IP{n.Gateway}
+	}
+	for _, ip := range ips {
+		need = append(need, "ip:"+ip.String())
+	}
+	for _, k := range need {
+		if !has[k] {
+			return false
+		}
+	}
+	return true
 }
 
 // EnsureCert writes cert.pem and key.pem under dir unless a certificate that
-// covers the same names and is valid for at least 30 more days is already
-// there. It returns the certificate's SHA-256 fingerprint and whether it made
+// covers the names n requires (see CertNames) and is valid for at least 30
+// more days is already there. It returns the certificate's SHA-256 fingerprint and whether it made
 // a new one.
 func EnsureCert(dir string, names CertNames) (fingerprint string, created bool, err error) {
 	certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
 	if data, err := os.ReadFile(certPath); err == nil {
 		if block, _ := pem.Decode(data); block != nil {
 			if c, err := x509.ParseCertificate(block.Bytes); err == nil &&
-				time.Until(c.NotAfter) > 30*24*time.Hour && certNames(c).key() == names.key() {
+				time.Until(c.NotAfter) > 30*24*time.Hour && names.coveredBy(c) {
 				if _, err := os.Stat(keyPath); err == nil {
 					return Fingerprint(c.Raw), false, nil
 				}
@@ -102,8 +127,6 @@ func EnsureCert(dir string, names CertNames) (fingerprint string, created bool, 
 	return Fingerprint(der), true, nil
 }
 
-func certNames(c *x509.Certificate) CertNames { return CertNames{DNS: c.DNSNames, IPs: c.IPAddresses} }
-
 // Fingerprint is the colon-separated SHA-256 of a DER certificate, the form
 // browsers show and the Palm app pins.
 func Fingerprint(der []byte) string {
@@ -149,6 +172,7 @@ func LocalCertNames(gateway string, ifaces []string) CertNames {
 			}
 		}
 	}
-	add(net.ParseIP(gateway).To4())
+	n.Gateway = net.ParseIP(gateway).To4()
+	add(n.Gateway)
 	return n
 }

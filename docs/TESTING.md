@@ -2840,3 +2840,14 @@ The same screenshot showed a different certificate fingerprint (`26:AA:9F:…`, 
 and at 10:47:28 (back to Ethernet): the certificate lists the uplink's address, so each switch
 made a new one. Its names are now the same as before (palmgw-test, palmgw-test.local,
 10.4.1.118, 10.42.0.1), but the key and fingerprint are new.
+
+**D-059, at Zoe's choice:** the certificate is kept across uplink and LAN-address changes, and
+remade only for a new gateway address or host name (`TestEnsureCertKeepsAcrossUplinks`).
+On test30, with no Palm connected, switching the uplink to Wi-Fi and back kept it:
+
+```
+installed: 26:AA:9F:DB:90:CC:DE:0E
+$ palm-gwctl internet use wifi      → on wifi: 26:AA:9F:DB:90:CC:DE:0E  uplink=wlan0
+$ palm-gwctl internet use ethernet  → back:    26:AA:9F:DB:90:CC:DE:0E  uplink=eth0
+palm-gw-apply: /var/lib/palm-gw/tls/cert.pem unchanged   (both times)
+```

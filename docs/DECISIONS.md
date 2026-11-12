@@ -1102,6 +1102,20 @@ docs/WEB-UI.md:
 - **"This device"** (section 5): the Bluetooth side's dashboard shows the requester's own PPP
   session or PAN lease, found by source address; `GET /api/v1/me` is the same.
 
+### D-059: The web certificate survives a change of internet connection
+
+- **Found after Zoe's Wi-Fi test:** the self-signed certificate lists the uplink's LAN address,
+  and `EnsureCert` made a new one whenever the list of names changed. Switching to Wi-Fi and
+  back made two new certificates. The second covered the same names as the first, with a new
+  key and so a new fingerprint (`D6:82:63:AA:…` became `26:AA:9F:…`). The Palm app pins that
+  fingerprint, so an uplink switch would lock it out.
+- **Zoe chose to keep it:** a certificate is kept as long as it is valid for 30 more days and
+  covers the host names and the gateway address (10.42.0.1), the names the Palm app and the
+  Bluetooth side use. A new LAN or uplink address no longer makes a new one; a new Palm
+  network (subnet) or host name still does. After a switch, a LAN browser may see a name
+  mismatch as well as the self-signed warning. This amends D-054 and D-056, which said a new
+  uplink makes a new certificate; the settings page now says only a new Palm network does.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

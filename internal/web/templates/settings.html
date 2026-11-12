@@ -58,7 +58,7 @@
     </label>
     <label class="check"><input type="checkbox" name="web.bluetooth_side" value="1"{{if .Config.Web.BluetoothSide}} checked{{end}}{{if $off}} disabled{{end}}> Web UI over Bluetooth too</label>
     <p class="muted">For Bluetooth laptops and the Palm app, at https://{{.Config.Network.Gateway}}:{{.Config.WebPort}}/.</p>
-    {{if $admin}}<p class="muted">Applying rewrites the firewall and the Palm network, then restarts palm-gwd: about 20 seconds. Connected Palms are disconnected and you log in again. A new address or connection also makes a new certificate, which your browser asks you to accept again.</p>
+    {{if $admin}}<p class="muted">Applying rewrites the firewall and the Palm network, then restarts palm-gwd: about 20 seconds. Connected Palms are disconnected and you log in again. A new Palm network also makes a new certificate, which your browser asks you to accept again, and the Palm app must pin again.</p>
     <button type="submit"{{if .Choices.Applying}} disabled{{end}}>Apply network changes</button>{{end}}
   </form>
 </section>
