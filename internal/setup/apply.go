@@ -239,9 +239,7 @@ func ApplySystem(o ApplyOptions) (ApplyResult, error) {
 	}
 	a.res.AdapterMode = mode
 
-	if err := a.ensureOperatorGroup(); err != nil {
-		return a.res, err
-	}
+	a.ensureOperatorGroup()
 
 	a.say("Units")
 	for _, mod := range kernelModules {
@@ -294,30 +292,29 @@ func ApplySystem(o ApplyOptions) (ApplyResult, error) {
 // ensureOperatorGroup adds the user who ran setup under sudo to the palm-gw group
 // (D-048). The .deb's postinst does the same, but in the image the package is
 // installed before Imager creates the user, so the wizard must do it.
-func (a *applier) ensureOperatorGroup() error {
+func (a *applier) ensureOperatorGroup() {
 	u := a.o.Operator
 	if u == "" || u == "root" {
-		return nil
+		return
 	}
 	a.say("palm-gw group")
 	out, err := a.run("id", "-nG", u)
 	if err != nil {
 		a.warn("cannot read %s's groups: %v", u, err)
-		return nil
+		return
 	}
 	for _, g := range strings.Fields(string(out)) {
 		if g == "palm-gw" {
 			a.note("%s already in palm-gw", u)
-			return nil
+			return
 		}
 	}
 	if _, err := a.run("usermod", "-aG", "palm-gw", u); err != nil {
 		a.warn("could not add %s to palm-gw: %v", u, err)
-		return nil
+		return
 	}
 	a.res.GroupAdded = u
 	a.note("%s added to palm-gw (takes effect at the next login)", u)
-	return nil
 }
 
 func startOrRestart(changed bool) string {
