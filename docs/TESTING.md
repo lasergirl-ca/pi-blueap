@@ -2966,3 +2966,8 @@ Still to see: the Pocket PC connecting on the first try.
 Each sent `CLIENT` within about a second, so none needed more than the old 3 s; the slow case
 seen at 11:29 and 11:32 did not come back in these three. D-060's longer wait stays for when it
 does.
+
+**Firewall from a Palm (Zoe, 2026-11-12):** she added allow rules in the browser's Firewall page
+and reached the allowed hosts from a Palm straight away, several times ("Firewall works I have
+done it a few times"). Phase 7's "add a firewall allow entry and verify a Palm can reach it
+immediately" is done.
