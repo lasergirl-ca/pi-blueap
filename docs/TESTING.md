@@ -2241,3 +2241,65 @@ Blazer on the T|X loaded a page (Zoe, 22:36). **The first failure is not explain
 happened once, on the first Connect after pairing, before any capture was running; the second
 and third Connects worked. If it recurs, the btmon trace of a failing attempt is the next step.
 Recorded as an open observation, not a fix.
+
+**Purge against the stock snapshot (Phase 6 accept).** `sudo apt-get purge -y palm-gw` on
+test12 stopped the units, removed `br-palm`, the main.conf block, the firewall table, the
+rendered files, `disable-bt`, `/etc/palm-gw`, `/var/lib/palm-gw` and the group. A new checksum
+list of `/etc` and `/boot/firmware` against `/var/tmp/etc-before.sha256`:
+
+```
+$ diff /var/tmp/etc-before.sha256 /var/tmp/etc-after.sha256
+< 90a44682…  /boot/firmware/config.txt       > e62f4b13…  /boot/firmware/config.txt
+< d2e46…  /etc/group-                          > de559…  /etc/group-
+< 985c7…  /etc/gshadow-                        > 5b2e5…  /etc/gshadow-
+< 60dac93f…  /etc/nftables.conf               > 6f6ffc04…  /etc/nftables.conf
+$ for f in /boot/firmware/config.txt /etc/nftables.conf; do head -c -1 $f | sha256sum; done
+90a446821551a9df…
+60dac93ffe0ea440…
+```
+
+**Found:** both files kept one extra trailing newline, the blank line setup puts before its own
+lines. Fixed in 601c611 (`removeLines` drops that separator; `TestRemoveSystem` now checks both
+files byte for byte). `group-` and `gshadow-` are shadow-utils' backups, rewritten when
+`groupdel` removes `palm-gw`; they are not files palm-gw owns. The two files were put back to
+their stock bytes by hand, and `0.6.0~test13` (601c611) was released to `/var/tmp/rel13`.
+
+**Unattended one-liner, test13,** from a shell with no terminal (ssh without `-t`):
+
+```
+$ curl -fsSL file:///var/tmp/rel13/install.sh | sudo PALM_GW_BASE_URL=file:///var/tmp/rel13 \
+    PALM_GW_UNATTENDED=1 PALM_GW_NAME="Palm Gateway - Lyman" PALM_GW_ADAPTER=dongle \
+    PALM_GW_WEB=off PALM_GW_PAIR=no bash
+…
+Setting up palm-gw (0.6.0~test13) ...
+palm-gw: sysadmin added to group palm-gw (takes effect at next login)
+==> Running palm-gw setup (unattended)
+board:     pi5 (Raspberry Pi 5 Model B Rev 1.0)
+adapters:  hci0 60:15:6F:EA:00:81  USB dongle (usb)  powered=yes
+uplinks:   eth0 via 10.4.0.1 metric 100
+…
+    bluetooth.name = "Palm Gateway - Lyman"
+    bluetooth.adapter = "60:15:6F:EA:00:81"
+    web.enabled = false
+…
+    dtoverlay=disable-bt added to /boot/firmware/config.txt
+…
+palm-gw is running.
+Reboot required: YES (the Bluetooth adapter mode changed)
+exit 0
+```
+
+No prompts. (A first attempt with `bash < /dev/null` ran nothing and exited 0: the redirect
+replaced the piped script. Not a palm-gw fault.) Then the purge again:
+
+```
+$ sudo apt-get purge -y palm-gw
+…
+$ diff /var/tmp/etc-before.sha256 /var/tmp/etc-after2.sha256
+< …  /etc/group-      > …  /etc/group-
+< …  /etc/gshadow-    > …  /etc/gshadow-
+```
+
+`/etc` and `/boot/firmware` match the stock card apart from the shadow-utils backups.
+Reinstalled unattended (same answers) and rebooted for dongle mode. The Pi did not come back
+on 10.4.1.118 within several minutes of the reboot (no ping, no ssh); to be looked at.
