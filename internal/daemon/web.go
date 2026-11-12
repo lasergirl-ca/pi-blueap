@@ -71,5 +71,7 @@ func (d *Daemon) webTLS(cfg *config.Config) (*tls.Config, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, setup.Fingerprint(leaf.Raw), nil
+	// ALPN http/1.1: the Palm app's TLS client requires a protocol to be
+	// selected (D-062), and HTTP/1.1 is all this server speaks.
+	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}}, setup.Fingerprint(leaf.Raw), nil
 }

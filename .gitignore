@@ -8,3 +8,5 @@
 # editor / OS
 .DS_Store
 *.swp
+# Palm app build outputs
+/palm-app/*/build/

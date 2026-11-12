@@ -1,0 +1,7 @@
+wolfSSL 5.9.4 (tag v5.9.4-stable, commit 3c5eead44904df64e6a5a1f4ebdce377d35a849a)
+https://github.com/wolfSSL/wolfssl
+GPLv3; see LICENSING and COPYING.
+
+Only the files the Palm TLS client builds with are kept: palm/tls/Makefile
+lists the sources, and the headers are those the compilers include. Each is
+unmodified from the tag.
