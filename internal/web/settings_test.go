@@ -93,7 +93,7 @@ func TestSettingsPage(t *testing.T) {
 		`<option value="hci0" selected>USB dongle 60:15:6F:EA:00:81 (hci0), in use now</option>`,
 		`<option value="2C:CF:67:2F:29:F5">Onboard radio 2C:CF:67:2F:29:F5 (hci1)</option>`,
 		`Internet connection: <strong>eth0</strong>`,
-		`<a href="/internet">`,
+		`<a class="button" href="/internet">Change the internet connection or Wi-Fi network</a>`,
 		`<option value="0" selected>Never</option>`,
 		`<option value="self-signed" selected>HTTPS with a self-signed certificate (recommended)</option>`,
 		`value="10.42.0.0/24"`,

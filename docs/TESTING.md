@@ -2692,3 +2692,23 @@ she types:
 - a Palm reaching the internet through Wi-Fi;
 - "Use Ethernet for the internet" to switch back;
 - a wrong password, to see the rollback message.
+
+**From Zoe's browser (test22), 2026-11-12:** she joined her home Wi-Fi from the Internet page
+and switched back with "Use Ethernet for the internet" ("it worked"). The log (her network's
+name left out):
+
+```
+10:46:32  wifi_joining   ssid=<home> hidden=false
+10:46:36  wifi_joined    ssid=<home>                       # 4 s
+10:46:36  network_set    keys=[network.uplink]  unit=palm-gw-apply   # eth0 -> wlan0
+10:47:28  network_set    keys=[network.uplink]  unit=palm-gw-apply   # wlan0 -> eth0
+10:47:28  internet_use   iface=eth0 switching=true
+$ palm-gwctl internet
+Ethernet eth0: Wired connection 1, 10.4.1.118/23 via 10.4.0.1  <- the internet connection
+Wi-Fi wlan0: <home>, 10.4.1.119/23 via 10.4.0.1
+Saved Wi-Fi networks: <home>
+```
+
+Both applies ended OK (`last-apply.json`). Wi-Fi stays connected below Ethernet, as D-056
+intends. At her request the settings page's link to the Internet page is now a button.
+Not tried yet: the rollback after a wrong password.

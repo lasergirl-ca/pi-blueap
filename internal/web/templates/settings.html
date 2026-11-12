@@ -43,7 +43,8 @@
   {{else}}<p class="error">Applying failed ({{date .LastApply.Finished}}): {{.LastApply.Error}}. The settings below are saved but not in effect: correct them and apply again, or run <code>sudo palm-gw setup</code>.</p>{{end}}{{end}}{{end}}
   <form method="post" action="/settings/network">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <p>Internet connection: <strong>{{.Config.Network.Uplink}}</strong>. <a href="/internet">Change it, or the Wi-Fi network, on the Internet page.</a></p>
+    <p>Internet connection: <strong>{{.Config.Network.Uplink}}</strong></p>
+    <p><a class="button" href="/internet">Change the internet connection or Wi-Fi network</a></p>
     <label>Palm network
       <input name="network.subnet" value="{{.Config.Network.Subnet}}" pattern="[0-9.]+/24" placeholder="10.42.0.0/24"{{if $off}} disabled{{end}}>
       <span class="muted">The addresses Palms and Bluetooth laptops get; the gateway is {{.Config.Network.Gateway}}. Change it only if it clashes with your home network.</span>
