@@ -68,6 +68,7 @@ for f in usr/sbin/policy-rc.d etc/resolv.conf.palm-gw-build var/lib/apt/lists.pa
 	if [ -e "$r/$f" ]; then echo "left behind: /$f"; fi
 done
 cmp -s "$W/base.p2/etc/resolv.conf" "$r/etc/resolv.conf" && echo "resolv.conf: as in the base"
+echo "NetworkManager state: $(grep WirelessEnabled "$r/var/lib/NetworkManager/NetworkManager.state")"
 for f in user-data network-config meta-data cmdline.txt config.txt; do
 	if [ -e "$W/image.p1/$f" ]; then echo "boot partition has $f"; fi
 done

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds the ready-to-flash palm-gw image (D-002, D-045): a stock Raspberry Pi OS Lite
-# (64-bit) image with the palm-gw .deb installed, nothing else changed. Cloud-init, SSH and
+# (64-bit) image with the palm-gw .deb installed and Wi-Fi left enabled for NetworkManager
+# (D-047), nothing else changed. Cloud-init, SSH and
 # the first-boot resize stay exactly as Raspberry Pi ships them, so Raspberry Pi Imager's
 # customisation (user, SSH key, Wi-Fi, hostname) works as it does for the stock image.
 # The gateway is not configured: a login shell says "Run: sudo palm-gw setup" until it is.
@@ -145,6 +146,15 @@ if [ -x /usr/bin/palm-gw ] && [ ! -e /etc/palm-gw/config.toml ] && [ -t 1 ]; the
 fi
 EOF
 chmod 0644 "$mnt/etc/profile.d/palm-gw-setup.sh"
+# Wi-Fi stays on once a country is set (D-047). Pi OS keeps every radio rfkill-blocked
+# until configured; Imager's first boot unblocks Wi-Fi when a Wi-Fi country is chosen, but
+# the stock NetworkManager state says WirelessEnabled=false, so NetworkManager blocks it
+# again on the next boot. raspi-config sets this same line when it unblocks Wi-Fi offline.
+nm_state="$mnt/var/lib/NetworkManager/NetworkManager.state"
+if [ -f "$nm_state" ] && grep -q '^WirelessEnabled=false' "$nm_state"; then
+	sed -i 's/^WirelessEnabled=.*/WirelessEnabled=true/' "$nm_state"
+	say "NetworkManager state: WirelessEnabled=true"
+fi
 cat >"$mnt/etc/palm-gw-image" <<EOF
 PALM_GW_VERSION=$IMAGE_VERSION
 BASE_IMAGE=$(basename "$base")
@@ -183,6 +193,7 @@ download_sha=$(sha256sum "$out" | cut -c1-64)
 # A Raspberry Pi Imager repository with this one image (field names, device tags and
 # capabilities as in Raspberry Pi's own entry for the base). init_format cloudinit-rpi makes
 # Imager offer its customisation; an image opened with "Use custom" gets none (D-046).
+# passwordless_sudo adds Imager's own opt-in "passwordless sudo" box to the user step (D-047).
 url=${IMAGE_URL:-$(basename "$out")}
 cat >"${out%.img.xz}.json" <<EOF
 {
@@ -220,7 +231,7 @@ cat >"${out%.img.xz}.json" <<EOF
       "release_date": "$(date -u +%Y-%m-%d)",
       "init_format": "cloudinit-rpi",
       "devices": ["pi5-64bit", "pi4-64bit"],
-      "capabilities": ["rpi_connect"]
+      "capabilities": ["rpi_connect", "passwordless_sudo"]
     }
   ]
 }

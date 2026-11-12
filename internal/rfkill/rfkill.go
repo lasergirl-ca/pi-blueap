@@ -1,8 +1,9 @@
 // Package rfkill clears the soft rfkill block on a Bluetooth adapter (D-046).
 // A soft-blocked adapter is listed by BlueZ but cannot be powered ("set
-// hciN.Powered: Failed"). Raspberry Pi OS restores each radio's saved block
-// state at boot (systemd-rfkill, /var/lib/systemd/rfkill), and the stock image
-// ships a USB Bluetooth port saved as blocked, so a dongle in that port starts
+// hciN.Powered: Failed"). Raspberry Pi OS sets `options rfkill default_state=0`
+// (/etc/modprobe.d/rfkill_default.conf), so every radio it has not seen before
+// starts blocked; only the onboard radios have a saved unblocked state in the
+// image (systemd-rfkill, /var/lib/systemd/rfkill). A USB dongle therefore starts
 // blocked. palm-gwd unblocks the adapter it is configured to use; systemd-rfkill
 // saves the new state, so the block does not come back on the next boot.
 package rfkill

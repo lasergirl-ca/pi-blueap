@@ -1965,7 +1965,23 @@ $ sudo cat /var/lib/systemd/rfkill/platform-xhci-hcd.1-usb-0:1:1.0:bluetooth
 1
 ```
 
-The stock image ships that USB Bluetooth port saved as blocked (D-046). Clearing it by hand
+The file's date is the image's build time because the clock was not yet set on first boot:
+the stock image has no state for that port at all. Pi OS starts every new radio blocked
+(`/etc/modprobe.d/rfkill_default.conf`: `options rfkill default_state=0`) and only ships
+saved unblocked states for the onboard radios (D-046). Re-binding the dongle with its saved
+state removed confirmed it:
+
+```
+$ sudo systemctl stop palm-gwd; sudo rm /var/lib/systemd/rfkill/platform-xhci-hcd.1-usb-0:1:1.0:bluetooth
+$ echo 3-1:1.0 | sudo tee /sys/bus/usb/drivers/btusb/unbind; echo 3-1:1.0 | sudo tee /sys/bus/usb/drivers/btusb/bind
+hci0 bluetooth soft=1
+$ cat /sys/module/rfkill/parameters/default_state
+0
+$ sudo systemctl start palm-gwd
+{"level":"WARN","msg":"adapter was rfkill soft-blocked; unblocked it","component":"daemon","event":"rfkill_unblocked",…}
+```
+
+Clearing it by hand
 (`echo 0 > /sys/class/rfkill/rfkill1/soft`) let `palm-gwd` attach at its next retry.
 
 **The fix, on the Pi** (`0.6.0~test8`, installed with `apt-get install`): the dongle blocked
@@ -1995,6 +2011,12 @@ Pairing window open for 5m0s.
 Window closed (one device).
 ```
 
-Next: the same run from a fixed image (`0.6.0-test9`), so that `sudo palm-gw setup` goes
-through to pairing with no hand fixes; then the `curl | sudo bash` installer with the
-interactive wizard on `/dev/tty`.
+**Also found:** after the reboot Wi-Fi was blocked again (`phy0 wlan soft=1`, `nmcli radio`:
+WIFI disabled). NetworkManager logged "Wi-Fi enabled by radio killswitch; disabled by state
+file": the stock `NetworkManager.state` has `WirelessEnabled=false`, and Imager's first boot
+only unblocks rfkill (D-047). And sudo asked for a password: Imager's `sudo: null` (D-047).
+
+Next: the same run from a fixed image (`0.6.0-test10`: the D-046 daemon, Wi-Fi kept enabled,
+Imager's passwordless sudo box), so that `sudo palm-gw setup` goes through to pairing with
+no hand fixes; then the `curl | sudo bash` installer with the interactive wizard on
+`/dev/tty`.

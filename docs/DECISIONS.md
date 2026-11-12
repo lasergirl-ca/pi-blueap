@@ -721,7 +721,8 @@ D-002's `make image`, decided now:
 **What the image is**
 - The pinned Raspberry Pi OS Lite (64-bit) image (Trixie, 2026-10-06; `PIOS_URL` and
   `PIOS_SHA256` in the Makefile), with the palm-gw `.deb` installed by `apt-get` in a chroot.
-  Nothing else changes, so the gateway is **not** configured and nothing of palm-gw starts.
+  Nothing else changes (but see D-047), so the gateway is **not** configured and nothing of
+  palm-gw starts.
 - **Cloud-init is left alone.** Trixie images are customised on first boot by cloud-init from
   `user-data` and `network-config` on the boot partition, which Raspberry Pi Imager writes. The
   image keeps those files and services as shipped, so Imager's settings (user, SSH key, Wi-Fi,
@@ -761,28 +762,45 @@ D-002's `make image`, decided now:
 
 Found on the first fresh flash (Phase 6 part 7): with a USB dongle, `palm-gwd` never came up
 ("bluez: set hci1.Powered: Failed", then the start timed out) and the wizard stopped before
-pairing. The dongle was soft-blocked by rfkill. Raspberry Pi OS restores each radio's saved
-block state at boot (`systemd-rfkill`, `/var/lib/systemd/rfkill/`), and the stock 2026-10-06
-Lite image ships `platform-xhci-hcd.1-usb-0:1:1.0:bluetooth` saved as `1` (dated 2026-10-05,
-from Raspberry Pi's image build). So on any fresh card, a Bluetooth dongle in that Pi 5 USB
-port starts blocked; BlueZ lists it but cannot power it. Lite has no `rfkill` command.
+pairing. The dongle was soft-blocked by rfkill. Raspberry Pi OS ships
+`/etc/modprobe.d/rfkill_default.conf` (`options rfkill default_state=0`), so every radio it
+has not seen before starts blocked, and `systemd-rfkill` saves that state per port
+(`/var/lib/systemd/rfkill/`). The image comes with saved unblocked states for the onboard
+Bluetooth of every Pi model only. So a USB Bluetooth dongle starts blocked on any fresh Pi OS
+install, in any port, and BlueZ lists it but cannot power it. (Re-binding the dongle with its
+saved state removed reproduced it: `soft=1`.) Lite has no `rfkill` command in a user's PATH.
 
 - Before configuring the adapter, `palm-gwd` checks `/sys/class/rfkill` for the adapter's
   switch and, if it is soft-blocked, clears it through `/dev/rfkill` (`internal/rfkill`),
   logs `rfkill_unblocked` as a warning and waits a second, since bluetoothd refuses `Powered`
   for a moment after the unblock. `systemd-rfkill` saves the new state, so the block does not
   come back on the next boot. A hard block is logged as an error and left alone.
-- The unit gains `DeviceAllow=/dev/rfkill rw` (section 8.9's sandbox otherwise unchanged; the
+- The unit gains `DeviceAllow=/dev/rfkill rw` (section 8.10's sandbox otherwise unchanged; the
   daemon already has `CAP_NET_ADMIN`). `/sys` stays read-only under `ProtectKernelTunables`.
 - Only the gateway's own adapter is touched: a radio someone else blocked stays blocked.
-- The image stays stock (D-045): the daemon handles the saved block wherever it comes from,
-  including a dongle moved to another port that some earlier boot saved as blocked.
+- Pi OS's default stays as it is: only the gateway's adapter is unblocked, on any port and
+  on any install path (image, `.deb`, source), so the image needs no Bluetooth change.
 
 Also from the same run, for the image's Imager entry: Raspberry Pi Imager 2.0.12 offers
 customisation (user, SSH key, hostname, Wi-Fi) only for an OS chosen from a list whose entry
 has an `init_format`; an image picked with "Use custom" is written without any. The README
 now says to open Imager with the release's `.json`, and the entry copies the base's
 `"capabilities": ["rpi_connect"]` from Raspberry Pi's own entry.
+
+### D-047: The image keeps Wi-Fi enabled; Imager offers passwordless sudo
+
+Two more changes to the image (D-045), both from the first fresh flash:
+- **Wi-Fi.** The stock image's `/var/lib/NetworkManager/NetworkManager.state` says
+  `WirelessEnabled=false`. Imager's first boot unblocks Wi-Fi (`rfkill unblock wifi`) when a
+  Wi-Fi country is set, but NetworkManager keeps its own switch off and blocks Wi-Fi again on
+  the next boot, so a Wi-Fi uplink would not survive a reboot. The image sets
+  `WirelessEnabled=true`, as raspi-config does when it unblocks Wi-Fi offline. The rfkill side
+  is left to Imager's Wi-Fi country, so Pi OS's "no Wi-Fi until a country is set" still holds.
+  This is the one change to the base outside the `.deb`.
+- **sudo.** Imager writes `sudo: null` for the user it creates unless the OS entry declares the
+  `passwordless_sudo` capability, which adds Imager's own opt-in "passwordless sudo" box (with
+  its warning) to the user step. The image's Imager entry declares it. Nothing is baked in:
+  without the box ticked, sudo asks for the password, as on stock.
 
 ## Hardware observations
 
