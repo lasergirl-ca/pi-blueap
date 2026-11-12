@@ -92,8 +92,8 @@ func TestSettingsPage(t *testing.T) {
 		`<option value="auto">Automatic: the first adapter found</option>`,
 		`<option value="hci0" selected>USB dongle 60:15:6F:EA:00:81 (hci0), in use now</option>`,
 		`<option value="2C:CF:67:2F:29:F5">Onboard radio 2C:CF:67:2F:29:F5 (hci1)</option>`,
-		`<option value="eth0" selected>Ethernet eth0, via router 10.4.0.1</option>`,
-		`<option value="wlan0">Wi-Fi wlan0 (5 GHz), via router 10.4.0.1</option>`,
+		`Internet connection: <strong>eth0</strong>`,
+		`<a href="/internet">`,
 		`<option value="0" selected>Never</option>`,
 		`<option value="self-signed" selected>HTTPS with a self-signed certificate (recommended)</option>`,
 		`value="10.42.0.0/24"`,
@@ -152,9 +152,6 @@ func TestAdapterOptionsKeepConfiguredForm(t *testing.T) {
 	got = adapterOptions("AA:BB:CC:DD:EE:FF", c)
 	if last := got[len(got)-1]; last.Value != "AA:BB:CC:DD:EE:FF" || !last.Selected || !strings.Contains(last.Label, "not found now") {
 		t.Errorf("missing: %+v", got)
-	}
-	if u := uplinkOptions("usb0", ctl.ChoicesReply{}); len(u) != 1 || !u[0].Selected {
-		t.Errorf("uplink: %+v", u)
 	}
 	if o := idleOptions(45); !o[len(o)-1].Selected || o[len(o)-1].Value != "45" {
 		t.Errorf("idle: %+v", o)

@@ -105,27 +105,36 @@ func (d *Daemon) handleNetworkSet(ctx context.Context, req ctl.Request, w *ctl.W
 	if req.Network == nil {
 		return errors.New("network.set: nothing to change")
 	}
+	r, err := d.setNetwork(ctx, *req.Network)
+	if err != nil {
+		return err
+	}
+	return w.Send(r)
+}
+
+// setNetwork is network.set's work, also used by the internet wizard.
+func (d *Daemon) setNetwork(ctx context.Context, ch setup.NetworkChange) (ctl.NetworkSetReply, error) {
+	no := ctl.NetworkSetReply{}
 	d.cfgEditMu.Lock()
 	defer d.cfgEditMu.Unlock()
 	if d.applyRunning(ctx) {
-		return errors.New("network settings are being applied now; palm-gwd restarts when that is done")
+		return no, errors.New("network settings are being applied now; palm-gwd restarts when that is done")
 	}
 	path := d.opts.ConfigPath
 	old, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return no, err
 	}
 	cur, err := config.Parse(string(old))
 	if err != nil {
-		return err
+		return no, err
 	}
-	ch := *req.Network
 	edits, err := setup.NetworkEdits(cur, ch)
 	if err != nil {
-		return err
+		return no, err
 	}
 	if u := strings.TrimSpace(ch.Uplink); u != "" && u != cur.Network.Uplink && !d.host().HasIface(u) {
-		return fmt.Errorf("uplink: this Pi has no interface called %q", u)
+		return no, fmt.Errorf("uplink: this Pi has no interface called %q", u)
 	}
 	var changed []string
 	for _, e := range edits {
@@ -137,12 +146,12 @@ func (d *Daemon) handleNetworkSet(ctx context.Context, req ctl.Request, w *ctl.W
 				if s.Suggest != "" {
 					msg += "; " + s.Suggest + " is free"
 				}
-				return errors.New(msg)
+				return no, errors.New(msg)
 			}
 		}
 	}
 	if len(edits) == 0 {
-		return w.Send(ctl.NetworkSetReply{OK: true, Changed: []string{}})
+		return ctl.NetworkSetReply{OK: true, Changed: []string{}}, nil
 	}
 	text := setup.SetKeys(string(old), edits)
 	cfg, err := config.Parse(text)
@@ -150,10 +159,10 @@ func (d *Daemon) handleNetworkSet(ctx context.Context, req ctl.Request, w *ctl.W
 		err = cfg.Validate()
 	}
 	if err != nil {
-		return fmt.Errorf("not saved: %w", err)
+		return no, fmt.Errorf("not saved: %w", err)
 	}
 	if err := writeAtomic(path, []byte(text)); err != nil {
-		return err
+		return no, err
 	}
 	_ = os.Remove(d.applyRecordPath())
 	out, err := d.command(ctx, "systemd-run", "--unit="+applyUnit, "--collect", "--quiet",
@@ -161,10 +170,10 @@ func (d *Daemon) handleNetworkSet(ctx context.Context, req ctl.Request, w *ctl.W
 		d.setupBin(), "setup", "--apply", "--config", path, "--record", d.applyRecordPath())
 	if err != nil {
 		if rerr := writeAtomic(path, old); rerr != nil {
-			return fmt.Errorf("could not start palm-gw setup --apply (%w: %s), and could not put config.toml back: %w", err, strings.TrimSpace(string(out)), rerr)
+			return no, fmt.Errorf("could not start palm-gw setup --apply (%w: %s), and could not put config.toml back: %w", err, strings.TrimSpace(string(out)), rerr)
 		}
-		return fmt.Errorf("not saved: could not start palm-gw setup --apply: %w: %s", err, strings.TrimSpace(string(out)))
+		return no, fmt.Errorf("not saved: could not start palm-gw setup --apply: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	d.log.Info("network settings saved; applying", "event", "network_set", "keys", changed, "unit", applyUnit)
-	return w.Send(ctl.NetworkSetReply{OK: true, Changed: changed, Applying: true, Unit: applyUnit})
+	return ctl.NetworkSetReply{OK: true, Changed: changed, Applying: true, Unit: applyUnit}, nil
 }

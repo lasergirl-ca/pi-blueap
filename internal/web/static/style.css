@@ -52,3 +52,6 @@ ol { margin: 0; padding-left: 1.3em; }
 form.inline.wide input { width: auto; flex: 1 1 8em; }
 .narrow-form { max-width: 360px; }
 label .muted { display: block; font-size: 0.85em; margin-top: 2px; }
+.badge { font-size: 0.7em; padding: 1px 8px; border-radius: 9px; color: #fff; background: var(--accent); vertical-align: middle; }
+h3 { margin: 14px 0 8px; font-size: 1em; }
+details { margin: 8px 0; } summary { cursor: pointer; } summary.button { list-style: none; }

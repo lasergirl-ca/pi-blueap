@@ -145,6 +145,7 @@ func (s *Server) Handler(side Side, isTLS bool) http.Handler {
 	mux.Handle("POST /logout", s.auth(side, s.logout(isTLS)))
 	s.routes(mux, side)
 	s.settingsRoutes(mux, side)
+	s.internetRoutes(mux, side)
 	var h http.Handler = mux
 	if side == SideLAN && len(s.o.AllowCIDRs) > 0 {
 		h = s.allowCIDRs(h)

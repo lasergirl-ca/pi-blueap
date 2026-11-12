@@ -1,0 +1,63 @@
+{{define "internet"}}{{template "head" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Done}}<p class="notice">{{.Done}}</p>{{end}}
+{{$admin := eq .Role "admin"}}{{$csrf := .CSRF}}
+<section class="card">
+  <h1>Internet connection</h1>
+  <p>Palms reach the internet through <strong>{{.Current}}</strong>.</p>
+  {{if .St.Applying}}<p class="notice">Switching now: palm-gwd restarts in a moment.</p>{{end}}
+  {{with .Job}}{{template "internet-job" $}}{{end}}
+</section>
+
+<section class="card">
+  <h2>Ethernet {{if .EthInUse}}<span class="badge">in use</span>{{end}}</h2>
+  {{if .HasEth}}<p>{{.EthText}}</p>
+  {{if and $admin (not .EthInUse) .Eth.Connected}}<form method="post" action="/internet/use"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="use" value="ethernet"><button type="submit">Use Ethernet for the internet</button></form>{{end}}
+  {{else}}<p class="muted">This Pi has no Ethernet port that NetworkManager manages.</p>{{end}}
+</section>
+
+<section class="card">
+  <h2>Wi-Fi {{if .WifiInUse}}<span class="badge">in use</span>{{end}}</h2>
+  {{if not .HasWifi}}<p class="muted">This Pi has no Wi-Fi that NetworkManager manages.</p>
+  {{else if not .St.WifiHW}}<p>Wi-Fi is blocked by a hardware switch (rfkill).</p>
+  {{else if not .St.WifiOn}}<p>Wi-Fi is off.</p>
+    {{if $admin}}<form method="post" action="/internet/radio"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="on" value="1"><button type="submit">Turn Wi-Fi on</button></form>{{end}}
+  {{else}}
+  <p>{{.WifiText}}</p>
+  {{if and $admin .Wifi.Connected (not .WifiInUse)}}<form method="post" action="/internet/use"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="use" value="wifi"><button type="submit">Use this Wi-Fi network for the internet</button></form>{{end}}
+  {{if .St.OnboardBT}}<p class="muted">The gateway uses the Pi's onboard Bluetooth, which shares its radio with 2.4 GHz Wi-Fi. A 5 GHz network, or a USB Bluetooth dongle, keeps Palm connections steadier.</p>{{end}}
+  <div class="row"><h3>Networks in range</h3><a class="button" href="/internet?rescan=1">Scan again</a></div>
+  {{with .ScanError}}<p class="error">{{.}}</p>{{end}}
+  {{if .Networks}}<div class="scroll"><table>
+    <tr><th>Network</th><th>Signal</th><th>Band</th><th>Security</th>{{if $admin}}<th></th>{{end}}</tr>
+    {{range .Networks}}<tr>
+      <td>{{.SSID}}{{if .Saved}} <span class="muted">(saved)</span>{{end}}</td>
+      <td title="{{.Signal}}%">{{.Bars}} {{.Signal}}%</td><td>{{.Band}}</td>
+      <td>{{if eq .Security "open"}}open{{else if eq .Security "wpa"}}🔒 WPA2{{else if eq .Security "wpa3"}}🔒 WPA3{{else}}{{.Security}}{{end}}</td>
+      {{if $admin}}<td>{{if .Active}}<strong>Connected</strong>
+        {{else if not .Supported}}<span class="muted">needs nmcli</span>
+        {{else if or .Saved (not .NeedsPassword)}}<form method="post" action="/internet/join"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="ssid" value="{{.SSID}}"><button type="submit" class="secondary">Connect</button></form>
+        {{else}}<details><summary class="button">Connect…</summary>
+          <form method="post" action="/internet/join" class="row"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="ssid" value="{{.SSID}}">
+            <input type="password" name="wifi-password" aria-label="Password for {{.SSID}}" placeholder="Wi-Fi password" minlength="8" maxlength="63" autocomplete="off" required>
+            <button type="submit">Connect</button></form></details>{{end}}</td>{{end}}
+    </tr>{{end}}
+  </table></div>{{else}}<p class="muted">No networks found. Try Scan again.</p>{{end}}
+  {{if $admin}}<details><summary>Join a hidden network</summary>
+    <form method="post" action="/internet/join" class="narrow-form"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="hidden" value="1">
+      <label>Network name <input name="ssid" maxlength="32" required></label>
+      <label>Password <input type="password" name="wifi-password" maxlength="63" autocomplete="off"> <span class="muted">Leave empty for an open network.</span></label>
+      <button type="submit">Connect</button></form></details>{{end}}
+  {{if .St.Saved}}<h3>Saved networks</h3>
+  <div class="scroll"><table>{{range .St.Saved}}<tr><td>{{.}}</td>{{if $admin}}<td><form method="post" action="/internet/forget"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="ssid" value="{{.}}"><button type="submit" class="danger">Forget</button></form></td>{{end}}</tr>{{end}}</table></div>{{end}}
+  {{if and $admin (not .WifiInUse)}}<form method="post" action="/internet/radio"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="on" value="0"><button type="submit" class="secondary">Turn Wi-Fi off</button></form>{{end}}
+  {{end}}
+</section>
+{{if $admin}}<p class="muted">Switching between Ethernet and Wi-Fi rewrites the firewall and restarts palm-gwd, which takes about 20 seconds: connected Palms are disconnected and you log in again. A Wi-Fi network that cannot be joined within 45 seconds is removed again and the Pi goes back to the network it had. If this browser reaches the Pi over Wi-Fi, joining another network moves the Pi there, at a new address.</p>{{end}}
+{{template "foot" .}}{{end}}
+
+{{define "internet-job"}}{{with .Job}}<div{{if not .Done}} hx-get="/partials/internet-job" hx-trigger="every 2s" hx-swap="outerHTML"{{end}}>
+  {{if not .Done}}<p class="notice">Joining “{{.SSID}}”… started {{since .Started}} ago. This takes up to 45 seconds.</p>
+  {{else if .OK}}<p class="notice">Joined “{{.SSID}}”.{{if .Switching}} Palms now go out through Wi-Fi: palm-gwd is restarting, so <a href="/login">log in again</a> in about 20 seconds.{{end}}</p>
+  {{else}}<p class="error">{{.Error}}</p>{{end}}
+</div>{{end}}{{end}}

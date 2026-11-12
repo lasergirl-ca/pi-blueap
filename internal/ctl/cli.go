@@ -1,6 +1,7 @@
 package ctl
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/term"
 
 	"palm-gw/internal/config"
 	"palm-gw/internal/setup"
@@ -65,6 +68,7 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 	fs.StringVar(&nc.Subnet, "subnet", "", "network: the Palm network, an IPv4 /24")
 	fs.StringVar(&nc.TLS, "tls", "", "network: web UI HTTPS, self-signed or off")
 	btSide := fs.String("bluetooth-side", "", "network: web UI over Bluetooth, on or off")
+	hidden := fs.Bool("hidden", false, "wifi join: the network does not broadcast its name")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() { usage(stderr) }
 	rest, err := parseInterleaved(fs, args)
@@ -160,6 +164,17 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 		return c.choices()
 	case "nat":
 		return c.nat()
+	case "internet":
+		if len(cmdArgs) == 2 && cmdArgs[0] == "use" {
+			return c.internetUse(cmdArgs[1])
+		}
+		if len(cmdArgs) != 0 {
+			fmt.Fprintln(stderr, "palm-gwctl internet [use ethernet|wifi]")
+			return 2
+		}
+		return c.internet()
+	case "wifi":
+		return c.wifi(cmdArgs, *hidden)
 	case "network":
 		switch *btSide {
 		case "":
@@ -218,6 +233,12 @@ Commands:
   firewall test <host> <port> TCP connect from the Pi
   restart                     restart palm-gwd
   nat                         the NAT table: connections Palms have open now
+  internet                    how the Pi reaches the internet: Ethernet, Wi-Fi, saved networks
+  internet use ethernet|wifi  make it the internet connection (restarts palm-gwd if it changes)
+  wifi scan                   Wi-Fi networks in range
+  wifi join <name> [--hidden] join a network (asks for its password) and use it for the internet
+  wifi forget <name>          delete a saved network
+  wifi on|off                 the Wi-Fi radio
   choices / network           adapters, uplinks and the Palm network check, and the last apply
   network [--uplink IF] [--subnet A.B.C.0/24] [--tls self-signed|off] [--bluetooth-side on|off]
                               change them; runs palm-gw setup --apply, which restarts palm-gwd
@@ -1025,4 +1046,191 @@ func (c *cli) nat() int {
 	}
 	fmt.Fprintf(c.stdout, "%d from %s, of %d tracked.\n", len(r.Entries), r.Subnet, r.Total)
 	return 0
+}
+
+func (c *cli) internetStatus() (InternetReply, bool, error) {
+	var r InternetReply
+	printed, err := c.call(Request{Cmd: "internet"}, &r)
+	return r, printed, err
+}
+
+func (c *cli) internet() int {
+	r, printed, err := c.internetStatus()
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	if r.Error != "" {
+		fmt.Fprintln(c.stdout, "NetworkManager:", r.Error)
+	}
+	for _, d := range r.Devices {
+		mark := ""
+		if d.Iface == r.Uplink {
+			mark = "  <- the internet connection"
+		}
+		switch {
+		case d.Type == "ethernet" && !d.Carrier:
+			fmt.Fprintf(c.stdout, "Ethernet %s: no cable%s\n", d.Iface, mark)
+		case d.Connected:
+			fmt.Fprintf(c.stdout, "%s %s: %s, %s via %s%s\n", kindName(d.Type), d.Iface, d.Connection, d.IP, d.Gateway, mark)
+		default:
+			fmt.Fprintf(c.stdout, "%s %s: %s%s\n", kindName(d.Type), d.Iface, d.State, mark)
+		}
+	}
+	if !r.WifiHW {
+		fmt.Fprintln(c.stdout, "Wi-Fi radio: blocked by a hardware switch (rfkill)")
+	} else if !r.WifiOn {
+		fmt.Fprintln(c.stdout, "Wi-Fi radio: off (palm-gwctl wifi on)")
+	}
+	if len(r.Saved) > 0 {
+		fmt.Fprintf(c.stdout, "Saved Wi-Fi networks: %s\n", strings.Join(r.Saved, ", "))
+	}
+	if j := r.Job; j != nil {
+		switch {
+		case !j.Done:
+			fmt.Fprintf(c.stdout, "Joining %q now.\n", j.SSID)
+		case j.OK:
+			fmt.Fprintf(c.stdout, "Last join: %q, OK.\n", j.SSID)
+		default:
+			fmt.Fprintf(c.stdout, "Last join: %q failed: %s\n", j.SSID, j.Error)
+		}
+	}
+	return 0
+}
+
+func kindName(t string) string {
+	if t == "wifi" {
+		return "Wi-Fi"
+	}
+	return "Ethernet"
+}
+
+func (c *cli) internetUse(kind string) int {
+	var r InternetUseReply
+	printed, err := c.call(Request{Cmd: "internet.use", WiFi: &WifiRequest{Use: kind}}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	if r.Switching {
+		fmt.Fprintf(c.stdout, "The internet connection is now %s. palm-gw setup --apply is switching the firewall; palm-gwd restarts.\n", r.Iface)
+	} else {
+		fmt.Fprintf(c.stdout, "The internet connection is %s.\n", r.Iface)
+	}
+	return 0
+}
+
+func (c *cli) wifi(args []string, hidden bool) int {
+	if len(args) == 0 {
+		fmt.Fprintln(c.stderr, "palm-gwctl wifi scan | join <name> [--hidden] | forget <name> | on | off")
+		return 2
+	}
+	switch args[0] {
+	case "scan":
+		var r WifiScanReply
+		printed, err := c.call(Request{Cmd: "wifi.scan", WiFi: &WifiRequest{Rescan: true}}, &r)
+		if err != nil {
+			return c.fail(err)
+		}
+		if printed {
+			return 0
+		}
+		if len(r.Networks) == 0 {
+			fmt.Fprintln(c.stdout, "No Wi-Fi networks in range.")
+		}
+		for _, n := range r.Networks {
+			var notes []string
+			if n.Active {
+				notes = append(notes, "connected")
+			}
+			if n.Saved {
+				notes = append(notes, "saved")
+			}
+			if !n.Supported() {
+				notes = append(notes, "not supported here")
+			}
+			fmt.Fprintf(c.stdout, "%-32s %3d%%  %-7s %-10s %s\n", n.SSID, n.Signal, n.Band(), n.Security, strings.Join(notes, ", "))
+		}
+		return 0
+	case "join":
+		if len(args) != 2 {
+			fmt.Fprintln(c.stderr, "palm-gwctl wifi join <name> [--hidden]")
+			return 2
+		}
+		pw, err := readSecret(c.stderr, "Wi-Fi password (Enter for an open or saved network): ")
+		if err != nil {
+			return c.fail(err)
+		}
+		var ok OKReply
+		if _, err := c.call(Request{Cmd: "wifi.join", WiFi: &WifiRequest{SSID: args[1], Password: pw, Hidden: hidden}}, &ok); err != nil {
+			return c.fail(err)
+		}
+		fmt.Fprintf(c.stdout, "Joining %q", args[1])
+		for i := 0; i < 120; i++ {
+			time.Sleep(time.Second)
+			r, _, err := c.internetStatus()
+			if err != nil {
+				// palm-gwd restarting after the uplink switch
+				fmt.Fprintln(c.stdout, "\nJoined; palm-gwd is restarting to switch the internet connection to Wi-Fi.")
+				return 0
+			}
+			if j := r.Job; j != nil && j.Done {
+				if !j.OK {
+					fmt.Fprintf(c.stdout, "\n%s\n", j.Error)
+					return 1
+				}
+				if j.Switching {
+					fmt.Fprintln(c.stdout, "\nJoined. The internet connection is now Wi-Fi; palm-gwd restarts.")
+				} else {
+					fmt.Fprintln(c.stdout, "\nJoined.")
+				}
+				return 0
+			}
+			fmt.Fprint(c.stdout, ".")
+		}
+		fmt.Fprintln(c.stdout, "\nStill joining; see palm-gwctl internet.")
+		return 1
+	case "forget":
+		if len(args) != 2 {
+			fmt.Fprintln(c.stderr, "palm-gwctl wifi forget <name>")
+			return 2
+		}
+		var ok OKReply
+		if _, err := c.call(Request{Cmd: "wifi.forget", WiFi: &WifiRequest{SSID: args[1]}}, &ok); err != nil {
+			return c.fail(err)
+		}
+		fmt.Fprintf(c.stdout, "Forgot %q.\n", args[1])
+		return 0
+	case "on", "off":
+		on := args[0] == "on"
+		var ok OKReply
+		if _, err := c.call(Request{Cmd: "wifi.radio", WiFi: &WifiRequest{On: &on}}, &ok); err != nil {
+			return c.fail(err)
+		}
+		fmt.Fprintf(c.stdout, "Wi-Fi radio %s.\n", args[0])
+		return 0
+	}
+	fmt.Fprintf(c.stderr, "palm-gwctl wifi: unknown %q\n", args[0])
+	return 2
+}
+
+// readSecret reads a line without echo from a terminal, or one line from a
+// pipe.
+func readSecret(prompt io.Writer, text string) (string, error) {
+	fd := int(os.Stdin.Fd())
+	if term.IsTerminal(fd) {
+		fmt.Fprint(prompt, text)
+		b, err := term.ReadPassword(fd)
+		fmt.Fprintln(prompt)
+		return string(b), err
+	}
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && line == "" && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }

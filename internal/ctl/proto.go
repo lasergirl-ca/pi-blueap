@@ -18,6 +18,7 @@ import (
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
 	"palm-gw/internal/fw"
+	"palm-gw/internal/nm"
 	"palm-gw/internal/ppp"
 	"palm-gw/internal/profile"
 	"palm-gw/internal/setup"
@@ -45,6 +46,18 @@ type Request struct {
 	Port    int             `json:"port,omitempty"`    // firewall.test
 	// network.set: the settings only `palm-gw setup --apply` can apply (D-054).
 	Network *setup.NetworkChange `json:"network,omitempty"`
+	// wifi.* and internet.use (D-056). The password is never logged.
+	WiFi *WifiRequest `json:"wifi,omitempty"`
+}
+
+// WifiRequest carries the internet wizard's commands.
+type WifiRequest struct {
+	SSID     string `json:"ssid,omitempty"`     // wifi.join, wifi.forget
+	Password string `json:"password,omitempty"` // wifi.join; empty for an open or saved network
+	Hidden   bool   `json:"hidden,omitempty"`   // wifi.join: a network that does not broadcast its name
+	Rescan   bool   `json:"rescan,omitempty"`   // wifi.scan: ask for a fresh scan first
+	On       *bool  `json:"on,omitempty"`       // wifi.radio
+	Use      string `json:"use,omitempty"`      // internet.use: ethernet or wifi
 }
 
 // ErrorReply is the line the server writes when a command fails.
@@ -261,4 +274,42 @@ type NATReply struct {
 	Entries    []NATEntry `json:"entries"`
 	Total      int        `json:"total"`      // every tracked connection on the Pi, Palm or not
 	Accounting bool       `json:"accounting"` // nf_conntrack_acct is on, so bytes and packets are counted
+}
+
+// WifiJob is a Wi-Fi join running in the daemon, which outlives the request
+// that started it, so a browser that loses its connection when the Pi
+// changes networks does not stop it or its rollback (D-056).
+type WifiJob struct {
+	SSID      string    `json:"ssid"`
+	Started   time.Time `json:"started"`
+	Done      bool      `json:"done"`
+	OK        bool      `json:"ok"`
+	Error     string    `json:"error,omitempty"`
+	Switching bool      `json:"switching,omitempty"` // the uplink is being switched to Wi-Fi: palm-gwd restarts
+}
+
+// InternetReply is the answer to internet: how the Pi reaches the internet.
+type InternetReply struct {
+	Uplink    string      `json:"uplink"` // [network].uplink
+	Devices   []nm.Device `json:"devices"`
+	WifiOn    bool        `json:"wifi_on"`
+	WifiHW    bool        `json:"wifi_hw"` // false: rfkill hard block
+	Saved     []string    `json:"saved"`   // saved Wi-Fi networks
+	Job       *WifiJob    `json:"job,omitempty"`
+	Applying  bool        `json:"applying"`
+	OnboardBT bool        `json:"onboard_bt"`      // the gateway uses the onboard radio, which shares 2.4 GHz with Wi-Fi
+	Error     string      `json:"error,omitempty"` // NetworkManager is not reachable
+}
+
+// WifiScanReply is the answer to wifi.scan.
+type WifiScanReply struct {
+	Networks []nm.Network `json:"networks"`
+}
+
+// InternetUseReply is the answer to internet.use.
+type InternetUseReply struct {
+	OK        bool     `json:"ok"`
+	Iface     string   `json:"iface"`
+	Switching bool     `json:"switching"` // the uplink changed: palm-gw setup --apply runs and palm-gwd restarts
+	Changed   []string `json:"changed,omitempty"`
 }

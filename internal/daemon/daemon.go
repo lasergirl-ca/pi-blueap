@@ -52,6 +52,8 @@ type Options struct {
 	SetupBin string
 	Command  func(ctx context.Context, name string, args ...string) ([]byte, error)
 	HostRoot string
+	// NetManager opens NetworkManager for the internet wizard (nil = D-Bus).
+	NetManager func() (NetManager, error)
 	// Conntrack reads the connection tracking table (nil = ctnetlink).
 	Conntrack func() ([]fw.Conn, error)
 	// OnReady is called once, the first time the agent is registered
@@ -94,6 +96,9 @@ type Daemon struct {
 	fw   ctl.FirewallStatus
 
 	cfgEditMu sync.Mutex // serialises config.set
+
+	wifiMu  sync.Mutex
+	wifiJob *ctl.WifiJob // the last Wi-Fi join (D-056)
 
 	panMu sync.Mutex
 	pan   panState

@@ -994,6 +994,48 @@ docs/WEB-UI.md:
   outlives its session (time-wait after a disconnect) shows "unknown", since pool addresses are
   reused.
 
+### D-056: The internet connection wizard: Ethernet or Wi-Fi, and which network
+
+- **Zoe asked for a simple way to switch between Wi-Fi and Ethernet and to change Wi-Fi
+  networks.** A new page, `/internet` (nav "Internet"), does it; the settings page's uplink
+  drop-down (D-054) is replaced by a link to it. `palm-gwctl internet` and `palm-gwctl wifi`
+  are the same commands.
+- **NetworkManager over D-Bus** (`internal/nm`, godbus as for BlueZ), not `nmcli`: no output
+  to parse, and the Wi-Fi password goes to NetworkManager in the D-Bus message, never on a
+  command line where `ps` could show it. NetworkManager stores it (root-only, in
+  `/etc/NetworkManager/system-connections`), as it would for `nmcli`. palm-gwd is root and
+  already on the system bus, so the sandbox needs nothing new. The ctl server does not log
+  requests, and the daemon logs only the SSID.
+- **Choosing the route.** With Ethernet and Wi-Fi both up, the default route is the
+  connection with the lower route metric (NetworkManager: 100 for Ethernet, 600 for Wi-Fi).
+  The firewall masquerades out of `network.uplink` only, so the two must agree.
+  - Joining a Wi-Fi network from the wizard gives that connection `ipv4/ipv6.route-metric =
+    50`, then switches `network.uplink` to the Wi-Fi interface through `setNetwork` (D-054's
+    apply, which restarts palm-gwd).
+  - "Use Ethernet" puts every Wi-Fi connection with metric 50 back to the default (-1),
+    reapplies the active one so the route changes without a reconnect, and switches the
+    uplink back. Wi-Fi may stay connected, below Ethernet.
+  - Ethernet's own connection is never modified.
+  - Changing a saved connection's metric is `Update`, which replaces every setting, so its
+    Wi-Fi secret is read with `GetSecrets` and sent back with it.
+- **A join cannot strand the Pi.** It runs in the daemon on its own context, not the
+  request's, because a browser that reaches the Pi over Wi-Fi loses it when the Pi changes
+  networks. If the network is not activated within 45 s, a connection the join created is
+  deleted, and the Wi-Fi connection that was active before is activated again. The failure
+  reason comes from NetworkManager's device state reason, in words ("the password is wrong or
+  missing", "not found; it may be out of range"). A new password for a saved network makes a
+  new connection; the old one is deleted only once the new one works. The page polls the job
+  every 2 s; the poll returns 286 when it is done, which stops htmx polling.
+- **Supported:** open networks (and enhanced open), WPA/WPA2 personal and WPA3 personal (SAE),
+  and hidden networks. WPA Enterprise needs a username and certificates, and WEP is broken;
+  both are listed as "needs nmcli".
+- **Guards:** the network and radio the uplink uses cannot be forgotten or switched off.
+  Ethernet is refused without a cable or without an address. Nothing starts while an apply
+  or another join runs.
+- **2.4 GHz and the onboard radio:** when the gateway uses the onboard Bluetooth, the page
+  says a 5 GHz network or a USB dongle keeps Palm links steadier (section 3's coexistence
+  note).
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

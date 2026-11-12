@@ -235,21 +235,6 @@ func adapterOptions(cur string, c ctl.ChoicesReply) []option {
 	return opts
 }
 
-// uplinkOptions offers the interfaces with a default route, and the
-// configured one even when it has none now.
-func uplinkOptions(cur string, c ctl.ChoicesReply) []option {
-	var opts []option
-	found := false
-	for _, u := range c.Uplinks {
-		opts = append(opts, option{u.Iface, u.Label(), u.Iface == cur})
-		found = found || u.Iface == cur
-	}
-	if !found {
-		opts = append(opts, option{cur, cur + " (no internet route now)", true})
-	}
-	return opts
-}
-
 var idleChoices = []struct {
 	secs  int
 	label string
@@ -293,7 +278,6 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, code int
 	}
 	data["Choices"] = c
 	data["Adapters"] = adapterOptions(cfg.Bluetooth.Adapter, c)
-	data["Uplinks"] = uplinkOptions(cfg.Network.Uplink, c)
 	data["Idle"] = idleOptions(cfg.PPP.IdleSeconds)
 	data["TLSModes"] = tlsOptions(cfg.Web.TLS)
 	for k, v := range extra {

@@ -21,6 +21,7 @@ import (
 	"palm-gw/internal/ctl"
 	"palm-gw/internal/event"
 	"palm-gw/internal/fw"
+	"palm-gw/internal/nm"
 	"palm-gw/internal/ppp"
 	"palm-gw/internal/setup"
 )
@@ -36,6 +37,7 @@ type daemonFake struct {
 	events []event.Event
 	rules  []config.AllowRule
 	set    map[string]json.RawMessage // config.set calls by key
+	job    *ctl.WifiJob
 }
 
 func newDaemonFake() *daemonFake {
@@ -175,6 +177,33 @@ func (f *daemonFake) Call(ctx context.Context, req ctl.Request, emit func(json.R
 				NATAddr: netip.MustParseAddr("10.4.1.118"), NATPort: 1028, State: "established", Assured: true, Replied: true, Timeout: 431990}},
 			{Conn: fw.Conn{Proto: "udp", Src: netip.MustParseAddr("10.42.0.10"), SrcPort: 1029, Dst: netip.MustParseAddr("10.42.0.1"), DstPort: 53, Replied: true, Timeout: 25}},
 		}})
+	case "internet":
+		f.mu.Lock()
+		job := f.job
+		f.mu.Unlock()
+		return send(ctl.InternetReply{Uplink: "eth0", WifiOn: true, WifiHW: true, Saved: []string{"Lyman"}, Job: job, OnboardBT: false, Devices: []nm.Device{
+			{Iface: "eth0", Type: "ethernet", Connected: true, Carrier: true, Connection: "Wired connection 1", IP: "10.4.1.118/23", Gateway: "10.4.0.1"},
+			{Iface: "wlan0", Type: "wifi", State: "disconnected"},
+		}})
+	case "wifi.scan":
+		return send(ctl.WifiScanReply{Networks: []nm.Network{
+			{SSID: "Lyman", Signal: 82, FreqMHz: 5180, Security: "wpa", Saved: true},
+			{SSID: "Neighbour", Signal: 40, FreqMHz: 2437, Security: "wpa"},
+			{SSID: "Cafe", Signal: 20, FreqMHz: 2412, Security: "open"},
+			{SSID: "Office", Signal: 60, FreqMHz: 5500, Security: "enterprise"},
+		}})
+	case "wifi.join":
+		f.mu.Lock()
+		f.job = &ctl.WifiJob{SSID: req.WiFi.SSID, Started: time.Now()}
+		f.mu.Unlock()
+		return send(ctl.OKReply{OK: true})
+	case "internet.use":
+		if req.WiFi.Use == "wifi" {
+			return errors.New("Wi-Fi is not connected to a network: join one first")
+		}
+		return send(ctl.InternetUseReply{OK: true, Iface: "eth0"})
+	case "wifi.forget", "wifi.radio":
+		return send(ctl.OKReply{OK: true})
 	case "network.set":
 		n := req.Network
 		if n.Subnet == "10.4.0.0/24" {

@@ -2661,3 +2661,34 @@ unknown            tcp   10.42.0.10:46924      209.121.220.108:14244 10.4.1.118:
 The ctnetlink dump works from inside palm-gwd's sandbox. The entry is the T|X's last
 connection closing after its session ended, so it has no device name (D-055). Still to see:
 the card in a browser with the T|X connected and loading a page.
+
+### Part 3d: the internet connection wizard (D-056), 2026-11-12
+
+Zoe asked for a simple way to switch between Wi-Fi and Ethernet and to change Wi-Fi networks.
+On test22, against the Pi's NetworkManager 1.52.1 (`wlan0` disconnected, no saved Wi-Fi,
+regulatory domain CA from Imager). The scan's network names are not recorded here: they are the
+neighbours'.
+
+```
+$ palm-gwctl internet
+Ethernet eth0: Wired connection 1, 10.4.1.118/23 via 10.4.0.1  <- the internet connection
+Wi-Fi wlan0: disconnected
+$ palm-gwctl wifi scan          # names replaced
+net1 100% 2.4 GHz wpa
+net2 100% 2.4 GHz wpa
+net3  95% 2.4 GHz wpa
+net4  94% 2.4 GHz wpa
+net5  47% 2.4 GHz enterprise not supported here
+net6  40% 2.4 GHz wpa
+$ palm-gwctl internet use ethernet
+The internet connection is eth0.
+```
+
+Ethernet was already the uplink, so this changed no route metric and started no apply
+(`palm-gw-apply` inactive). Not yet tried, because it needs Zoe's Wi-Fi password, which only
+she types:
+- joining her network from the Internet page, which switches the uplink to wlan0 and
+  restarts palm-gwd;
+- a Palm reaching the internet through Wi-Fi;
+- "Use Ethernet for the internet" to switch back;
+- a wrong password, to see the rollback message.
