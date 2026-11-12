@@ -2465,3 +2465,28 @@ No pairing window was open.
 
 From the Mac: `/static/htmx.min.js` (52,182 bytes), `app.js` and `style.css` are served;
 `/pair` and `/events` without a session redirect to `/login`.
+
+**From a LAN browser (Zoe, Mac at 10.4.0.54), test16.** Forget the T|X on Devices, delete the
+gateway on the T|X, open a window on Pair, pair with the PIN shown, then Connect. palm-gwd's
+log (trimmed):
+
+```
+00:09:21 web_login       user=sysadmin side=lan ip=10.4.0.54
+00:09:30 forgotten       00:07:E0:3C:5E:FA
+00:09:30 web_forget      00:07:E0:3C:5E:FA user=sysadmin side=lan
+00:10:03 window_open     minutes=5 one=true
+00:10:03 web_pair_open   user=sysadmin side=lan minutes=5 one=true
+00:10:18 pin_requested   00:07:E0:3C:5E:FA "Zoë's Palm TX"
+00:10:18 paired          00:07:E0:3C:5E:FA "Zoë's Palm TX"
+00:10:18 window_closed   reason=one_device
+00:10:32 session_start   lap peer=10.42.0.10
+00:10:32 session_up      lap peer=10.42.0.10
+```
+
+The session was still up at 59 s (`palm-gwctl status`). Zoe: "Re-paired, works". Disconnect
+from the Devices page was not exercised in this run.
+
+**D-050's first-connect drop, again:** on the test14 card, before the web UI was installed, the
+first Connect after `palm-gwctl pair` ended after 39 s (23:35:46 to 23:36:25, `pppd_exit`) and
+the next after 15 s (23:36:34 to 23:36:49); later Connects held. The first Connect after the
+web pairing above held. Still open; a btmon trace of a failing attempt is the next step.
