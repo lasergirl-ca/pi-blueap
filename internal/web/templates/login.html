@@ -1,0 +1,14 @@
+{{define "login"}}{{template "head" .}}
+<section class="card narrow">
+  <h1>Log in</h1>
+  {{if .NoPassword}}<p class="error">No web password is set. On the Pi, run <code>sudo palm-gw web set-password</code>.</p>{{end}}
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+  <form method="post" action="/login">
+    <label>Username <input name="username" autocomplete="username" required autofocus></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    <button type="submit">Log in</button>
+  </form>
+  {{if .Fingerprint}}<p class="fp">Certificate SHA-256:<br><code>{{.Fingerprint}}</code><br>
+  Check it matches the one <code>palm-gw setup</code> printed before you trust this page.</p>{{end}}
+</section>
+{{template "foot" .}}{{end}}

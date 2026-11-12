@@ -49,10 +49,11 @@ table inet palm_gw {
         udp dport 53 accept
         tcp dport 53 accept
         udp dport 67 accept                                   comment "DHCP from PAN clients"
-        tcp dport 80 accept                                   comment "the /palm status page"
+        ip daddr {{GATEWAY}} tcp dport 80 accept              comment "the you-are-connected page (D-039)"
         icmp type { echo-request, destination-unreachable, time-exceeded } accept
         meta l4proto . th dport @pi_allow accept
-        tcp dport 8042 counter drop comment "palm->webui"
+{{if WEB_BT_SIDE}}        ip daddr {{GATEWAY}} tcp dport {{WEB_PORT}} accept      comment "web UI and API, TLS only (D-026, D-039)"
+{{end}}        tcp dport {{WEB_PORT}} counter drop comment "palm->webui-lan"
         counter drop comment "palm->pi"
     }
 }

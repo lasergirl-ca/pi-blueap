@@ -1,0 +1,21 @@
+{{define "dashboard"}}{{template "head" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{with .Status}}
+<section class="card">
+  <h2>Adapter</h2>
+  {{with .Adapter}}
+  <dl>
+    <dt>Name</dt><dd>{{.Alias}}</dd>
+    <dt>Address</dt><dd><code>{{.Address}}</code> ({{.HCI}}, {{.HWBus}})</dd>
+    <dt>Powered</dt><dd>{{yesno .Powered}}</dd>
+    <dt>Discoverable</dt><dd>{{yesno .Discoverable}}</dd>
+    <dt>Pairable</dt><dd>{{yesno .Pairable}}</dd>
+  </dl>
+  {{else}}<p class="error">No adapter: {{if .BlueZ.Present}}BlueZ has none that matches the configuration{{else}}BlueZ is not running{{end}}.</p>{{end}}
+</section>
+<section class="card">
+  <h2>Sessions</h2>
+  <p>{{len .Sessions}} PPP session(s), {{len .PAN.Clients}} PAN client(s), {{len .Allowlist}} allowlisted device(s). Up {{secs .UptimeSeconds}}.</p>
+</section>
+{{end}}
+{{template "foot" .}}{{end}}

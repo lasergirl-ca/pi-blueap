@@ -124,7 +124,13 @@ type Web struct {
 	TLSKeyFile   string   `toml:"tls_key_file" json:"tls_key_file"`
 	PasswordHash string   `toml:"password_hash" json:"password_hash"`
 	SessionHours int      `toml:"session_hours" json:"session_hours"`
-	AllowCIDRs   []string `toml:"allow_cidrs" json:"allow_cidrs"`
+	AllowCIDRs   []string `toml:"allow_cidrs" json:"allow_cidrs"` // the LAN listener only
+
+	// The Bluetooth-side listener on the gateway address, TLS only (D-026, D-039).
+	BluetoothSide bool `toml:"bluetooth_side" json:"bluetooth_side"`
+	// The optional read-only account (docs/WEB-UI.md section 3, D-049).
+	ViewerUsername     string `toml:"viewer_username" json:"viewer_username"`
+	ViewerPasswordHash string `toml:"viewer_password_hash" json:"viewer_password_hash"`
 }
 
 // Default returns the configuration that an empty file yields (PLAN.md section 7).
@@ -177,12 +183,13 @@ func Default() *Config {
 		Logging: Logging{Level: "info", Format: "json", BtmonOnFailure: false},
 		Ctl:     Ctl{Socket: "/run/palm-gw/ctl.sock", Group: "palm-gw"},
 		Web: Web{
-			Enabled:      true,
-			Username:     "admin",
-			Listen:       []string{"0.0.0.0:8042"},
-			TLS:          "self-signed",
-			SessionHours: 72,
-			AllowCIDRs:   []string{},
+			Enabled:       true,
+			Username:      "admin",
+			Listen:        []string{"0.0.0.0:8042"},
+			TLS:           "self-signed",
+			SessionHours:  72,
+			AllowCIDRs:    []string{},
+			BluetoothSide: true,
 		},
 	}
 }
@@ -235,6 +242,9 @@ func (c *Config) Redacted() *Config {
 	}
 	if cp.Web.PasswordHash != "" {
 		cp.Web.PasswordHash = "(redacted)"
+	}
+	if cp.Web.ViewerPasswordHash != "" {
+		cp.Web.ViewerPasswordHash = "(redacted)"
 	}
 	return &cp
 }

@@ -2,6 +2,7 @@ package ctl
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -136,6 +137,44 @@ func (s *Server) Close() {
 
 // Path returns the socket path.
 func (s *Server) Path() string { return s.path }
+
+// ErrUnknownCommand is returned by Call for a command no handler serves.
+var ErrUnknownCommand = errors.New("unknown command")
+
+// Call runs a command in-process, exactly as a socket client's request would
+// run, and hands each reply line to emit. The web UI uses it, so it offers
+// what palm-gwctl offers and nothing else (PLAN.md section 15). A handler's
+// error comes back as the error; an error from emit ends the command the way
+// a disconnecting client does.
+func (s *Server) Call(ctx context.Context, req Request, emit func(line json.RawMessage) error) error {
+	h, ok := s.handlers[req.Cmd]
+	if !ok {
+		return fmt.Errorf("%w %q", ErrUnknownCommand, req.Cmd)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	w := &Writer{enc: json.NewEncoder(lineFunc(func(p []byte) error {
+		line := make(json.RawMessage, len(p))
+		copy(line, p)
+		if err := emit(bytes.TrimRight(line, "\n")); err != nil {
+			cancel()
+			return err
+		}
+		return nil
+	}))}
+	return h(ctx, req, w)
+}
+
+// lineFunc is an io.Writer for json.Encoder, which writes each value, newline
+// included, in one Write.
+type lineFunc func(p []byte) error
+
+func (f lineFunc) Write(p []byte) (int, error) {
+	if err := f(p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
 
 func (s *Server) serveConn(parent context.Context, conn net.Conn) {
 	defer func() { _ = conn.Close() }()

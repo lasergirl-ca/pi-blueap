@@ -1,0 +1,28 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · {{.Gateway}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <span class="brand">{{.Gateway}}</span>
+  {{if .User}}<nav>
+    <a href="/">Dashboard</a>
+  </nav>
+  <form method="post" action="/logout" class="logout">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <span class="who">{{.User}}{{if eq .Role "viewer"}} (read-only){{end}}</span>
+    <button type="submit">Log out</button>
+  </form>{{end}}
+</header>
+<main>
+{{end}}
+
+{{define "foot"}}</main>
+<footer>palm-gw{{if .Version}} {{.Version}}{{end}}{{if eq .Side "bluetooth"}} · Bluetooth side, TLS{{end}}</footer>
+</body>
+</html>
+{{end}}

@@ -84,6 +84,7 @@ func TestNftAcceptsTemplateAndScript(t *testing.T) {
 	for _, mss := range []bool{true, false} {
 		cfg := config.Default()
 		cfg.Network.MSSClamp = mss
+		cfg.Web.BluetoothSide = mss // both renders of the 8042 rule, too
 		cfg.Firewall.Allow = []config.AllowRule{
 			{Host: "192.168.1.20", Ports: []string{"tcp/14238", "tcp/14237", "icmp"}},
 			{Host: "192.168.1.0/24", Ports: []string{"udp/5353", "tcp/14238"}},
@@ -100,5 +101,50 @@ func TestNftAcceptsTemplateAndScript(t *testing.T) {
 		if err != nil {
 			t.Fatalf("mss_clamp=%v: %v", mss, err)
 		}
+	}
+}
+
+// The web port: accepted on the gateway address only when the Bluetooth side
+// is on (D-026, D-039), and dropped from the Palm side on every other address.
+func TestTemplateWebRules(t *testing.T) {
+	tmpl, err := deploy.FS.ReadFile(deploy.Nftables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accept := "ip daddr 10.42.0.1 tcp dport 8042 accept"
+	for _, c := range []struct {
+		name   string
+		edit   func(*config.Config)
+		accept bool
+	}{
+		{"default", func(*config.Config) {}, true},
+		{"bluetooth side off", func(c *config.Config) { c.Web.BluetoothSide = false }, false},
+		{"tls off", func(c *config.Config) { c.Web.TLS = "off"; c.Web.BluetoothSide = false }, false},
+		{"web off", func(c *config.Config) { c.Web.Enabled = false }, false},
+	} {
+		cfg := config.Default()
+		c.edit(cfg)
+		table, err := cfg.Render(deploy.Nftables, string(tmpl))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(table, accept); got != c.accept {
+			t.Errorf("%s: 8042 accept present = %v", c.name, got)
+		}
+		if !strings.Contains(table, `tcp dport 8042 counter drop comment "palm->webui-lan"`) {
+			t.Errorf("%s: no 8042 drop", c.name)
+		}
+		if !strings.Contains(table, "ip daddr 10.42.0.1 tcp dport 80 accept") {
+			t.Errorf("%s: port 80 not limited to the gateway", c.name)
+		}
+		if i, j := strings.Index(table, accept), strings.Index(table, "palm->webui-lan"); c.accept && i > j {
+			t.Errorf("%s: the accept must come before the drop", c.name)
+		}
+	}
+	cfg := config.Default()
+	cfg.Web.Listen = []string{"0.0.0.0:9443"}
+	table, _ := cfg.Render(deploy.Nftables, string(tmpl))
+	if !strings.Contains(table, "ip daddr 10.42.0.1 tcp dport 9443 accept") || strings.Contains(table, "8042") {
+		t.Errorf("listen port 9443 not followed:\n%s", table)
 	}
 }

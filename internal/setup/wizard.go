@@ -405,6 +405,11 @@ func (w *wizard) web() error {
 		return fmt.Errorf("tls: want self-signed or off, got %q", w.pre.TLS)
 	}
 	w.set("web", "tls", TOMLString(tls), TOMLString(cur.TLS))
+	if tls == "off" && cur.BluetoothSide {
+		// The Bluetooth side is TLS only (D-039), so without TLS it goes.
+		w.note("Without HTTPS the web UI is LAN only: the Bluetooth side (the Palm app) needs TLS.")
+		w.set("web", "bluetooth_side", "false", "true")
+	}
 	return nil
 }
 

@@ -1,0 +1,23 @@
+{{define "connected"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>You are connected</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main>
+<section class="card narrow">
+  <h1>You are connected</h1>
+  <p>to {{.Name}}.</p>
+  <dl>
+    <dt>Your IP</dt><dd><code>{{.IP}}</code></dd>
+    <dt>Gateway</dt><dd><code>{{.Gateway}}</code></dd>
+  </dl>
+  {{if .AdminURL}}<p>Manage the gateway: <a href="{{.AdminURL}}">{{.AdminURL}}</a></p>{{end}}
+</section>
+</main>
+</body>
+</html>
+{{end}}

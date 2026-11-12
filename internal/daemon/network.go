@@ -135,7 +135,8 @@ func firstErr(errs ...error) error {
 // liveMerge copies onto a copy of cur the settings that take effect without a
 // restart (DECISIONS.md D-030): everything the daemon reads per use (pairing
 // window, PIN, trust), the allowlist, the firewall sets, and what dnsmasq
-// renders from. Everything else stays as it is until palm-gwd restarts.
+// renders from, and the web UI's accounts. Everything else stays as it is
+// until palm-gwd restarts.
 func liveMerge(cur, next *config.Config) *config.Config {
 	m := *cur
 	m.Bluetooth.PIN = next.Bluetooth.PIN
@@ -147,6 +148,11 @@ func liveMerge(cur, next *config.Config) *config.Config {
 	m.Network.DNSUpstream = next.Network.DNSUpstream
 	m.Network.DHCPPool = next.Network.DHCPPool
 	m.Firewall = next.Firewall
+	// The web UI reads its accounts on every login (D-051).
+	m.Web.Username = next.Web.Username
+	m.Web.PasswordHash = next.Web.PasswordHash
+	m.Web.ViewerUsername = next.Web.ViewerUsername
+	m.Web.ViewerPasswordHash = next.Web.ViewerPasswordHash
 	return &m
 }
 

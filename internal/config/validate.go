@@ -259,6 +259,18 @@ func (c *Config) Validate() error {
 				add(fmt.Sprintf("web.allow_cidrs[%d]", i), "must be an IPv4 address or CIDR, got %q", cidr)
 			}
 		}
+		if w.BluetoothSide && w.TLS == "off" {
+			add("web.tls", `must not be "off" while web.bluetooth_side is true: the Bluetooth side is TLS only (D-039)`)
+		}
+		if w.ViewerUsername != "" {
+			if !userRe.MatchString(w.ViewerUsername) {
+				add("web.viewer_username", "must be 1 to 32 letters, digits, '.', '_' or '-', got %q", w.ViewerUsername)
+			} else if w.ViewerUsername == w.Username {
+				add("web.viewer_username", "must differ from web.username")
+			}
+		} else if w.ViewerPasswordHash != "" {
+			add("web.viewer_password_hash", "set without web.viewer_username")
+		}
 	}
 
 	if len(errs) == 0 {

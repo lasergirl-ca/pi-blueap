@@ -2,11 +2,13 @@ package ctl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,5 +127,46 @@ func TestDialMissingSocket(t *testing.T) {
 	_, err := Dial(filepath.Join(t.TempDir(), "none.sock"))
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// Call runs a handler in-process: lines arrive in order, a handler error is
+// the error, an emit error cancels the command, and unknown commands fail.
+func TestCall(t *testing.T) {
+	s := NewServer("unused", "g", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s.Handle("count", func(ctx context.Context, req Request, w *Writer) error {
+		for i := 1; i <= req.Minutes; i++ {
+			if err := w.Send(map[string]int{"n": i}); err != nil {
+				<-ctx.Done() // a client that went away cancels the command
+				return nil
+			}
+		}
+		return nil
+	})
+	s.Handle("fail", func(context.Context, Request, *Writer) error { return errors.New("boom") })
+
+	var got []string
+	if err := s.Call(context.Background(), Request{Cmd: "count", Minutes: 3}, func(l json.RawMessage) error {
+		got = append(got, string(l))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != `{"n":1},{"n":2},{"n":3}` {
+		t.Errorf("lines %v", got)
+	}
+	stop := errors.New("enough")
+	n := 0
+	if err := s.Call(context.Background(), Request{Cmd: "count", Minutes: 5}, func(json.RawMessage) error {
+		n++
+		return stop
+	}); err != nil || n != 1 {
+		t.Errorf("emit error: err %v after %d lines", err, n)
+	}
+	if err := s.Call(context.Background(), Request{Cmd: "fail"}, func(json.RawMessage) error { return nil }); err == nil || err.Error() != "boom" {
+		t.Errorf("handler error: %v", err)
+	}
+	if err := s.Call(context.Background(), Request{Cmd: "nope"}, func(json.RawMessage) error { return nil }); !errors.Is(err, ErrUnknownCommand) {
+		t.Errorf("unknown: %v", err)
 	}
 }

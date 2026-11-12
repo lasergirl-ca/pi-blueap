@@ -272,11 +272,13 @@ palm-gw/
 │   ├── rfkill/
 │   │   └── rfkill.go                # clears a soft rfkill block on the gateway's adapter (D-046)
 │   └── web/
-│       ├── server.go                # net/http, auth, routes (section 8.12)
+│       ├── web.go                   # net/http routes, pages; actions go through ctl.Server.Call (section 8.12)
+│       ├── listen.go                # LAN, Bluetooth-side (TLS only) and port-80 listeners (D-026, D-039, D-051)
+│       ├── auth.go                  # sessions, CSRF, login rate limit, admin and viewer accounts
 │       ├── handlers_*.go            # status, pair, devices, firewall, logs, bundle, settings
 │       ├── templates/*.html         # embedded via embed.FS; htmx for live updates
 │       ├── static/                  # htmx.min.js (vendored), one CSS file
-│       └── server_test.go
+│       └── web_test.go
 ├── packaging/
 │   ├── nfpm.yaml                    # builds palm-gw_<ver>_arm64.deb
 │   ├── postinst, prerm, postrm      # create group, enable units, run `palm-gw setup --check` hints

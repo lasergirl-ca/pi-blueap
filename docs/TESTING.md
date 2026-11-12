@@ -2347,3 +2347,84 @@ palm-gw:x:985:sysadmin
 The image now goes from Imager to a paired Palm with no hand fixes: the dongle unblocked
 (D-046), Wi-Fi and passwordless sudo kept (D-047), `palm-gwctl` without sudo (D-048). This
 boot's journal holds no `sudo palm-gwctl`, so the pairing ran as `sysadmin`.
+
+## Phase 7: Web UI (in progress)
+
+Built in parts: (1) listeners and logins; (2) dashboard, pairing and devices; (3) firewall
+and settings, `palm-gw web set-password`; (4) logs, diagnostics, about; (5) `/api/v1/`;
+(6) acceptance on the Pi; (7) the Palm app, after Zoe's Palm development how-to (D-049).
+
+### Part 1: listeners, logins, the port-80 page, the 8042 rule (D-051), 2026-11-11
+
+`go test ./internal/web/` (httptest, a fake control backend, a fake clock):
+- every page needs a login on both sides (`GET /` → 303 to `/login`, `POST` → 401);
+- a wrong username and a wrong password give the same 401 page; the right ones give a cookie
+  that is HttpOnly, SameSite=Strict, and Secure only on TLS listeners;
+- logout needs the CSRF token (403 without it);
+- a LAN session is not valid on the Bluetooth side; sessions expire after `session_hours`;
+- a viewer logs in, the page says read-only, and a POST other than logout gets 403;
+- five failures per minute per side and source, then 429 with `Retry-After` even for the right
+  password; the other side is unaffected; after a minute it works again;
+- `allow_cidrs` checks the TCP peer, and `X-Forwarded-For`/`X-Real-IP` do not get round it;
+- with no password set, the login page says to run `palm-gw web set-password`;
+- the port-80 page shows the client's IP, the gateway and the admin link, and serves nothing
+  else;
+- the Bluetooth-side listener: plain HTTP gets **zero bytes**, TLS 1.2 is refused, TLS 1.3
+  serves the login page;
+- `wanted()`: LAN listeners on `lo`, `eth0`, `wlan0` and not on `br-palm`, `ppp*`, `bnep*`; the
+  gateway's 8042 (TLS) and 80 once the bridge holds the address; no Bluetooth side with TLS off.
+
+`go test ./internal/fw/`: the rendered table accepts 8042 on the gateway only when the
+Bluetooth side is on (not with it off, TLS off or the web UI off), always drops 8042 from the
+Palm side otherwise, limits port 80 to the gateway, and follows a non-default listen port.
+`go test ./internal/ctl/`: `Call` runs a handler in-process. `go test ./internal/setup/`: the
+wizard with TLS off writes `web.bluetooth_side = false`.
+
+On the test Pi, `0.6.0~test15` installed over test14 (`nft -c` accepted the new table):
+
+```
+web listener up  addr=127.0.0.1:8042   side=lan        tls=true
+web listener up  addr=10.4.1.118:8042  side=lan        tls=true
+web listener up  addr=10.42.0.1:80     side=connected  tls=false
+web listener up  addr=10.42.0.1:8042   side=bluetooth  tls=true
+```
+
+From the Mac (LAN):
+
+```
+$ curl -sk -o /dev/null -w "%{http_code}\n" https://10.4.1.118:8042/login
+200
+$ curl -sk https://10.4.1.118:8042/login | grep -oE "SHA-256:<br><code>[0-9A-F:]{20}"
+SHA-256:<br><code>D6:82:63:AA:E0:1A:0B
+$ echo | openssl s_client -connect 10.4.1.118:8042 | openssl x509 -noout -fingerprint -sha256
+sha256 Fingerprint=D6:82:63:AA:E0:1A:0B:…
+$ curl -sk -o /dev/null -w "%{http_code} -> %{redirect_url}\n" https://10.4.1.118:8042/
+303 -> https://10.4.1.118:8042/login
+$ curl -s -m 5 http://10.4.1.118:8042/      # plain HTTP on the TLS port
+(exit 52: empty reply)
+$ curl -s -m 5 http://10.4.1.118/           # port 80 on the LAN address
+(exit 7: connection refused)
+```
+
+On the Pi (the gateway address):
+
+```
+$ curl -sk --tlsv1.3 -o /dev/null -w "%{http_code}\n" https://10.42.0.1:8042/login
+200
+$ curl -sk --tls-max 1.2 https://10.42.0.1:8042/login
+(exit 35: TLS handshake refused)
+$ curl -s -m 5 http://10.42.0.1:8042/
+(exit 52: empty reply)
+$ curl -s http://10.42.0.1/ | grep -E "<h1>|<code>|href"
+  <h1>You are connected</h1>
+    <dt>Your IP</dt><dd><code>10.42.0.1</code></dd>
+    <dt>Gateway</dt><dd><code>10.42.0.1</code></dd>
+  <p>Manage the gateway: <a href="https://10.42.0.1:8042/">https://10.42.0.1:8042/</a></p>
+$ sudo nft list chain inet palm_gw palm_input | grep -E "dport (80|8042)"
+    ip daddr 10.42.0.1 tcp dport 80 accept comment "the you-are-connected page (D-039)"
+    ip daddr 10.42.0.1 tcp dport 8042 accept comment "web UI and API, TLS only (D-026, D-039)"
+    tcp dport 8042 counter packets 0 bytes 0 drop comment "palm->webui-lan"
+```
+
+Logging in with Zoe's password is hers to do from a LAN browser (no password was set or typed
+here). The Palm-side checks (fake-palm, a PAN laptop, `nmap`) are part 6.

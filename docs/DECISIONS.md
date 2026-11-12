@@ -841,6 +841,42 @@ Left open: the first Connect after pairing on the stock-card run timed out on th
 timeout", PPP up, no IP data from the Pi, 40 s); the next Connects worked. It has not recurred;
 a btmon trace of a failing attempt is the next step if it does.
 
+### D-051: Web UI part 1: how the listeners and logins work
+
+Phase 7 part 1 (`internal/web`). Where it departs from or fills in section 8.12 and
+docs/WEB-UI.md:
+- **Address changes are polled, not watched.** The listeners are re-derived from the host's
+  IPv4 addresses every 5 s (LAN addresses on non-Palm interfaces; the gateway address once
+  `br-palm` holds it) instead of following netlink notifications. Simpler, and a DHCP change on
+  the LAN is picked up within 5 s.
+- **Port 80 and 8042 on the Palm side are accepted only on the gateway address.** The template
+  used to accept port 80 to any Pi address from the Palm side; nothing listens there except on
+  the gateway, so the rule is narrowed to match section 10's "8042 only on 10.42.0.1" for 80
+  too. The 8042 drop follows the `[web].listen` port (`WEB_PORT`).
+- **Plain HTTP on a TLS port gets no answer.** net/http answers it with "400 Client sent an HTTP
+  request to an HTTPS server" in the clear; palm-gwd's TLS listeners hide the handshake from
+  net/http so the connection just closes. This applies to the LAN listener as well as the
+  Bluetooth side.
+- **TLS versions:** the Bluetooth side is TLS 1.3 only (D-039); the LAN listener accepts 1.2 and
+  up, for older LAN browsers.
+- **Sessions** live in memory (a daemon restart logs everyone out) and are bound to the side
+  they logged in on: a cookie from the LAN is not valid on the Bluetooth side or the reverse.
+  The cookie is `Secure` on TLS listeners only.
+- **The rate limit** is 5 failed logins per minute per side and source address; the sixth try
+  gets 429 with `Retry-After`, even with the right password.
+- **A wrong username costs the same as a wrong password:** one argon2id verification either way,
+  against a throwaway hash when the username does not match, and the same error page.
+- **Accounts reload live:** `web.username`, `web.password_hash` and the viewer's two keys are in
+  the live set of `reload` (D-030), so `palm-gw web set-password` plus `palm-gwctl reload`
+  needs no restart. The rest of `[web]` needs a restart.
+- **The certificate is never replaced by the daemon.** With `tls = "self-signed"` palm-gwd uses
+  the certificate setup made and creates one only if none is there, so a fingerprint the Palm
+  app pinned stays valid when the Pi's LAN address changes.
+- **The web UI's actions are control-socket commands,** run in-process through
+  `ctl.Server.Call`, so everything the UI does `palm-gwctl` can do too (section 15).
+- **`palm-gw setup` without HTTPS turns the Bluetooth side off** and says so, since
+  `config.Validate()` now refuses `tls = "off"` with `bluetooth_side = true`.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

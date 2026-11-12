@@ -272,6 +272,19 @@ func TestWizardUnattended(t *testing.T) {
 	if _, err := RunWizard(r, nil, Preset{Yes: true, Web: "off"}, nil); err != nil {
 		t.Fatal(err)
 	}
+
+	// Without TLS the Bluetooth side goes too (D-039, D-049).
+	plan, err = RunWizard(r, nil, Preset{Yes: true, WebPassword: &pw, TLS: "off"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := edit(plan, "web.bluetooth_side"); got != "false" {
+		t.Errorf("web.bluetooth_side = %q with tls off", got)
+	}
+	plan, _ = RunWizard(r, nil, Preset{Yes: true, WebPassword: &pw}, nil)
+	if _, ok := edit(plan, "web.bluetooth_side"); ok {
+		t.Error("web.bluetooth_side written with tls on")
+	}
 }
 
 // A second run that changes nothing writes nothing (PLAN.md Phase 6 accept).

@@ -79,10 +79,13 @@ group  = "palm-gw"                 # socket is 0660 root:palm-gw so an operator 
 [web]
 enabled        = true
 username       = "admin"            # set by `palm-gw setup` (D-026)
-listen         = ["0.0.0.0:8042"]   # bound to LAN addresses only at runtime; nftables drops 8042 from the Palm side
+listen         = ["0.0.0.0:8042"]   # bound to LAN addresses only at runtime; from the Palm side only the gateway address answers (TLS)
 tls            = "self-signed"      # "off" | "self-signed" | "file"
 tls_cert_file  = ""
 tls_key_file   = ""
 password_hash  = ""                 # argon2id; written by `palm-gw setup` or `palm-gw web set-password`
 session_hours  = 72
-allow_cidrs    = []                 # [] = any LAN source; or ["192.168.1.0/24"]
+allow_cidrs    = []                 # [] = any LAN source; or ["192.168.1.0/24"]; the LAN listener only
+bluetooth_side = true               # also serve the UI and API on the gateway address, TLS only (D-026, D-039)
+viewer_username      = ""           # optional read-only account (D-049)
+viewer_password_hash = ""

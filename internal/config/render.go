@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"text/template"
@@ -34,6 +35,9 @@ func (c *Config) Funcs() template.FuncMap {
 		"PPP_OPTIONS":  func() string { return c.PPP.OptionsFile },
 		"CTL_SOCKET":   func() string { return c.Ctl.Socket },
 		"CTL_GROUP":    func() string { return c.Ctl.Group },
+		// The web UI's port, and whether the Bluetooth side serves it (D-026, D-039).
+		"WEB_PORT":    c.WebPort,
+		"WEB_BT_SIDE": func() bool { return c.Web.Enabled && c.Web.BluetoothSide && c.Web.TLS != "off" },
 	}
 }
 
@@ -64,4 +68,14 @@ func netmask(bits int) string {
 		fmt.Sprint(m & 0xFF),
 	}
 	return strings.Join(parts, ".")
+}
+
+// WebPort is the port of the first [web].listen entry, 8042 if there is none.
+func (c *Config) WebPort() string {
+	for _, l := range c.Web.Listen {
+		if _, p, err := net.SplitHostPort(l); err == nil && p != "" {
+			return p
+		}
+	}
+	return "8042"
 }

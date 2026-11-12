@@ -157,6 +157,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	go d.ctl.Serve(ctx)
 	defer d.ctl.Close()
+	d.startWeb(ctx)
 
 	bus, err := bluez.Connect(d.opts.Log)
 	if err != nil {
