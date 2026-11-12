@@ -45,6 +45,12 @@ type Options struct {
 	DnsmasqUnit string
 	// DnsmasqLeases is dnsmasq's lease file, read to show PAN clients' addresses.
 	DnsmasqLeases string
+	// SetupBin is palm-gw, run for network changes ("" = next to palm-gwd);
+	// Command runs helpers (nil = exec); HostRoot is the filesystem root for
+	// host detection ("" = "/"). The last two are for tests (D-054).
+	SetupBin string
+	Command  func(ctx context.Context, name string, args ...string) ([]byte, error)
+	HostRoot string
 	// OnReady is called once, the first time the agent is registered
 	// (sd_notify READY=1 lives in main).
 	OnReady func()

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"palm-gw/internal/config"
+	"palm-gw/internal/ctl"
 	"palm-gw/internal/setup"
 )
 
@@ -66,8 +67,21 @@ func TestSettingsPage(t *testing.T) {
 	f, ts, c, tok := loggedIn(t, "admin", "admin-pw")
 	cfg := config.Default()
 	_, page, _ := get(t, c, ts.URL+"/settings")
-	if !strings.Contains(page, `value="Palm Gateway"`) || !strings.Contains(page, "sudo palm-gw setup") {
-		t.Errorf("settings page:\n%s", page)
+	for _, want := range []string{
+		`value="Palm Gateway"`,
+		`<option value="auto">Automatic: the first adapter found</option>`,
+		`<option value="hci0" selected>USB dongle 60:15:6F:EA:00:81 (hci0), in use now</option>`,
+		`<option value="2C:CF:67:2F:29:F5">Onboard radio 2C:CF:67:2F:29:F5 (hci1)</option>`,
+		`<option value="eth0" selected>Ethernet eth0, via router 10.4.0.1</option>`,
+		`<option value="wlan0">Wi-Fi wlan0 (5 GHz), via router 10.4.0.1</option>`,
+		`<option value="0" selected>Never</option>`,
+		`<option value="self-signed" selected>HTTPS with a self-signed certificate (recommended)</option>`,
+		`value="10.42.0.0/24"`,
+		"Apply network changes",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("settings page lacks %s", want)
+		}
 	}
 	form := func(edit func(url.Values)) url.Values {
 		v := url.Values{"csrf": {tok}, "bluetooth.name": {cfg.Bluetooth.Name}, "bluetooth.adapter": {cfg.Bluetooth.Adapter}, "ppp.idle_seconds": {"0"}}
@@ -76,15 +90,15 @@ func TestSettingsPage(t *testing.T) {
 	}
 	// Only what changed is set.
 	_, _, body := post(t, c, ts.URL+"/settings", form(func(v url.Values) { v.Set("bluetooth.name", "Lyman GW") }))
-	if len(f.set) != 1 || string(f.set["bluetooth.name"]) != `"Lyman GW"` || !strings.Contains(body, "Saved bluetooth.name.") {
+	if len(f.set) != 1 || string(f.set["bluetooth.name"]) != `"Lyman GW"` || !strings.Contains(body, "Saved: gateway name.") {
 		t.Errorf("name: %v", f.set)
 	}
-	if strings.Contains(body, "Waiting for a restart") {
+	if strings.Contains(body, "Restart now") {
 		t.Error("a live key asked for a restart")
 	}
 	// A restart-only key offers the Restart button.
 	_, _, body = post(t, c, ts.URL+"/settings", form(func(v url.Values) { v.Set("bluetooth.adapter", "hci1") }))
-	if !strings.Contains(body, "Waiting for a restart: bluetooth.adapter") {
+	if !strings.Contains(body, "used once palm-gwd restarts") || !strings.Contains(body, "Restart now") {
 		t.Errorf("adapter:\n%s", body)
 	}
 	// The daemon's validation error is shown.
@@ -104,6 +118,57 @@ func TestSettingsPage(t *testing.T) {
 	_, _, body = post(t, c, ts.URL+"/settings/restart", url.Values{"csrf": {tok}})
 	if _, ok := f.last("restart"); !ok || !strings.Contains(body, `http-equiv="refresh" content="10;url=/login"`) {
 		t.Errorf("restart:\n%s", body)
+	}
+}
+
+func TestAdapterOptionsKeepConfiguredForm(t *testing.T) {
+	c := ctl.ChoicesReply{Adapters: []setup.Adapter{{HCI: "hci0", Address: "60:15:6F:EA:00:81", Bus: "usb"}}}
+	// Configured as hci0: the option keeps "hci0", so saving unchanged changes nothing.
+	got := adapterOptions("hci0", c)
+	if len(got) != 2 || got[1].Value != "hci0" || !got[1].Selected {
+		t.Errorf("hci0: %+v", got)
+	}
+	// Configured adapter missing: still offered, and selected.
+	got = adapterOptions("AA:BB:CC:DD:EE:FF", c)
+	if last := got[len(got)-1]; last.Value != "AA:BB:CC:DD:EE:FF" || !last.Selected || !strings.Contains(last.Label, "not found now") {
+		t.Errorf("missing: %+v", got)
+	}
+	if u := uplinkOptions("usb0", ctl.ChoicesReply{}); len(u) != 1 || !u[0].Selected {
+		t.Errorf("uplink: %+v", u)
+	}
+	if o := idleOptions(45); !o[len(o)-1].Selected || o[len(o)-1].Value != "45" {
+		t.Errorf("idle: %+v", o)
+	}
+}
+
+func TestNetworkSave(t *testing.T) {
+	f, ts, c, tok := loggedIn(t, "admin", "admin-pw")
+	form := func(edit func(url.Values)) url.Values {
+		v := url.Values{"csrf": {tok}, "network.uplink": {"eth0"}, "network.subnet": {"10.42.0.0/24"}, "web.tls": {"self-signed"}, "web.bluetooth_side": {"1"}}
+		edit(v)
+		return v
+	}
+	_, _, body := post(t, c, ts.URL+"/settings/network", form(func(url.Values) {}))
+	if !strings.Contains(body, "Nothing changed.") {
+		t.Errorf("unchanged:\n%s", body)
+	}
+	req, _ := f.last("network.set")
+	if req.Network.BluetoothSide == nil || !*req.Network.BluetoothSide {
+		t.Errorf("bluetooth side not sent: %+v", req.Network)
+	}
+	code, _, body := post(t, c, ts.URL+"/settings/network", form(func(v url.Values) { v.Set("network.subnet", "10.4.0.0/24") }))
+	if code != http.StatusBadRequest || !strings.Contains(body, "10.43.0.0/24 is free") {
+		t.Errorf("clash: %d", code)
+	}
+	_, _, body = post(t, c, ts.URL+"/settings/network", form(func(v url.Values) { v.Set("network.uplink", "wlan0") }))
+	if !strings.Contains(body, "Saved: internet connection.") || !strings.Contains(body, `content="25;url=https://`) {
+		t.Errorf("uplink:\n%s", body)
+	}
+	// Plain HTTP: the Bluetooth side is not sent (the daemon turns it off), and the browser goes to http://.
+	_, _, body = post(t, c, ts.URL+"/settings/network", form(func(v url.Values) { v.Set("web.tls", "off") }))
+	req, _ = f.last("network.set")
+	if req.Network.TLS != "off" || req.Network.BluetoothSide != nil || !strings.Contains(body, `content="25;url=http://`) {
+		t.Errorf("tls off: %+v\n%s", req.Network, body)
 	}
 }
 
@@ -145,7 +210,7 @@ func TestViewerSettingsReadOnly(t *testing.T) {
 	if strings.Contains(page, "Change the web password") || !strings.Contains(page, "disabled") {
 		t.Error("viewer settings page is editable")
 	}
-	for _, u := range []string{"/firewall/add", "/firewall/1/delete", "/firewall/test", "/settings", "/settings/password", "/settings/restart"} {
+	for _, u := range []string{"/firewall/add", "/firewall/1/delete", "/firewall/test", "/settings", "/settings/network", "/settings/password", "/settings/restart"} {
 		if code, _, _ := post(t, c, ts.URL+u, url.Values{"csrf": {tok}}); code != http.StatusForbidden {
 			t.Errorf("viewer POST %s = %d", u, code)
 		}

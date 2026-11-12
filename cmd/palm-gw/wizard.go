@@ -168,6 +168,13 @@ func runWizard(f wizardFlags, cfgPath string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "    %s unchanged\n", cfgPath)
 	}
 
+	// Before ApplySystem restarts palm-gwd, so it starts with the new one.
+	fingerprint, err := webCert(cfg, stdout)
+	if err != nil {
+		fmt.Fprintln(stderr, "palm-gw setup: certificate:", err)
+		return 1
+	}
+
 	adapters, _ := bluezAdapters()
 	res, err := setup.ApplySystem(setup.ApplyOptions{
 		ConfigPath:  cfgPath,
@@ -184,18 +191,6 @@ func runWizard(f wizardFlags, cfgPath string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "palm-gw setup:", err)
 		return 1
-	}
-
-	fingerprint := ""
-	if cfg.Web.Enabled && cfg.Web.TLS == "self-signed" {
-		fmt.Fprintln(stdout, "==> Web UI certificate")
-		fp, created, err := setup.EnsureCert(setup.TLSDir, setup.LocalCertNames(cfg.Network.Gateway, []string{cfg.Network.Uplink}))
-		if err != nil {
-			fmt.Fprintln(stderr, "palm-gw setup: certificate:", err)
-			return 1
-		}
-		fingerprint = fp
-		fmt.Fprintf(stdout, "    %s/cert.pem %s\n", setup.TLSDir, map[bool]string{true: "created", false: "unchanged"}[created])
 	}
 
 	paired := ""

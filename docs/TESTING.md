@@ -2576,3 +2576,68 @@ palm-gw web set-password: run it as root: sudo palm-gw web set-password
 ```
 
 The copy was shredded afterwards.
+
+**From Zoe's browser (test18), 2026-11-12:** she renamed the gateway on Settings to "Palm
+Gateway - Lyman - Test" and the T|X's Add Device search listed the new name ("New name
+shows"). The log has `config_set key=bluetooth.name`, `adapter_renamed alias="Palm Gateway -
+Lyman - Test"` and `web_setting user=sysadmin key=bluetooth.name` at 09:07:25, with no restart.
+She kept the new name. She had also added a firewall rule at 09:01:53 (`config_set
+key=firewall.allow`). This is Phase 7's "change the gateway name … after a re-scan".
+
+### Part 3b: drop-downs and network settings from the browser (D-054), 2026-11-12
+
+Zoe asked for the adapter as a drop-down, and for the settings shown as "changed with `sudo
+palm-gw setup`" to be changeable on the page, made friendlier. Section 8.12 lists them on
+`/settings` anyway. On test20 (test19 found the bug below):
+
+```
+$ palm-gwctl choices
+Bluetooth adapters:
+  USB dongle 60:15:6F:EA:00:81 (hci0)  <- in use
+Internet connections (uplink = "eth0"):
+  Ethernet eth0, via router 10.4.0.1  <- in use
+Palm network: 10.42.0.0/24, gateway 10.42.0.1
+Web UI: tls = self-signed, Bluetooth side on
+$ palm-gwctl network --bluetooth-side off
+Saved web.bluetooth_side.
+Applying with palm-gw setup --apply (journalctl -u palm-gw-apply); palm-gwd restarts when it is done.
+$ palm-gwctl choices | tail -2                                  # about 15 s later
+Web UI: tls = self-signed, Bluetooth side off
+Last network apply: OK, 2026-11-12 09:21:17
+$ sudo nft list chain inet palm_gw palm_input | grep -c "web UI and API"
+0
+$ sudo cat /var/lib/palm-gw/last-apply.json
+{ "finished": "2026-11-12T16:21:17Z", "ok": true, "changed": [ "/etc/nftables.d/palm-gw.nft" ],
+  "warnings": [ "the Pi has been under-voltage since boot …", "Pi 5 supply negotiated 3000 mA …" ],
+  "fingerprint": "D6:82:63:AA:E0:1A:0B:…" }
+$ palm-gwctl network --bluetooth-side on                         # and back
+$ sudo nft list chain inet palm_gw palm_input | grep -c "web UI and API"
+1
+$ sudo ss -ltnH "sport = :8042" | awk '{print $4}'
+127.0.0.1:8042
+10.4.1.118:8042
+10.42.0.1:8042
+$ palm-gwctl network --uplink eth9
+palm-gwctl: uplink: this Pi has no interface called "eth9"
+$ palm-gwctl network --subnet 10.4.0.0/24
+palm-gwctl: 10.4.0.0/24 overlaps a network this Pi is on (eth0 10.4.0.0/23); 10.43.0.0/24 is free
+$ palm-gwctl network --uplink eth0 --subnet 10.42.0.0/24 --tls self-signed
+Nothing changed.
+```
+
+So palm-gwd, inside its sandbox, started `palm-gw setup --apply` with `systemd-run`, which
+rewrote the firewall outside the sandbox and restarted palm-gwd. The certificate was kept
+(same fingerprint). Afterwards the only difference in `config.toml` was an explicit
+`bluetooth_side = true` line, the default, since Zoe's file predates the key. Her file was put
+back from the copy taken first (sha `98805e63…`, with her new name and rule).
+
+**Found on test19:** `network --bluetooth-side off` was refused with "config:
+firewall.allow.bluetooth_side: unknown key". `[web]` had no `bluetooth_side` line, so the
+editor added one after the section's last key. But its section pattern did not match
+`[[firewall.allow]]`, so it thought `[web]` ran on into the firewall rules at the end of the
+file, and put the line there. Validation caught it, so nothing was written. Fixed: `[[…]]`
+ends a section (`TestSetKeyMissingBeforeArrayTables`).
+
+Not tried on the Pi: changing the uplink (wlan0 is down, so eth0 is the only choice) or the
+subnet. Both go through the same apply, and the unit tests cover the edits. The subnet change
+also makes a new certificate, because the gateway address is in it.

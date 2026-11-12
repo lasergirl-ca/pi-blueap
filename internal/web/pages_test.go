@@ -20,6 +20,7 @@ import (
 	"palm-gw/internal/ctl"
 	"palm-gw/internal/event"
 	"palm-gw/internal/ppp"
+	"palm-gw/internal/setup"
 )
 
 // daemonFake stands in for palm-gwd's control handlers: a status with one
@@ -153,6 +154,35 @@ func (f *daemonFake) Call(ctx context.Context, req ctl.Request, emit func(json.R
 		return send(ctl.TestReply{OK: req.Port == 14238, Host: req.Host, Port: req.Port, Millis: 3, Allowed: req.Port == 14238, Problem: "connection refused"})
 	case "restart":
 		return send(ctl.OKReply{OK: true})
+	case "choices":
+		return send(ctl.ChoicesReply{
+			Adapters: []setup.Adapter{
+				{HCI: "hci0", Address: "60:15:6F:EA:00:81", Bus: "usb", Powered: true},
+				{HCI: "hci1", Address: "2C:CF:67:2F:29:F5", Bus: "uart"},
+			},
+			AdapterIn: "60:15:6F:EA:00:81",
+			Uplinks: []setup.Uplink{
+				{Iface: "eth0", Gateway: "10.4.0.1", Metric: 100},
+				{Iface: "wlan0", Gateway: "10.4.0.1", Metric: 600, Wireless: true, FreqMHz: 5180},
+			},
+			Subnet: &setup.Subnet{Want: "10.42.0.0/24", Free: true},
+		})
+	case "network.set":
+		n := req.Network
+		if n.Subnet == "10.4.0.0/24" {
+			return errors.New("10.4.0.0/24 overlaps a network this Pi is on (eth0 10.4.0.0/23); 10.43.0.0/24 is free")
+		}
+		var changed []string
+		if n.Uplink != "" && n.Uplink != "eth0" {
+			changed = append(changed, "network.uplink")
+		}
+		if n.Subnet != "" && n.Subnet != "10.42.0.0/24" {
+			changed = append(changed, "network.subnet", "network.gateway")
+		}
+		if n.TLS == "off" {
+			changed = append(changed, "web.tls", "web.bluetooth_side")
+		}
+		return send(ctl.NetworkSetReply{OK: true, Changed: changed, Applying: len(changed) > 0, Unit: "palm-gw-apply"})
 	}
 	return ctl.ErrUnknownCommand
 }

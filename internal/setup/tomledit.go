@@ -46,7 +46,8 @@ func TOMLStrings(ss []string) string {
 }
 
 var (
-	tomlSectionRe = regexp.MustCompile(`^\s*\[([A-Za-z0-9_.-]+)\]`)
+	// [table] and [[array.of.tables]] both end the section before them.
+	tomlSectionRe = regexp.MustCompile(`^\s*\[\[?\s*([A-Za-z0-9_.-]+)\s*\]\]?`)
 	tomlKeyRe     = regexp.MustCompile(`^(\s*)([A-Za-z0-9_-]+)(\s*=\s*)(.*)$`)
 )
 

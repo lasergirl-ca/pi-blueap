@@ -923,7 +923,7 @@ docs/WEB-UI.md:
   the adapter's Alias is set at once, and pppd options apply to the next session. Phase 7's
   accept asks for the gateway name to change from the browser; no restart is needed for it.
 - **The settings page edits only the gateway name, the adapter, the PPP idle timeout and debug,
-  and the web password.** The uplink, subnet and TLS mode are shown read-only with "changed
+  and the web password.** (Superseded by D-054: the uplink, subnet and TLS mode are editable too.) The uplink, subnet and TLS mode are shown read-only with "changed
   with `sudo palm-gw setup`": they also re-render nftables, dnsmasq and the bridge, which only
   setup does. Keys that need a restart are named, with a Restart button (`restart`: palm-gwd
   answers, then stops cleanly, and systemd's `Restart=always` starts it).
@@ -935,6 +935,45 @@ docs/WEB-UI.md:
 - **The drop counters** come from `nft -j list table inet palm_gw` (`firewall.counters`).
 - `palm-gw web set-password [--viewer] [--user NAME]` prompts twice (no echo on a terminal; one
   line each when piped), checks the length, writes the hash and reloads palm-gwd.
+
+### D-054: Network settings from the browser, through a transient `palm-gw setup --apply`
+
+- **The uplink, the Palm subnet, the web TLS mode and the Bluetooth side are set on the settings
+  page,** as section 8.12 lists, instead of being shown read-only (D-053). Zoe asked for it.
+  They re-render nftables, dnsmasq, the bridge and the certificate. palm-gwd cannot write those,
+  because `ProtectSystem=strict` leaves only `/etc/palm-gw` and `/etc/ppp` writable. Section
+  8.10 says to relax the sandbox only for what breaks; this keeps it as it is.
+- **How:** `network.set` checks the change and writes `config.toml`. Then it runs `systemd-run
+  --unit=palm-gw-apply --collect palm-gw setup --apply --config … --record
+  /var/lib/palm-gw/last-apply.json`. That is the same apply as the wizard, run outside
+  palm-gwd's sandbox and cgroup, so it survives the `systemctl restart palm-gwd` it ends with.
+  palm-gwd is root and already talks to the system bus, so this needs no new privilege. If
+  `systemd-run` fails, `config.toml` is put back, so a later restart does not pick up half a
+  change. While the unit is active, a second change is refused.
+- **Checks before saving:** the uplink must be an interface on the Pi and not one of the
+  gateway's own. The subnet must be an IPv4 /24 that overlaps none of the host's networks; the
+  error names the clash and the first free 10.N.0.0/24. The subnet moves the gateway (.1) and
+  both pools with it (`SubnetEdits`, as in the wizard). HTTPS off turns the Bluetooth side off,
+  which is TLS only (D-039). The page does this quietly; `palm-gwctl` asking for both is an
+  error.
+- **`--record`** writes how the run went: when, OK or the error, changed files, warnings, the
+  certificate fingerprint. The settings page and `palm-gwctl choices` show it. A failed apply
+  leaves the new values saved but not in effect, and the page says so.
+- **The certificate is now made before the restart,** in both `--apply` and the wizard (it was
+  after, so palm-gwd served the old certificate until its next restart). A new gateway address
+  or uplink makes a new one, so the fingerprint changes; the page warns about it.
+- **Drop-downs:** the adapter (Automatic plus each adapter BlueZ sees, labelled "USB dongle"
+  or "Onboard radio" with address and hciN; one configured as `hci0` keeps that value, so
+  saving unchanged changes nothing), the internet connection (interfaces with a default route,
+  "Ethernet eth0, via router 10.4.0.1", "Wi-Fi wlan0 (5 GHz)"), the idle hang-up (Never to an
+  hour), and HTTPS on or off. A configured value that is not there now stays listed and
+  selected. Turning the onboard radio off for good (dongle mode, a reboot) is still `sudo
+  palm-gw setup`.
+- **The editor's section pattern now matches `[[array.tables]]`.** Before, a key missing from
+  `[web]` was added inside the `[[firewall.allow]]` tables at the end of the file (found on the
+  Pi, refused by validation).
+- `palm-gwctl choices` and `palm-gwctl network [--uplink] [--subnet] [--tls] [--bluetooth-side]`
+  are the same commands.
 
 ## Hardware observations
 

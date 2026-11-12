@@ -48,6 +48,15 @@ func (h Host) path(p string) string {
 	return filepath.Join(root, p)
 }
 
+// HasIface reports whether the host has a network interface called name.
+func (h Host) HasIface(name string) bool {
+	if name == "" || strings.ContainsAny(name, "/.") {
+		return false
+	}
+	_, err := os.Stat(h.path("sys/class/net/" + name))
+	return err == nil
+}
+
 func (h Host) read(p string) ([]byte, error) { return os.ReadFile(h.path(p)) }
 
 func (h Host) run(name string, args ...string) ([]byte, error) {

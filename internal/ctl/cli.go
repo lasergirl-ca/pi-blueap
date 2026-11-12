@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"palm-gw/internal/config"
+	"palm-gw/internal/setup"
 )
 
 var btAddrRe = regexp.MustCompile(`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`)
@@ -59,6 +60,11 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 	asJSON := fs.Bool("json", false, "print the raw JSON reply")
 	one := fs.Bool("one", false, "pair: close the window after one device pairs")
 	comment := fs.String("comment", "", "firewall add: a comment for the rule")
+	var nc setup.NetworkChange
+	fs.StringVar(&nc.Uplink, "uplink", "", "network: the interface Palm traffic goes out of")
+	fs.StringVar(&nc.Subnet, "subnet", "", "network: the Palm network, an IPv4 /24")
+	fs.StringVar(&nc.TLS, "tls", "", "network: web UI HTTPS, self-signed or off")
+	btSide := fs.String("bluetooth-side", "", "network: web UI over Bluetooth, on or off")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() { usage(stderr) }
 	rest, err := parseInterleaved(fs, args)
@@ -150,6 +156,22 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 		return c.firewall(cmdArgs, *comment)
 	case "restart":
 		return c.restart()
+	case "choices":
+		return c.choices()
+	case "network":
+		switch *btSide {
+		case "":
+		case "on", "off":
+			v := *btSide == "on"
+			nc.BluetoothSide = &v
+		default:
+			fmt.Fprintln(stderr, "palm-gwctl network: --bluetooth-side wants on or off")
+			return 2
+		}
+		if nc == (setup.NetworkChange{}) {
+			return c.choices()
+		}
+		return c.network(nc)
 	case "capture", "check", "class", "bundle":
 		fmt.Fprintf(stderr, "palm-gwctl %s: not implemented until Phase 6 or 7\n", cmd)
 		return 2
@@ -193,6 +215,9 @@ Commands:
   firewall counters           packets the drop rules have stopped
   firewall test <host> <port> TCP connect from the Pi
   restart                     restart palm-gwd
+  choices / network           adapters, uplinks and the Palm network check, and the last apply
+  network [--uplink IF] [--subnet A.B.C.0/24] [--tls self-signed|off] [--bluetooth-side on|off]
+                              change them; runs palm-gw setup --apply, which restarts palm-gwd
   check                       health report
   class toggle                swap Class of Device with class_fallback
   bundle                      write a support bundle
@@ -885,5 +910,79 @@ func (c *cli) restart() int {
 	if !printed {
 		fmt.Fprintln(c.stdout, "palm-gwd is restarting.")
 	}
+	return 0
+}
+
+func (c *cli) choices() int {
+	var r ChoicesReply
+	printed, err := c.call(Request{Cmd: "choices"}, &r)
+	if err != nil || printed {
+		if err != nil {
+			return c.fail(err)
+		}
+		return 0
+	}
+	var st StatusReply
+	_ = Call(c.socket, Request{Cmd: "status"}, &st)
+	cfg := st.Config
+	fmt.Fprintln(c.stdout, "Bluetooth adapters:")
+	if len(r.Adapters) == 0 {
+		fmt.Fprintln(c.stdout, "  none (is bluetooth.service running?)")
+	}
+	for _, a := range r.Adapters {
+		mark := ""
+		if strings.EqualFold(a.Address, r.AdapterIn) {
+			mark = "  <- in use"
+		}
+		fmt.Fprintf(c.stdout, "  %s%s\n", a.Label(), mark)
+	}
+	fmt.Fprintf(c.stdout, "Internet connections (uplink = %q):\n", cfg.Network.Uplink)
+	if len(r.Uplinks) == 0 {
+		fmt.Fprintln(c.stdout, "  none has a default route")
+	}
+	for _, u := range r.Uplinks {
+		mark := ""
+		if u.Iface == cfg.Network.Uplink {
+			mark = "  <- in use"
+		}
+		fmt.Fprintf(c.stdout, "  %s%s\n", u.Label(), mark)
+	}
+	fmt.Fprintf(c.stdout, "Palm network: %s, gateway %s", cfg.Network.Subnet, cfg.Network.Gateway)
+	if s := r.Subnet; s != nil && !s.Free {
+		fmt.Fprintf(c.stdout, " (overlaps %s; %s is free)", strings.Join(s.Conflicts, ", "), s.Suggest)
+	}
+	fmt.Fprintln(c.stdout)
+	side := "off"
+	if cfg.Web.BluetoothSide {
+		side = "on"
+	}
+	fmt.Fprintf(c.stdout, "Web UI: tls = %s, Bluetooth side %s\n", cfg.Web.TLS, side)
+	switch a := r.LastApply; {
+	case r.Applying:
+		fmt.Fprintln(c.stdout, "Applying network settings now.")
+	case a == nil:
+	case a.OK:
+		fmt.Fprintf(c.stdout, "Last network apply: OK, %s\n", a.Finished.Local().Format("2006-01-02 15:04:05"))
+	default:
+		fmt.Fprintf(c.stdout, "Last network apply FAILED, %s: %s\n", a.Finished.Local().Format("2006-01-02 15:04:05"), a.Error)
+	}
+	return 0
+}
+
+func (c *cli) network(nc setup.NetworkChange) int {
+	var r NetworkSetReply
+	printed, err := c.call(Request{Cmd: "network.set", Network: &nc}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	if !r.Applying {
+		fmt.Fprintln(c.stdout, "Nothing changed.")
+		return 0
+	}
+	fmt.Fprintf(c.stdout, "Saved %s.\n", strings.Join(r.Changed, ", "))
+	fmt.Fprintf(c.stdout, "Applying with palm-gw setup --apply (journalctl -u %s); palm-gwd restarts when it is done.\n", r.Unit)
 	return 0
 }

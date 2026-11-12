@@ -76,7 +76,9 @@ func newServer(t *testing.T, edit func(*config.Config)) (*Server, *clock) {
 	if edit != nil {
 		edit(cfg)
 	}
-	clk := &clock{t: time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)}
+	// The real time, not a fixed date: the cookie jar expires cookies by the
+	// real clock, so a fixed start turns into a failure once it has passed.
+	clk := &clock{t: time.Now().UTC().Truncate(time.Second)}
 	s, err := New(Options{Config: func() *config.Config { return cfg }, Backend: &fakeBackend{}, Now: clk.now, Version: "test"})
 	if err != nil {
 		t.Fatal(err)

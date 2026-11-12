@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,6 +29,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux, side Side) {
 	mux.Handle("POST /firewall/test", a(s.firewallTest))
 	mux.Handle("GET /settings", a(s.settingsPage))
 	mux.Handle("POST /settings", a(s.settingsSave))
+	mux.Handle("POST /settings/network", a(s.networkSave))
 	mux.Handle("POST /settings/password", a(s.passwordChange))
 	mux.Handle("POST /settings/restart", a(s.restart))
 }
@@ -186,16 +189,76 @@ func (s *Server) firewallTest(w http.ResponseWriter, r *http.Request) {
 	s.renderFirewall(w, r, http.StatusOK, map[string]any{"Test": t})
 }
 
-// settingField is one editable setting.
-type settingField struct {
-	Key, Label, Help string
-	Restart          bool // takes effect after a restart
+// option is one entry of a drop-down.
+type option struct {
+	Value, Label string
+	Selected     bool
 }
 
-var settingFields = []settingField{
-	{Key: "bluetooth.name", Label: "Gateway name", Help: "What a Palm shows when it searches for devices. Applies at once; a Palm sees it after its next search."},
-	{Key: "bluetooth.adapter", Label: "Bluetooth adapter", Help: `"hci0", "hci1", "auto" or an adapter's address. Takes effect after a restart.`, Restart: true},
-	{Key: "ppp.idle_seconds", Label: "PPP idle timeout (seconds)", Help: "0 = never. Applies to the next connection."},
+// adapterOptions offers "auto" and every adapter BlueZ sees. An adapter
+// configured by its hciN keeps that value, so saving the page unchanged
+// changes nothing; a configured adapter that is not there now is kept too.
+func adapterOptions(cur string, c ctl.ChoicesReply) []option {
+	opts := []option{{"auto", "Automatic: the first adapter found", cur == "auto"}}
+	found := cur == "auto"
+	for _, a := range c.Adapters {
+		o := option{Value: a.Address, Label: a.Label()}
+		if strings.EqualFold(a.Address, c.AdapterIn) {
+			o.Label += ", in use now"
+		}
+		if strings.EqualFold(cur, a.Address) || cur == a.HCI {
+			o.Value, o.Selected, found = cur, true, true
+		}
+		opts = append(opts, o)
+	}
+	if !found && cur != "" {
+		opts = append(opts, option{cur, cur + " (not found now)", true})
+	}
+	return opts
+}
+
+// uplinkOptions offers the interfaces with a default route, and the
+// configured one even when it has none now.
+func uplinkOptions(cur string, c ctl.ChoicesReply) []option {
+	var opts []option
+	found := false
+	for _, u := range c.Uplinks {
+		opts = append(opts, option{u.Iface, u.Label(), u.Iface == cur})
+		found = found || u.Iface == cur
+	}
+	if !found {
+		opts = append(opts, option{cur, cur + " (no internet route now)", true})
+	}
+	return opts
+}
+
+var idleChoices = []struct {
+	secs  int
+	label string
+}{{0, "Never"}, {300, "After 5 minutes"}, {600, "After 10 minutes"}, {900, "After 15 minutes"}, {1800, "After 30 minutes"}, {3600, "After an hour"}}
+
+func idleOptions(cur int) []option {
+	var opts []option
+	found := false
+	for _, c := range idleChoices {
+		opts = append(opts, option{strconv.Itoa(c.secs), c.label, c.secs == cur})
+		found = found || c.secs == cur
+	}
+	if !found {
+		opts = append(opts, option{strconv.Itoa(cur), fmt.Sprintf("After %d seconds", cur), true})
+	}
+	return opts
+}
+
+func tlsOptions(cur string) []option {
+	opts := []option{
+		{"self-signed", "HTTPS with a self-signed certificate (recommended)", cur == "self-signed"},
+		{"off", "Plain HTTP, home network only", cur == "off"},
+	}
+	if cur == "file" {
+		opts = append(opts, option{"file", "HTTPS with your own certificate files", true})
+	}
+	return opts
 }
 
 func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
@@ -206,16 +269,15 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, code int
 	data := s.page(r, "Settings")
 	cfg := s.o.Config()
 	data["Config"] = cfg
-	data["Fields"] = settingFields
-	data["Values"] = map[string]string{
-		"bluetooth.name":    cfg.Bluetooth.Name,
-		"bluetooth.adapter": cfg.Bluetooth.Adapter,
-		"ppp.idle_seconds":  strconv.Itoa(cfg.PPP.IdleSeconds),
+	var c ctl.ChoicesReply
+	if err := s.call(r.Context(), ctl.Request{Cmd: "choices"}, &c); err != nil {
+		data["ChoicesError"] = err.Error()
 	}
-	st, err := s.status(r.Context())
-	if err == nil {
-		data["Adapter"] = st.Adapter
-	}
+	data["Choices"] = c
+	data["Adapters"] = adapterOptions(cfg.Bluetooth.Adapter, c)
+	data["Uplinks"] = uplinkOptions(cfg.Network.Uplink, c)
+	data["Idle"] = idleOptions(cfg.PPP.IdleSeconds)
+	data["TLSModes"] = tlsOptions(cfg.Web.TLS)
 	for k, v := range extra {
 		data[k] = v
 	}
@@ -240,7 +302,7 @@ func (s *Server) settingsSave(w http.ResponseWriter, r *http.Request) {
 	if v := strings.TrimSpace(r.PostFormValue("ppp.idle_seconds")); v != strconv.Itoa(cfg.PPP.IdleSeconds) {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			s.renderSettings(w, r, http.StatusBadRequest, map[string]any{"Error": fmt.Sprintf("PPP idle timeout: %q is not a number of seconds.", v)})
+			s.renderSettings(w, r, http.StatusBadRequest, map[string]any{"Error": fmt.Sprintf("Hang up idle connections: %q is not a number of seconds.", v)})
 			return
 		}
 		changes = append(changes, change{"ppp.idle_seconds", n})
@@ -267,11 +329,97 @@ func (s *Server) settingsSave(w http.ResponseWriter, r *http.Request) {
 		restart = append(restart, rep.Reload.NeedsRestart...)
 		s.log.Info("web: setting changed", "event", "web_setting", "user", sessionOf(r).user, "key", c.key)
 	}
-	extra := map[string]any{"Done": "Saved " + strings.Join(saved, ", ") + "."}
+	extra := map[string]any{"Done": "Saved: " + friendlyKeys(saved) + "."}
 	if len(restart) > 0 {
 		extra["NeedsRestart"] = dedupe(restart)
 	}
 	s.renderSettings(w, r, http.StatusOK, extra)
+}
+
+// keyNames are the settings as the page calls them.
+var keyNames = map[string]string{
+	"bluetooth.name":     "gateway name",
+	"bluetooth.adapter":  "Bluetooth adapter",
+	"ppp.idle_seconds":   "idle hang-up",
+	"ppp.debug":          "connection logging",
+	"network.uplink":     "internet connection",
+	"network.subnet":     "Palm network",
+	"network.gateway":    "gateway address",
+	"network.ppp_pool":   "Palm addresses",
+	"network.dhcp_pool":  "laptop addresses",
+	"web.tls":            "web UI security",
+	"web.bluetooth_side": "web UI over Bluetooth",
+}
+
+func friendlyKeys(keys []string) string {
+	var out []string
+	for _, k := range keys {
+		if n, ok := keyNames[k]; ok {
+			k = n
+		}
+		out = append(out, k)
+	}
+	return strings.Join(dedupe(out), ", ")
+}
+
+// networkSave sends the network card to network.set, which saves it and
+// starts `palm-gw setup --apply`; palm-gwd restarts when that is done
+// (D-054). Turning HTTPS off turns the Bluetooth side off with it.
+func (s *Server) networkSave(w http.ResponseWriter, r *http.Request) {
+	nc := setup.NetworkChange{
+		Uplink: strings.TrimSpace(r.PostFormValue("network.uplink")),
+		Subnet: strings.TrimSpace(r.PostFormValue("network.subnet")),
+		TLS:    r.PostFormValue("web.tls"),
+	}
+	if nc.TLS == "file" {
+		nc.TLS = "" // set by hand in config.toml; the page leaves it alone
+	}
+	newTLS := nc.TLS
+	if newTLS == "" {
+		newTLS = s.o.Config().Web.TLS
+	}
+	side := false
+	if newTLS != "off" {
+		side = r.PostFormValue("web.bluetooth_side") != ""
+		nc.BluetoothSide = &side
+	}
+	var rep ctl.NetworkSetReply
+	if err := s.call(r.Context(), ctl.Request{Cmd: "network.set", Network: &nc}, &rep); err != nil {
+		s.renderSettings(w, r, http.StatusBadRequest, map[string]any{"NetworkError": err.Error()})
+		return
+	}
+	if !rep.Applying {
+		s.renderSettings(w, r, http.StatusOK, map[string]any{"NetworkDone": "Nothing changed."})
+		return
+	}
+	se := sessionOf(r)
+	s.log.Info("web: network settings changed", "event", "web_setting", "user", se.user, "keys", rep.Changed)
+	data := s.page(r, "Applying")
+	data["Changed"] = friendlyKeys(rep.Changed)
+	// Where the UI will be once palm-gwd is back.
+	next := ""
+	switch {
+	case se.side == SideBluetooth && !side:
+		data["Gone"] = true
+	case se.side == SideBluetooth:
+		gw := s.o.Config().Network.Gateway
+		if p, err := netip.ParsePrefix(nc.Subnet); err == nil && nc.Subnet != "" {
+			a := p.Addr().As4()
+			gw = netip.AddrFrom4([4]byte{a[0], a[1], a[2], 1}).String()
+		}
+		next = "https://" + net.JoinHostPort(gw, s.o.Config().WebPort()) + "/login"
+	default:
+		scheme := "https"
+		if newTLS == "off" {
+			scheme = "http"
+		}
+		next = scheme + "://" + r.Host + "/login"
+	}
+	if next != "" {
+		data["Next"] = next
+		data["Refresh"] = "25;url=" + next
+	}
+	s.render(w, r, http.StatusOK, "applying", data)
 }
 
 func dedupe(ss []string) []string {

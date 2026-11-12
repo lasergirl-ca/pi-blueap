@@ -19,6 +19,7 @@ import (
 	"palm-gw/internal/config"
 	"palm-gw/internal/ppp"
 	"palm-gw/internal/profile"
+	"palm-gw/internal/setup"
 )
 
 // DefaultSocket is the control socket path when none is configured.
@@ -41,6 +42,8 @@ type Request struct {
 	Value   json.RawMessage `json:"value,omitempty"`   // config.set
 	Host    string          `json:"host,omitempty"`    // firewall.test
 	Port    int             `json:"port,omitempty"`    // firewall.test
+	// network.set: the settings only `palm-gw setup --apply` can apply (D-054).
+	Network *setup.NetworkChange `json:"network,omitempty"`
 }
 
 // ErrorReply is the line the server writes when a command fails.
@@ -221,4 +224,24 @@ type TestReply struct {
 	Millis  int64  `json:"millis"`
 	Problem string `json:"problem,omitempty"` // why the connection failed ("error" would read as a failed command)
 	Allowed bool   `json:"allowed"`           // a [[firewall.allow]] rule lets Palms reach it
+}
+
+// ChoicesReply is the answer to choices: what the settings page's drop-downs
+// offer, and how the last network apply went (D-054).
+type ChoicesReply struct {
+	Adapters  []setup.Adapter    `json:"adapters"`         // what BlueZ sees now
+	AdapterIn string             `json:"adapter_in_use"`   // the address of the one in use, "" if none
+	Uplinks   []setup.Uplink     `json:"uplinks"`          // interfaces with a default route
+	Subnet    *setup.Subnet      `json:"subnet,omitempty"` // the Palm network checked against the host's
+	Applying  bool               `json:"applying"`         // a network apply is running now
+	LastApply *setup.ApplyRecord `json:"last_apply,omitempty"`
+}
+
+// NetworkSetReply reports a network.set: config.toml was written and
+// `palm-gw setup --apply` started, which restarts palm-gwd when it is done.
+type NetworkSetReply struct {
+	OK       bool     `json:"ok"`
+	Changed  []string `json:"changed"`  // section.key, empty when nothing changed
+	Applying bool     `json:"applying"` // false when nothing changed
+	Unit     string   `json:"unit,omitempty"`
 }

@@ -2,34 +2,69 @@
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 {{if .Done}}<p class="notice">{{.Done}}</p>{{end}}
 {{if .NeedsRestart}}<section class="card">
-  <p>Waiting for a restart: {{join .NeedsRestart ", "}}.</p>
-  <form method="post" action="/settings/restart"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Restart palm-gwd</button></form>
+  <p>The new Bluetooth adapter is used once palm-gwd restarts.</p>
+  <form method="post" action="/settings/restart"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Restart now</button></form>
   <p class="muted">Connected Palms are disconnected, and everyone has to log in again.</p>
 </section>{{end}}
-{{$admin := eq .Role "admin"}}
+{{$admin := eq .Role "admin"}}{{$off := not $admin}}
+{{if .ChoicesError}}<p class="error">Could not list the adapters and connections: {{.ChoicesError}}</p>{{end}}
 <section class="card">
-  <h1>Settings</h1>
+  <h1>Gateway</h1>
   <form method="post" action="/settings">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
-    {{$v := .Values}}
-    {{range .Fields}}<label>{{.Label}}
-      <input name="{{.Key}}" value="{{index $v .Key}}"{{if not $admin}} disabled{{end}}>
-      <span class="muted">{{.Help}}</span>
-    </label>{{end}}
-    {{with .Adapter}}<p class="muted">In use now: {{.HCI}} <code>{{.Address}}</code> ({{.HWBus}}).</p>{{end}}
-    <label class="check"><input type="checkbox" name="ppp.debug" value="1"{{if .Config.PPP.Debug}} checked{{end}}{{if not $admin}} disabled{{end}}> PPP debug logging (LCP/IPCP packets in the journal; next connection)</label>
+    <label>Name
+      <input name="bluetooth.name" value="{{.Config.Bluetooth.Name}}" maxlength="248" required{{if $off}} disabled{{end}}>
+      <span class="muted">What a Palm shows when it searches for Bluetooth devices. Changes at once.</span>
+    </label>
+    <label>Bluetooth adapter
+      <select name="bluetooth.adapter"{{if $off}} disabled{{end}}>{{range .Adapters}}
+        <option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+      <span class="muted">A change takes effect after a restart. Turning the onboard radio off for good is done with <code>sudo palm-gw setup</code>.</span>
+    </label>
+    <label>Hang up idle connections
+      <select name="ppp.idle_seconds"{{if $off}} disabled{{end}}>{{range .Idle}}
+        <option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+      <span class="muted">When a connected Palm has sent nothing for this long. Applies from the next connection.</span>
+    </label>
+    <label class="check"><input type="checkbox" name="ppp.debug" value="1"{{if .Config.PPP.Debug}} checked{{end}}{{if $off}} disabled{{end}}> Log connection details for troubleshooting</label>
+    <p class="muted">Writes each connection's PPP negotiation to the journal. Leave it off normally.</p>
     {{if $admin}}<button type="submit">Save</button>{{end}}
   </form>
 </section>
 
-<section class="card">
-  <h2>Changed with <code>sudo palm-gw setup</code></h2>
-  <p class="muted">These also rewrite the firewall, the DHCP server or the bridge, which only setup does.</p>
-  {{with .Config}}<dl>
-    <dt>Uplink</dt><dd>{{.Network.Uplink}}</dd>
-    <dt>Palm subnet</dt><dd>{{.Network.Subnet}}, gateway {{.Network.Gateway}}</dd>
-    <dt>Web TLS</dt><dd>{{.Web.TLS}}{{if .Web.BluetoothSide}}, Bluetooth side on{{else}}, Bluetooth side off{{end}}</dd>
-  </dl>{{end}}
+<section class="card" id="network">
+  <h2>Network and web access</h2>
+  {{if .NetworkError}}<p class="error">{{.NetworkError}}</p>{{end}}
+  {{if .NetworkDone}}<p class="notice">{{.NetworkDone}}</p>{{end}}
+  {{with .Choices}}{{if .Applying}}<p class="notice">These settings are being applied now. palm-gwd restarts when that is done.</p>
+  {{else if .LastApply}}{{if .LastApply.OK}}<p class="muted">Last applied {{date .LastApply.Finished}}.</p>
+  {{else}}<p class="error">Applying failed ({{date .LastApply.Finished}}): {{.LastApply.Error}}. The settings below are saved but not in effect: correct them and apply again, or run <code>sudo palm-gw setup</code>.</p>{{end}}{{end}}{{end}}
+  <form method="post" action="/settings/network">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Internet connection
+      <select name="network.uplink"{{if $off}} disabled{{end}}>{{range .Uplinks}}
+        <option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+      <span class="muted">Palms reach the internet through this. Only connections with a route to the internet are listed.</span>
+    </label>
+    <label>Palm network
+      <input name="network.subnet" value="{{.Config.Network.Subnet}}" pattern="[0-9.]+/24" placeholder="10.42.0.0/24"{{if $off}} disabled{{end}}>
+      <span class="muted">The addresses Palms and Bluetooth laptops get; the gateway is {{.Config.Network.Gateway}}. Change it only if it clashes with your home network.</span>
+      {{with .Choices.Subnet}}{{if not .Free}}<span class="error">It clashes with {{join .Conflicts ", "}}.{{if .Suggest}} {{.Suggest}} is free.{{end}}</span>{{end}}{{end}}
+    </label>
+    <label>Web UI security
+      <select name="web.tls"{{if $off}} disabled{{end}}>{{range .TLSModes}}
+        <option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+      <span class="muted">Plain HTTP also turns off the web UI over Bluetooth, which needs HTTPS.</span>
+    </label>
+    <label class="check"><input type="checkbox" name="web.bluetooth_side" value="1"{{if .Config.Web.BluetoothSide}} checked{{end}}{{if $off}} disabled{{end}}> Web UI over Bluetooth too</label>
+    <p class="muted">For Bluetooth laptops and the Palm app, at https://{{.Config.Network.Gateway}}:{{.Config.WebPort}}/.</p>
+    {{if $admin}}<p class="muted">Applying rewrites the firewall and the Palm network, then restarts palm-gwd: about 20 seconds. Connected Palms are disconnected and you log in again. A new address or connection also makes a new certificate, which your browser asks you to accept again.</p>
+    <button type="submit"{{if .Choices.Applying}} disabled{{end}}>Apply network changes</button>{{end}}
+  </form>
 </section>
 
 {{if $admin}}
@@ -51,6 +86,15 @@
   <p class="muted">Connected Palms are disconnected, and everyone has to log in again.</p>
 </section>
 {{end}}
+{{template "foot" .}}{{end}}
+
+{{define "applying"}}{{template "head" .}}
+<section class="card narrow">
+  <h1>Applying network settings</h1>
+  <p>Saved: {{.Changed}}. palm-gw setup is rewriting the firewall and the Palm network; palm-gwd then restarts.</p>
+  {{if .Gone}}<p>The web UI is no longer offered over Bluetooth. Use a browser on your home network.</p>
+  {{else}}<p>This page goes to <a href="{{.Next}}">{{.Next}}</a> in 25 seconds. If it does not load, wait a little and reload.</p>{{end}}
+</section>
 {{template "foot" .}}{{end}}
 
 {{define "restarting"}}{{template "head" .}}

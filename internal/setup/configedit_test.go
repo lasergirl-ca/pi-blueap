@@ -137,3 +137,15 @@ func TestEditRoundTrip(t *testing.T) {
 		t.Errorf("a short name's comment is not at the section's column:\n%s", short)
 	}
 }
+
+// A key missing from [web] goes under [web], not into the [[firewall.allow]]
+// tables after it (found on the Pi: an older config.toml without
+// web.bluetooth_side and with a firewall rule added from the UI).
+func TestSetKeyMissingBeforeArrayTables(t *testing.T) {
+	text := "[web]\nenabled = true\ntls     = \"self-signed\"\n\n" + allowBegin + "\n[[firewall.allow]]\nhost    = \"10.4.0.5\"\nports   = [\"tcp/22\"]\ncomment = \"x\"\n\n" + allowEnd + "\n"
+	got := SetKeys(text, []KV{{"web", "bluetooth_side", "false"}, {"web", "comment", `"y"`}})
+	want := "[web]\nenabled = true\ntls     = \"self-signed\"\nbluetooth_side = false\ncomment = \"y\"\n\n" + allowBegin + "\n[[firewall.allow]]\nhost    = \"10.4.0.5\"\nports   = [\"tcp/22\"]\ncomment = \"x\"\n\n" + allowEnd + "\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}

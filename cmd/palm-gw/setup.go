@@ -10,8 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"palm-gw/internal/bluez"
+	"palm-gw/internal/config"
 	"palm-gw/internal/setup"
 )
 
@@ -47,6 +49,7 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	apply := fs.Bool("apply", false, "render the system files from the config and (re)start the units, without asking anything")
 	adapterMode := fs.String("adapter-mode", "", "with --apply: onboard or dongle (default: keep the current mode)")
 	noStart := fs.Bool("no-start", false, "with --apply: do not enable or restart palm-gwd")
+	record := fs.String("record", "", "with --apply: write how the run went to this JSON file (the web UI's network settings, D-054)")
 	installFiles := fs.Bool("install-files", false, "write the layout's static files (units, helpers) under --root")
 	layoutName := fs.String("layout", "", "source or deb (default: from where this binary lives)")
 	root := fs.String("root", "/", "with --install-files: target root (a staging directory for packaging)")
@@ -98,6 +101,30 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "palm-gw setup --apply: run as root")
 			return 1
 		}
+		rec := setup.ApplyRecord{}
+		done := func(code int, err error) int {
+			if *record == "" {
+				return code
+			}
+			rec.Finished, rec.OK = time.Now().UTC(), code == 0
+			if err != nil {
+				rec.Error = err.Error()
+			}
+			if werr := setup.WriteApplyRecord(*record, rec); werr != nil {
+				fmt.Fprintln(stderr, "palm-gw setup: --record:", werr)
+			}
+			return code
+		}
+		cfg, err := config.Load(*cfgPath)
+		if err != nil {
+			fmt.Fprintln(stderr, "palm-gw setup:", err)
+			return done(1, err)
+		}
+		// Before ApplySystem restarts palm-gwd, so it starts with the new one.
+		if rec.Fingerprint, err = webCert(cfg, stdout); err != nil {
+			fmt.Fprintln(stderr, "palm-gw setup: certificate:", err)
+			return done(1, fmt.Errorf("certificate: %w", err))
+		}
 		adapters, _ := bluezAdapters()
 		host := setup.LocalHost(nil)
 		res, err := setup.ApplySystem(setup.ApplyOptions{
@@ -112,9 +139,10 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 			Run:         runCombined,
 			Out:         stdout,
 		})
+		rec.Changed, rec.Warnings, rec.RebootRequired = res.Changed, res.Warnings, res.RebootRequired
 		if err != nil {
 			fmt.Fprintln(stderr, "palm-gw setup:", err)
-			return 1
+			return done(1, err)
 		}
 		// The same checks as --check (Wi-Fi band, Pi 4 console UART, supply).
 		if r := setup.LocalHost(bluezAdapters).Detect(*cfgPath); len(r.Warnings) > 0 {
@@ -122,13 +150,14 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 			for _, w := range r.Warnings {
 				fmt.Fprintf(stdout, "WARNING: %s\n", w)
 			}
+			rec.Warnings = append(rec.Warnings, r.Warnings...)
 		}
 		if res.RebootRequired {
 			fmt.Fprintf(stdout, "Reboot required: YES (adapter mode is now %s)\n", res.AdapterMode)
 		} else {
 			fmt.Fprintln(stdout, "Reboot required: no")
 		}
-		return 0
+		return done(0, nil)
 	case *remove:
 		if os.Geteuid() != 0 {
 			fmt.Fprintln(stderr, "palm-gw setup --remove: run as root")
@@ -266,4 +295,20 @@ func yesNo(b bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+// webCert makes or keeps the self-signed web certificate for cfg's gateway
+// address and uplink, returning its fingerprint ("" when the web UI is off or
+// not self-signed). A changed subnet or uplink makes a new one.
+func webCert(cfg *config.Config, stdout io.Writer) (string, error) {
+	if !cfg.Web.Enabled || cfg.Web.TLS != "self-signed" {
+		return "", nil
+	}
+	fmt.Fprintln(stdout, "==> Web UI certificate")
+	fp, created, err := setup.EnsureCert(setup.TLSDir, setup.LocalCertNames(cfg.Network.Gateway, []string{cfg.Network.Uplink}))
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(stdout, "    %s/cert.pem %s\n", setup.TLSDir, map[bool]string{true: "created", false: "unchanged"}[created])
+	return fp, nil
 }
