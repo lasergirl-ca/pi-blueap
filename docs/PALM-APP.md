@@ -16,11 +16,18 @@ work it reuses comes from CradleServer (`~/Code/CradleServer/palm`), which took 
   fingerprint, the one the web login page shows, and asks before anything is sent. From then
   on the app pins the server key's SPKI hash and refuses any other.
 - **Several gateways ("APs"):** the app keeps a list. Every gateway is `10.42.0.1` to a Palm
-  on its Bluetooth link, so a gateway is known by its pinned key, not its address. A
-  connection offers every pin the app holds (the client takes up to four per handshake;
-  more are tried in turns) and learns which gateway answered. An unknown key is a new gateway
-  and goes through first-use trust. A gateway reached over Wi-Fi at a LAN address is the same
-  gateway, by the same pin.
+  on its Bluetooth link, so a gateway is known by its pinned key, not its address. The
+  handshake reports the server key's SPKI hash, and the app compares it with every pin it
+  holds before it sends a byte. That one handshake says which saved gateway answered, however
+  many are saved. An unknown key is a new gateway and goes through first-use trust. A
+  gateway picked from the list that shows a different key gets a warning instead; trusting
+  it replaces the old key. (A new key at 10.42.0.1 reached through New is not a warning:
+  every gateway has that address over Bluetooth.) A gateway reached over Wi-Fi at a LAN
+  address is the same gateway, by the same pin.
+- **How the pin is checked:** the module runs the handshake with no pins (it takes any key and
+  reports both hashes), and the app refuses to go on unless the key is the expected one. The
+  module's own pin list is not used: the same check, without a second handshake to learn a
+  changed key's fingerprint. Every later call checks the key again.
 
 ## Pieces
 
@@ -37,8 +44,9 @@ work it reuses comes from CradleServer (`~/Code/CradleServer/palm`), which took 
 - **Server addressed by IP:** no SNI (RFC 6066 forbids an IP there) and no name check. The pin
   says which gateway it is, and the gateway's certificate names it by IP (10.42.0.1), which
   wolfSSL's DNS-name check does not cover.
-- **First use:** a handshake with no pins accepts the key and reports both the SPKI hash
-  (to pin) and the certificate's SHA-256 (to show, as the web login page does).
+- **Pins:** a handshake with no pins accepts the key and reports both the SPKI hash (to pin)
+  and the certificate's SHA-256 (to show, as the web login page does). Up to four pins can be
+  given, with the one that matched reported; the app does its own comparison instead (above).
 - **Not needed and left unused:** the Ed25519 client certificate and the exporter.
 
 ## The app
@@ -61,7 +69,9 @@ The password is never stored (WEB-UI section 7). The token lives in memory for t
 1. **Gateways:** the list (name, last address, last used), Connect, New, Forget, and Details
    (the full fingerprint).
 2. **Log in:** address (default `10.42.0.1`), username, password; shows which gateway it is
-   once the handshake knows.
+   once the handshake knows. The password field shows stars. The on-screen keyboard is
+   refused while it has the focus, since its dialog would show the password in plain text:
+   the password is written with Graffiti.
 3. **Trust:** "New gateway at 10.42.0.1", the fingerprint in four lines of eight groups, Trust
    or Cancel.
 4. **Status:** the gateway's name and version, adapter, sessions, pool, uplink, pairing window.
