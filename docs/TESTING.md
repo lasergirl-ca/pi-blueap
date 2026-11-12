@@ -2954,3 +2954,15 @@ $ palm-gwctl get handshake.ms_timeout_ms
 ```
 
 Still to see: the Pocket PC connecting on the first try.
+
+**Pocket PC on test31, 2026-11-12 ("Works first try"):** three connections, each first try:
+
+```
+15:42:51.915 RFCOMM connection → 15:42:52.938 handshake ms_null_modem   (1.0 s)
+15:44:13.083 RFCOMM connection → 15:44:14.098 handshake ms_null_modem   (1.0 s)
+15:46:19.260 RFCOMM connection → 15:46:20.334 handshake ms_null_modem   (1.1 s)
+```
+
+Each sent `CLIENT` within about a second, so none needed more than the old 3 s; the slow case
+seen at 11:29 and 11:32 did not come back in these three. D-060's longer wait stays for when it
+does.
