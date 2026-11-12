@@ -39,6 +39,14 @@ func (d *Daemon) registerHandlers() {
 	d.ctl.Handle("wifi.join", d.handleWifiJoin)
 	d.ctl.Handle("wifi.forget", d.handleWifiForget)
 	d.ctl.Handle("wifi.radio", d.handleWifiRadio)
+	d.ctl.Handle("logs", d.handleLogs)
+	d.ctl.Handle("check", d.handleCheck)
+	d.ctl.Handle("btmon", d.handleBtmon)
+	d.ctl.Handle("diagnostics", d.handleDiagnostics)
+	d.ctl.Handle("bundle", d.handleBundle)
+	d.ctl.Handle("class.toggle", d.handleClassToggle)
+	d.ctl.Handle("about", d.handleAbout)
+	d.ctl.Handle("update.check", d.handleUpdateCheck)
 }
 
 // handleEvents streams every daemon event until the client disconnects

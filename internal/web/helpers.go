@@ -28,7 +28,16 @@ var funcs = template.FuncMap{
 		return duration(time.Since(t))
 	},
 	"secs": func(n int64) string { return duration(time.Duration(n) * time.Second) },
-	"bytes": func(n uint64) string {
+	"bytes": func(v any) string {
+		var n uint64
+		switch x := v.(type) {
+		case uint64:
+			n = x
+		case int64:
+			n = uint64(max(x, 0))
+		case int:
+			n = uint64(max(x, 0))
+		}
 		switch {
 		case n >= 1<<20:
 			return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
@@ -72,6 +81,7 @@ var funcs = template.FuncMap{
 		}
 		return "no answer yet"
 	},
+	"urlQuery": urlQuery,
 	"yesno": func(b bool) string {
 		if b {
 			return "yes"

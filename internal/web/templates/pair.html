@@ -36,6 +36,11 @@
   {{else}}<p class="muted">Only the admin account can open a pairing window.</p>{{end}}
 </section>
 {{end}}
+{{if eq .Role "admin"}}<section class="card">
+  <h2>Palm can't see the gateway?</h2>
+  <p class="muted">Some Palms list only devices that look like a computer. This switches the gateway's Bluetooth device class{{with .ClassNow}} (now {{.}}){{end}} to {{.ClassNext}}{{if .ClassNextIsFallback}}, a desktop computer{{else}}, back to a network access point{{end}}. Bluetooth and palm-gwd restart, about 20 seconds; press it again to switch back.</p>
+  <form method="post" action="/pair/class"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="secondary">Switch the device class to {{.ClassNext}}</button></form>
+</section>{{end}}
 <section class="card">
   <h2>Events</h2>
   <ul id="feed" class="events" data-src="/events?recent=15"><li class="muted">Connecting…</li></ul>

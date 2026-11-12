@@ -1036,6 +1036,47 @@ docs/WEB-UI.md:
   says a 5 GHz network or a USB dongle keeps Palm links steadier (section 3's coexistence
   note).
 
+### D-057: Web UI part 4: logs, diagnostics, about, and the class toggle
+
+- **Logs** (`/logs`, `logs`, `palm-gwctl logs`): `journalctl -o json` for palm-gwd, bluetooth,
+  palm-gw-dnsmasq, the bridge unit and the apply unit (any mix; the first three by default).
+  palm-gwd's JSON log lines are split into level, message, event, address and fields. Filters:
+  an event (or a prefix ending in `*`) and any text or device address, applied in the daemon
+  over the last 5000 lines or more. Newest first on the page. Events and addresses are links
+  that filter. systemd's own lines about a unit are shown under that unit.
+- **Follow polls instead of SSE.** Section 8.12 says "Follow toggle (SSE)". The page asks every
+  2 s for the lines after the journal cursor it has, and htmx inserts them at the top
+  (out-of-band swap). The event feed's SSE needs a long-lived ctl stream per tab;
+  `journalctl -f` per browser tab would be a process each. Polling with a cursor needs neither,
+  and no new JavaScript: the front end stays under 60 KB (59.0 KB).
+- **Health check** (`/diagnostics`, `check`): `setup --check`'s report run in the daemon (board,
+  adapters, uplinks, power, warnings), plus each unit's `systemctl is-active` and whether
+  `bnep`, `rfcomm`, `ppp_generic` and `ppp_async` are loaded, as section 8.12 lists.
+- **btmon capture** (`btmon`, `palm-gwctl capture [s]`): `btmon -w
+  /var/lib/palm-gw/captures/capture-<ts>.btsnoop` in the daemon (its sandbox has CAP_NET_RAW
+  and AF_BLUETOOTH), 1 to 600 s (60 by default), one at a time, stopped with SIGINT. The page
+  counts down and reloads at the end. The newest 5 are kept. Files are 0640 and downloads are
+  admin only, because a capture taken during a pairing holds the link key; the page says so.
+- **Support bundle** (`bundle [--with-capture]`): a .tar.gz in `/var/lib/palm-gw/bundles/`
+  (newest 5 kept) with status, check, internet, NAT and events JSON; config.toml; install-info;
+  the last apply; the rendered dnsmasq, bridge, nftables and main.conf files; the live ruleset,
+  addresses, routes, package versions and unit states; the kernel log; and each unit's journal
+  for this boot (5000 lines each). Every text file goes through redaction: the config's
+  `password_hash` and `viewer_password_hash` lines, any `$argon2…` string anywhere, and `psk=`
+  lines. The TLS key, BlueZ's link keys and NetworkManager's saved networks are never read.
+  The newest capture is added only when asked (unticked by default). Network names (SSIDs)
+  and device addresses do appear, as in the logs.
+- **About** (`/about`, linked from the footer): version, Go version, start time, and
+  install-info (board, OS, kernel, BlueZ, pppd, NetworkManager, nftables, dnsmasq, adapter
+  mode). **Check for updates** runs `palm-gw upgrade --check` (one GitHub request) only when
+  the admin presses it; installing stays `sudo palm-gw upgrade`.
+- **Class of Device toggle** (section 6, "Class fallback"): `class.toggle` swaps between
+  `bluetooth.class` and `class_fallback` and keeps the choice in state.json (0 = the configured
+  class). palm-gwd cannot write `/etc/bluetooth`, so it uses D-054's transient
+  `palm-gw setup --apply`, which already writes state.json's class into main.conf's block and
+  restarts bluetooth and palm-gwd. If the apply cannot start, the stored class is put back. The
+  Pair page's "Palm can't see the gateway?" card has the button.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

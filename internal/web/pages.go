@@ -100,6 +100,18 @@ func (s *Server) pairPage(w http.ResponseWriter, r *http.Request) {
 	data["Window"] = st.PairingWindow
 	data["Minutes"] = []int{1, 2, 5, 10, 15, 30}
 	data["Default"] = s.o.Config().Bluetooth.PairWindowDefaultMinutes
+	// Class of Device: what the adapter shows now, and what the toggle
+	// switches it to (the major and minor class; BlueZ adds service bits).
+	bt := s.o.Config().Bluetooth
+	next := bt.ClassFallback
+	if st.Adapter != nil {
+		data["ClassNow"] = fmt.Sprintf("0x%06X", st.Adapter.Class)
+		if st.Adapter.Class&0x1FFC == bt.ClassFallback&0x1FFC {
+			next = bt.Class
+		}
+	}
+	data["ClassNext"] = fmt.Sprintf("0x%06X", next)
+	data["ClassNextIsFallback"] = next == bt.ClassFallback
 	if msg := r.URL.Query().Get("error"); msg != "" {
 		data["Error"] = msg
 	}

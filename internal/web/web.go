@@ -48,6 +48,7 @@ type Options struct {
 	Log           *slog.Logger
 	Addrs         func() ([]IfAddr, error) // default SystemAddrs
 	Now           func() time.Time         // default time.Now
+	StateDir      string                   // where captures/ and bundles/ are, for downloads
 
 	// Filled from Config by New.
 	Listen        []string
@@ -146,6 +147,7 @@ func (s *Server) Handler(side Side, isTLS bool) http.Handler {
 	s.routes(mux, side)
 	s.settingsRoutes(mux, side)
 	s.internetRoutes(mux, side)
+	s.diagRoutes(mux, side)
 	var h http.Handler = mux
 	if side == SideLAN && len(s.o.AllowCIDRs) > 0 {
 		h = s.allowCIDRs(h)

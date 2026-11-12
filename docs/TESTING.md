@@ -2712,3 +2712,62 @@ Saved Wi-Fi networks: <home>
 Both applies ended OK (`last-apply.json`). Wi-Fi stays connected below Ethernet, as D-056
 intends. At her request the settings page's link to the Internet page is now a button.
 Not tried yet: the rollback after a wrong password.
+
+### Part 4: logs, diagnostics, about, class toggle (D-057), 2026-11-12
+
+On test24 and test25 (test24's run found the three fixes below). No Palm was connected.
+
+```
+$ palm-gwctl check
+board:    pi5 (Raspberry Pi 5 Model B Rev 1.0)
+adapter:  USB dongle 60:15:6F:EA:00:81 (hci0), powered yes
+uplink:   Ethernet eth0, via router 10.4.0.1
+uplink:   Wi-Fi wlan0 (5 GHz), via router 10.4.0.1
+unit:     bluetooth            active
+  … nftables, palm-gw-dnsmasq, palm-gwd-nm-bridge, palm-gwd, NetworkManager: active
+module:   bnep                 loaded
+  … rfcomm, ppp_generic, ppp_async: loaded
+WARNING:  Pi 5 supply negotiated 3000 mA (under 5 A), …
+$ palm-gwctl logs 5 --event 'wifi_*'
+Nov 12 10:46:32 palm-gwd  INFO  [wifi_joining] joining Wi-Fi component=daemon hidden=false ssid=<home>
+Nov 12 10:46:36 palm-gwd  INFO  [wifi_joined] Wi-Fi joined component=daemon ssid=<home>
+$ palm-gwctl capture 3
+Capturing for 3 s into capture-20261112-105951.btsnoop....
+Wrote /var/lib/palm-gw/captures/capture-20261112-105951.btsnoop (open it in Wireshark).
+$ sudo ls -l /var/lib/palm-gw/captures/
+-rw-r----- 1 root root 292 Nov 12 10:59 capture-20261112-105951.btsnoop
+$ palm-gwctl bundle --with-capture
+Wrote /var/lib/palm-gw/bundles/palm-gw-support-20261112-105955.tar.gz (40802 bytes). Password hashes are redacted.
+$ sudo tar -tzf …/palm-gw-support-20261112-105955.tar.gz      # 26 files
+README.txt status.json check.json internet.json nat.json events.json config.toml install-info.json
+last-apply.json dnsmasq.conf bridge.env palm-gw.nft bluetooth-main.conf nft-ruleset.txt ip.txt
+routes.txt packages.txt units.txt kernel.txt journal-palm-gwd.txt journal-bluetooth.txt
+journal-dnsmasq.txt journal-bridge.txt journal-apply.txt capture-20261112-105951.btsnoop
+$ sudo tar -xzOf … | grep -ac argon2
+0
+$ sudo tar -xzOf … --wildcards '*/config.toml' | grep -c REDACTED
+1
+$ sudo tar -xzOf … | grep -ac 'PRIVATE KEY'
+0
+$ echo '{"cmd":"update.check"}' → ctl socket
+{"ok":false,"output":"palm-gw upgrade: no release has been published yet"}
+$ palm-gwctl class toggle            # then wait for palm-gw-apply and the restart
+Class of Device 0x000300 -> 0x000104. palm-gw setup --apply rewrites main.conf and restarts bluetooth and palm-gwd.
+adapter:   hci0 60:15:6F:EA:00:81 (usb) … class 0x420104 …
+$ palm-gwctl class toggle
+Class of Device 0x000104 -> 0x000300. …
+adapter:   hci0 60:15:6F:EA:00:81 (usb) … class 0x420300 …
+```
+
+`/etc/bluetooth/main.conf` was `c54d1541…` before and after the two toggles, and bluetooth and
+palm-gwd were active. The update check reached GitHub from inside the sandbox; no release is
+published, as expected.
+
+**Found on test24:**
+- `logs 5 --event 'wifi_*'` found nothing. With a filter it read only 10× the lines asked
+  for; it now reads at least 5000.
+- systemd's "Started palm-gwd.service" lines showed as `init.scope`; the `UNIT` field now wins.
+- Captures were 0644, as btmon's umask left them; they are now 0640.
+
+Still to do from a browser (Phase 7's accept): the logs page with Follow; downloading a capture
+and opening it in Wireshark; downloading a bundle and confirming the hash is redacted.

@@ -22,6 +22,7 @@ import (
 	"golang.org/x/term"
 
 	"palm-gw/internal/config"
+	"palm-gw/internal/diag"
 	"palm-gw/internal/setup"
 )
 
@@ -69,6 +70,11 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 	fs.StringVar(&nc.TLS, "tls", "", "network: web UI HTTPS, self-signed or off")
 	btSide := fs.String("bluetooth-side", "", "network: web UI over Bluetooth, on or off")
 	hidden := fs.Bool("hidden", false, "wifi join: the network does not broadcast its name")
+	evFilter := fs.String("event", "", "logs: only this event (a prefix ending in * matches several)")
+	grep := fs.String("grep", "", "logs: only lines containing this text or address")
+	units := fs.String("unit", "", "logs: palm-gwd, bluetooth, dnsmasq, bridge, apply (comma-separated)")
+	follow := fs.Bool("f", false, "logs: keep printing new lines")
+	withCapture := fs.Bool("with-capture", false, "bundle: add the newest btmon capture (it can hold link keys)")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() { usage(stderr) }
 	rest, err := parseInterleaved(fs, args)
@@ -189,9 +195,42 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 			return c.choices()
 		}
 		return c.network(nc)
-	case "capture", "check", "class", "bundle":
-		fmt.Fprintf(stderr, "palm-gwctl %s: not implemented until Phase 6 or 7\n", cmd)
-		return 2
+	case "logs":
+		n := 50
+		if len(cmdArgs) > 0 {
+			v, err := strconv.Atoi(cmdArgs[0])
+			if err != nil || v < 1 {
+				fmt.Fprintln(stderr, "palm-gwctl logs [n] [--event E] [--grep TEXT] [--unit U,…] [-f]")
+				return 2
+			}
+			n = v
+		}
+		var us []string
+		if *units != "" {
+			us = strings.Split(*units, ",")
+		}
+		return c.logs(LogsRequest{Units: us, Lines: n, Event: *evFilter, Text: *grep}, *follow)
+	case "capture":
+		secs := 60
+		if len(cmdArgs) > 0 {
+			v, err := strconv.Atoi(cmdArgs[0])
+			if err != nil || v < 1 || v > 600 {
+				fmt.Fprintln(stderr, "palm-gwctl capture [seconds, 1 to 600]")
+				return 2
+			}
+			secs = v
+		}
+		return c.capture(secs)
+	case "check":
+		return c.check()
+	case "bundle":
+		return c.bundle(*withCapture)
+	case "class":
+		if len(cmdArgs) != 1 || cmdArgs[0] != "toggle" {
+			fmt.Fprintln(stderr, "palm-gwctl class toggle")
+			return 2
+		}
+		return c.classToggle()
 	default:
 		fmt.Fprintf(stderr, "palm-gwctl: unknown command %q\n", cmd)
 		usage(stderr)
@@ -223,7 +262,9 @@ Commands:
   unpair                      close the pairing window, whoever opened it
   rename <addr> [label]       set a local label for a device (no label clears it)
   reload                      re-read config, re-apply firewall and dnsmasq
-  capture [seconds]           record a btmon trace
+  capture [seconds]           record a btmon trace (default 60) into /var/lib/palm-gw/captures
+  logs [n] [--event E] [--grep TEXT] [--unit U,…] [-f]
+                              the journal of palm-gwd, bluetooth and dnsmasq, decoded
   events [n]                  stream daemon events, after the last n past ones
   get [key] / set <key> <v>   read or change a config value (validated, then reloaded)
   firewall list               the [[firewall.allow]] rules, numbered
@@ -244,7 +285,7 @@ Commands:
                               change them; runs palm-gw setup --apply, which restarts palm-gwd
   check                       health report
   class toggle                swap Class of Device with class_fallback
-  bundle                      write a support bundle
+  bundle [--with-capture]     write a support bundle (hashes redacted) into /var/lib/palm-gw/bundles
   upgrade [--check]           install the latest release (runs palm-gw upgrade)
 
 Every command accepts --json.
@@ -1233,4 +1274,125 @@ func readSecret(prompt io.Writer, text string) (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(line, "\r\n"), nil
+}
+
+func (c *cli) printEntries(es []diag.Entry) {
+	for _, e := range es {
+		line := e.Time.Local().Format("Jan 02 15:04:05") + " " + fmt.Sprintf("%-9s %-5s ", e.Unit, e.Level)
+		if e.Event != "" {
+			line += "[" + e.Event + "] "
+		}
+		line += e.Msg
+		if e.Addr != "" {
+			line += " addr=" + e.Addr
+		}
+		if f := e.FieldList(); len(f) > 0 {
+			line += " " + strings.Join(f, " ")
+		}
+		fmt.Fprintln(c.stdout, line)
+	}
+}
+
+func (c *cli) logs(req LogsRequest, follow bool) int {
+	var r LogsReply
+	printed, err := c.call(Request{Cmd: "logs", Logs: &req}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	c.printEntries(r.Entries)
+	for follow {
+		time.Sleep(2 * time.Second)
+		req.After, req.Lines = r.Cursor, 1000
+		if err := Call(c.socket, Request{Cmd: "logs", Logs: &req}, &r); err != nil {
+			return c.fail(err)
+		}
+		c.printEntries(r.Entries)
+	}
+	return 0
+}
+
+func (c *cli) capture(secs int) int {
+	var st CaptureState
+	printed, err := c.call(Request{Cmd: "btmon", Seconds: secs}, &st)
+	if err != nil {
+		return c.fail(err)
+	}
+	if printed {
+		return 0
+	}
+	fmt.Fprintf(c.stdout, "Capturing for %d s into %s", secs, st.Name)
+	for {
+		time.Sleep(time.Second)
+		var d DiagnosticsReply
+		if err := Call(c.socket, Request{Cmd: "diagnostics"}, &d); err != nil {
+			return c.fail(err)
+		}
+		if !d.Capture.Running {
+			fmt.Fprintln(c.stdout)
+			if d.Capture.Error != "" {
+				return c.fail(errors.New(d.Capture.Error))
+			}
+			fmt.Fprintf(c.stdout, "Wrote /var/lib/palm-gw/captures/%s (open it in Wireshark).\n", d.Capture.Name)
+			return 0
+		}
+		fmt.Fprint(c.stdout, ".")
+	}
+}
+
+func (c *cli) check() int {
+	var r CheckReply
+	printed, err := c.call(Request{Cmd: "check"}, &r)
+	if err != nil || printed {
+		if err != nil {
+			return c.fail(err)
+		}
+		return 0
+	}
+	fmt.Fprintf(c.stdout, "board:    %s (%s)\n", r.Board.ID, r.Board.Model)
+	for _, a := range r.Adapters {
+		fmt.Fprintf(c.stdout, "adapter:  %s, powered %s\n", a.Label(), yn(a.Powered))
+	}
+	if r.AdapterError != "" {
+		fmt.Fprintf(c.stdout, "adapter:  %s\n", r.AdapterError)
+	}
+	for _, u := range r.Uplinks {
+		fmt.Fprintf(c.stdout, "uplink:   %s\n", u.Label())
+	}
+	for _, u := range r.Units {
+		fmt.Fprintf(c.stdout, "unit:     %-20s %s\n", u.Name, u.Active)
+	}
+	for _, m := range r.Modules {
+		fmt.Fprintf(c.stdout, "module:   %-20s %s\n", m.Name, map[bool]string{true: "loaded", false: "NOT LOADED"}[m.Loaded])
+	}
+	for _, w := range r.Warnings {
+		fmt.Fprintf(c.stdout, "WARNING:  %s\n", w)
+	}
+	return 0
+}
+
+func (c *cli) bundle(withCapture bool) int {
+	var r BundleReply
+	printed, err := c.call(Request{Cmd: "bundle", WithCapture: withCapture}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if !printed {
+		fmt.Fprintf(c.stdout, "Wrote %s (%d bytes). Password hashes are redacted.\n", r.Path, r.Size)
+	}
+	return 0
+}
+
+func (c *cli) classToggle() int {
+	var r ClassReply
+	printed, err := c.call(Request{Cmd: "class.toggle"}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if !printed {
+		fmt.Fprintf(c.stdout, "Class of Device %s -> %s. palm-gw setup --apply rewrites main.conf and restarts bluetooth and palm-gwd.\n", r.Previous, r.Class)
+	}
+	return 0
 }

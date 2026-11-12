@@ -62,6 +62,15 @@ func (d *Daemon) host() setup.Host {
 	return h
 }
 
+// startApply runs `palm-gw setup --apply` as the transient unit, recording
+// how it went; it restarts palm-gwd at the end.
+func (d *Daemon) startApply(ctx context.Context) ([]byte, error) {
+	_ = os.Remove(d.applyRecordPath())
+	return d.command(ctx, "systemd-run", "--unit="+applyUnit, "--collect", "--quiet",
+		"--description=palm-gw: apply settings",
+		d.setupBin(), "setup", "--apply", "--config", d.opts.ConfigPath, "--record", d.applyRecordPath())
+}
+
 // applyRunning reports whether an apply started earlier is still going.
 func (d *Daemon) applyRunning(ctx context.Context) bool {
 	_, err := d.command(ctx, "systemctl", "is-active", "--quiet", applyUnit)
@@ -164,10 +173,7 @@ func (d *Daemon) setNetwork(ctx context.Context, ch setup.NetworkChange) (ctl.Ne
 	if err := writeAtomic(path, []byte(text)); err != nil {
 		return no, err
 	}
-	_ = os.Remove(d.applyRecordPath())
-	out, err := d.command(ctx, "systemd-run", "--unit="+applyUnit, "--collect", "--quiet",
-		"--description=palm-gw: apply network settings",
-		d.setupBin(), "setup", "--apply", "--config", path, "--record", d.applyRecordPath())
+	out, err := d.startApply(ctx)
 	if err != nil {
 		if rerr := writeAtomic(path, old); rerr != nil {
 			return no, fmt.Errorf("could not start palm-gw setup --apply (%w: %s), and could not put config.toml back: %w", err, strings.TrimSpace(string(out)), rerr)

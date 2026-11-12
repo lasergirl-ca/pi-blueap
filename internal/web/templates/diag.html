@@ -1,0 +1,96 @@
+{{define "logs"}}{{template "head" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<section class="card">
+  <h1>Logs</h1>
+  <form method="get" action="/logs" class="row">
+    {{$sel := .UnitSel}}{{range .UnitNames}}<label class="check"><input type="checkbox" name="unit" value="{{.}}"{{if index $sel .}} checked{{end}}> {{.}}</label>{{end}}
+    <label>Event <input name="event" value="{{.Req.Event}}" placeholder="paired, wifi_*" size="14"></label>
+    <label>Device or text <input name="q" value="{{.Req.Text}}" placeholder="00:07:E0:…" size="18"></label>
+    <label>Lines <select name="n">{{$n := .Req.Lines}}{{range .LineChoices}}<option{{if eq . $n}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <label class="check"><input type="checkbox" name="follow" value="1"{{if .Follow}} checked{{end}}> Follow</label>
+    <button type="submit">Show</button>
+    {{if or .Req.Event .Req.Text}}<a class="button" href="/logs">Clear filters</a>{{end}}
+  </form>
+  <p class="muted">Newest first. Click an event or a device address to show only those lines.{{if .Follow}} New lines appear at the top every 2 seconds.{{end}}</p>
+  {{if .Follow}}{{template "logs-poller" .}}{{end}}
+  <div id="log-rows" class="logs">{{template "log-rows" .}}</div>
+  {{if not .Entries}}<p class="muted">No lines match.</p>{{end}}
+</section>
+{{template "foot" .}}{{end}}
+
+{{define "log-rows"}}{{range .Entries}}<div class="log lvl-{{.Level}}"><span class="muted">{{.Time.Local.Format "Jan 02 15:04:05"}}</span> <b>{{.Unit}}</b>{{if .Event}} <a href="/logs?event={{.Event}}">{{.Event}}</a>{{end}} {{.Msg}}{{if .Addr}} <a href="/logs?q={{.Addr}}">{{.Addr}}</a>{{end}}{{range .FieldList}} <span class="muted">{{.}}</span>{{end}}</div>
+{{end}}{{end}}
+
+{{define "logs-poller"}}<div id="log-poller" hx-get="/partials/logs?{{.Query}}&amp;after={{urlQuery .Cursor}}" hx-trigger="every 2s" hx-swap="outerHTML"></div>{{end}}
+
+{{define "logs-more"}}{{template "logs-poller" .}}{{if .Entries}}<div hx-swap-oob="afterbegin:#log-rows">{{template "log-rows" .}}</div>{{end}}{{end}}
+
+{{define "diagnostics"}}{{template "head" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{$admin := eq .Role "admin"}}{{$csrf := .CSRF}}
+<section class="card">
+  <h1>Health check <a class="button" href="/diagnostics">Run again</a></h1>
+  {{with .CheckError}}<p class="error">{{.}}</p>{{end}}
+  {{with .Check}}
+  {{if .Warnings}}<ul class="warnings">{{range .Warnings}}<li class="error">{{.}}</li>{{end}}</ul>{{else}}<p class="notice">No problems found.</p>{{end}}
+  <dl>
+    <dt>Board</dt><dd>{{.Board.Model}} ({{.Board.ID}})</dd>
+    <dt>Bluetooth</dt><dd>{{range .Adapters}}{{.Label}}, {{if .Powered}}powered{{else}}not powered{{end}}<br>{{else}}{{or .AdapterError "no adapter"}}{{end}}{{if .DisableBT}}<span class="muted">The onboard radio is turned off (dongle mode).</span>{{end}}</dd>
+    <dt>Internet</dt><dd>{{range .Uplinks}}{{.Label}}<br>{{else}}no route to the internet{{end}}</dd>
+    <dt>Power</dt><dd>{{if .Power.UnderVoltageNow}}<span class="error">Under-voltage now.</span>{{else if .Power.UnderVoltageSeen}}Under-voltage happened since boot.{{else}}OK{{end}}</dd>
+    <dt>Services</dt><dd>{{range .Units}}<span class="{{if eq .Active "active"}}ok{{else}}error{{end}}">{{.Name}}: {{.Active}}</span><br>{{end}}</dd>
+    <dt>Kernel modules</dt><dd>{{range .Modules}}<span class="{{if .Loaded}}ok{{else}}error{{end}}">{{.Name}}{{if not .Loaded}} (not loaded){{end}}</span> {{end}}</dd>
+  </dl>{{end}}
+</section>
+
+{{if $admin}}
+<section class="card" id="capture">
+  <h2>Bluetooth capture</h2>
+  <p class="muted">Records every Bluetooth packet with btmon while you try the thing that goes wrong on the Palm. Open the file in Wireshark. A capture taken while a Palm pairs holds its link key: share it only with someone you trust.</p>
+  {{with .D.Capture}}{{if .Running}}<p class="notice">Capturing into {{.Name}}: <span data-expires="{{rfc3339 .Until}}"></span> left. The page reloads when it is done.</p>
+  {{else if .Error}}<p class="error">{{.Name}}: {{.Error}}</p>{{end}}{{end}}
+  {{if not .D.Capture.Running}}<form method="post" action="/diagnostics/capture" class="row"><input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Record for <select name="seconds">{{range .CaptureSeconds}}<option value="{{.}}"{{if eq . 60}} selected{{end}}>{{secs .}}</option>{{end}}</select></label>
+    <button type="submit">Start capture</button></form>{{end}}
+  {{if .D.Captures}}<div class="scroll"><table>{{range .D.Captures}}<tr><td><a href="/diagnostics/files/captures/{{.Name}}" download>{{.Name}}</a></td><td>{{bytes .Size}}</td><td>{{date .ModTime}}</td></tr>{{end}}</table></div>{{end}}
+</section>
+
+<section class="card" id="bundle">
+  <h2>Support bundle</h2>
+  <p class="muted">One file with the logs, the health check, the configuration and the network state, to attach to a bug report. Password hashes and Wi-Fi keys are removed; the TLS key, link keys and saved Wi-Fi networks are left out.</p>
+  {{with .Bundle}}<p class="notice">Made <a href="/diagnostics/files/bundles/{{.Name}}" download>{{.Name}}</a> ({{bytes .Size}}).</p>{{end}}
+  <form method="post" action="/diagnostics/bundle" class="row"><input type="hidden" name="csrf" value="{{$csrf}}">
+    <label class="check"><input type="checkbox" name="with_capture" value="1"> Include the newest Bluetooth capture</label>
+    <button type="submit">Make a support bundle</button></form>
+  {{if .D.Bundles}}<div class="scroll"><table>{{range .D.Bundles}}<tr><td><a href="/diagnostics/files/bundles/{{.Name}}" download>{{.Name}}</a></td><td>{{bytes .Size}}</td><td>{{date .ModTime}}</td></tr>{{end}}</table></div>{{end}}
+</section>
+{{end}}
+{{template "foot" .}}{{end}}
+
+{{define "about"}}{{template "head" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<section class="card">
+  <h1>About palm-gw</h1>
+  {{with .About}}<dl>
+    <dt>Version</dt><dd>{{.Version}}</dd>
+    <dt>Running since</dt><dd>{{date .Started}} ({{since .Started}})</dd>
+    <dt>Built with</dt><dd>{{.GoVersion}}</dd>
+    {{with .Install}}<dt>Installed</dt><dd>{{.InstalledAt}}, {{.Version}}</dd>
+    <dt>Board</dt><dd>{{.Model}}</dd>
+    <dt>System</dt><dd>{{.OS}}, kernel {{.Kernel}}</dd>
+    <dt>Bluetooth</dt><dd>BlueZ {{.BlueZ}}, adapter mode {{.AdapterMode}}</dd>
+    <dt>Other parts</dt><dd>pppd {{.PPPD}}, NetworkManager {{.NetworkManager}}, nftables {{.Nftables}}, dnsmasq {{.Dnsmasq}}</dd>{{end}}
+  </dl>{{end}}
+  <p><a href="https://github.com/lasergirl-ca/pi-blueap">Source and documentation</a></p>
+</section>
+{{if eq .Role "admin"}}<section class="card">
+  <h2>Updates</h2>
+  <p class="muted">palm-gw never checks by itself. This asks GitHub once for the latest release; installing is <code>sudo palm-gw upgrade</code>.</p>
+  {{with .Update}}<pre class="{{if not .OK}}error{{end}}">{{.Output}}</pre>{{end}}
+  <form method="post" action="/about/check"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Check for updates</button></form>
+</section>{{end}}
+{{template "foot" .}}{{end}}
+
+{{define "message"}}{{template "head" .}}
+<section class="card narrow">{{if .Error}}<p class="error">{{.Error}}</p>{{end}}<p><a href="{{or .Back "/"}}">Back</a></p></section>
+{{template "foot" .}}{{end}}

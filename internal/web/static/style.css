@@ -55,3 +55,5 @@ label .muted { display: block; font-size: 0.85em; margin-top: 2px; }
 .badge { font-size: 0.7em; padding: 1px 8px; border-radius: 9px; color: #fff; background: var(--accent); vertical-align: middle; }
 h3 { margin: 14px 0 8px; font-size: 1em; }
 details { margin: 8px 0; } summary { cursor: pointer; } summary.button { list-style: none; }
+.logs { font: 0.82em/1.45 ui-monospace, monospace; } .log { padding: 2px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.lvl-WARN { color: #c77700; } .lvl-ERROR { color: var(--bad); } .ok { color: #2e9d4a; } pre { white-space: pre-wrap; }

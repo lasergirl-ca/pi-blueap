@@ -54,6 +54,8 @@ type Options struct {
 	HostRoot string
 	// NetManager opens NetworkManager for the internet wizard (nil = D-Bus).
 	NetManager func() (NetManager, error)
+	// Btmon is the btmon binary ("" = btmon on PATH); tests use a stand-in.
+	Btmon string
 	// Conntrack reads the connection tracking table (nil = ctnetlink).
 	Conntrack func() ([]fw.Conn, error)
 	// OnReady is called once, the first time the agent is registered
@@ -96,6 +98,9 @@ type Daemon struct {
 	fw   ctl.FirewallStatus
 
 	cfgEditMu sync.Mutex // serialises config.set
+
+	capMu   sync.Mutex
+	capture ctl.CaptureState // the btmon capture running, or the last one (D-057)
 
 	wifiMu  sync.Mutex
 	wifiJob *ctl.WifiJob // the last Wi-Fi join (D-056)

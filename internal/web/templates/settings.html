@@ -86,8 +86,8 @@
 
 {{define "applying"}}{{template "head" .}}
 <section class="card narrow">
-  <h1>Applying network settings</h1>
-  <p>Saved: {{.Changed}}. palm-gw setup is rewriting the firewall and the Palm network; palm-gwd then restarts.</p>
+  <h1>Applying settings</h1>
+  <p>Saved: {{.Changed}}. palm-gw setup is putting it into effect; palm-gwd then restarts.</p>
   {{if .Gone}}<p>The web UI is no longer offered over Bluetooth. Use a browser on your home network.</p>
   {{else}}<p>This page goes to <a href="{{.Next}}">{{.Next}}</a> in 25 seconds. If it does not load, wait a little and reload.</p>{{end}}
 </section>

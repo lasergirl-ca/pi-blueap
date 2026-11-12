@@ -19,6 +19,7 @@ import (
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
 	"palm-gw/internal/ctl"
+	"palm-gw/internal/diag"
 	"palm-gw/internal/event"
 	"palm-gw/internal/fw"
 	"palm-gw/internal/nm"
@@ -38,6 +39,9 @@ type daemonFake struct {
 	rules  []config.AllowRule
 	set    map[string]json.RawMessage // config.set calls by key
 	job    *ctl.WifiJob
+	// part 4
+	stateDir string
+	running  bool
 }
 
 func newDaemonFake() *daemonFake {
@@ -204,6 +208,43 @@ func (f *daemonFake) Call(ctx context.Context, req ctl.Request, emit func(json.R
 		return send(ctl.InternetUseReply{OK: true, Iface: "eth0"})
 	case "wifi.forget", "wifi.radio":
 		return send(ctl.OKReply{OK: true})
+	case "logs":
+		es := []diag.Entry{
+			{Time: time.Date(2026, 11, 12, 10, 0, 0, 0, time.Local), Unit: "palm-gwd", Level: "INFO", Msg: "paired", Event: "paired", Addr: "00:07:E0:3C:5E:FA", Fields: map[string]string{"name": "Zoë's Palm TX"}, Cursor: "c1"},
+			{Time: time.Date(2026, 11, 12, 10, 0, 5, 0, time.Local), Unit: "bluetooth", Level: "ERROR", Msg: "link key missing", Cursor: "c2"},
+		}
+		if req.Logs != nil && req.Logs.After == "c2" {
+			es = []diag.Entry{{Time: time.Date(2026, 11, 12, 10, 0, 9, 0, time.Local), Unit: "palm-gwd", Level: "INFO", Msg: "session up", Event: "session_up", Cursor: "c3"}}
+		}
+		return send(ctl.LogsReply{Entries: es, Cursor: es[len(es)-1].Cursor})
+	case "check":
+		r := ctl.CheckReply{Units: []ctl.UnitState{{Name: "palm-gwd", Active: "active"}, {Name: "palm-gw-dnsmasq", Active: "failed"}}, Modules: []ctl.ModuleState{{Name: "bnep", Loaded: true}, {Name: "rfcomm"}}}
+		r.Board.Model, r.Board.ID = "Raspberry Pi 5 Model B Rev 1.0", "pi5"
+		r.Adapters = []setup.Adapter{{HCI: "hci0", Address: "60:15:6F:EA:00:81", Bus: "usb", Powered: true}}
+		r.Warnings = []string{"the Pi has been under-voltage since boot"}
+		return send(r)
+	case "diagnostics":
+		f.mu.Lock()
+		running := f.running
+		f.mu.Unlock()
+		r := ctl.DiagnosticsReply{Captures: []diag.File{{Name: "capture-20261112-100000.btsnoop", Size: 2048, ModTime: time.Now()}}, Bundles: []diag.File{}}
+		if running {
+			r.Capture = ctl.CaptureState{Running: true, Name: "capture-20261112-110000.btsnoop", Until: time.Now().Add(time.Minute)}
+		}
+		return send(r)
+	case "btmon":
+		f.mu.Lock()
+		f.running = true
+		f.mu.Unlock()
+		return send(ctl.CaptureState{Running: true, Name: "capture-20261112-110000.btsnoop"})
+	case "bundle":
+		return send(ctl.BundleReply{Name: "palm-gw-support-20261112-110000.tar.gz", Size: 40960})
+	case "about":
+		return send(ctl.AboutReply{Version: "test", GoVersion: "go1.24", Started: time.Now().Add(-time.Hour), Install: &setup.InstallInfo{Model: "Raspberry Pi 5", BlueZ: "5.82", AdapterMode: "dongle"}})
+	case "update.check":
+		return send(ctl.UpdateReply{OK: false, Output: "palm-gw upgrade: no release has been published yet"})
+	case "class.toggle":
+		return send(ctl.ClassReply{Class: "0x000104", Previous: "0x000300", Applying: true})
 	case "network.set":
 		n := req.Network
 		if n.Subnet == "10.4.0.0/24" {
@@ -232,7 +273,8 @@ func loggedIn(t *testing.T, user, pw string) (*daemonFake, *httptest.Server, *ht
 	cfg.Web.PasswordHash = ah
 	cfg.Web.ViewerUsername, cfg.Web.ViewerPasswordHash = "viewer", vh
 	f := newDaemonFake()
-	s, err := New(Options{Config: func() *config.Config { return cfg }, Backend: f})
+	f.stateDir = t.TempDir()
+	s, err := New(Options{Config: func() *config.Config { return cfg }, Backend: f, StateDir: f.stateDir})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,6 +17,7 @@ import (
 	"palm-gw/internal/allow"
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
+	"palm-gw/internal/diag"
 	"palm-gw/internal/fw"
 	"palm-gw/internal/nm"
 	"palm-gw/internal/ppp"
@@ -48,6 +49,19 @@ type Request struct {
 	Network *setup.NetworkChange `json:"network,omitempty"`
 	// wifi.* and internet.use (D-056). The password is never logged.
 	WiFi *WifiRequest `json:"wifi,omitempty"`
+	// logs (D-057).
+	Logs *LogsRequest `json:"logs,omitempty"`
+	// bundle: add the newest btmon capture, which can hold link keys.
+	WithCapture bool `json:"with_capture,omitempty"`
+}
+
+// LogsRequest selects journal lines for logs.
+type LogsRequest struct {
+	Units []string `json:"units,omitempty"` // palm-gwd, bluetooth, dnsmasq, bridge, apply
+	Lines int      `json:"lines,omitempty"` // default 500
+	After string   `json:"after,omitempty"` // a cursor: only newer lines (Follow)
+	Event string   `json:"event,omitempty"` // an event name, or a prefix ending in *
+	Text  string   `json:"text,omitempty"`  // a device address or any text
 }
 
 // WifiRequest carries the internet wizard's commands.
@@ -312,4 +326,76 @@ type InternetUseReply struct {
 	Iface     string   `json:"iface"`
 	Switching bool     `json:"switching"` // the uplink changed: palm-gw setup --apply runs and palm-gwd restarts
 	Changed   []string `json:"changed,omitempty"`
+}
+
+// LogsReply is the answer to logs: matching lines, oldest first, and the
+// cursor to pass as after for the next lines.
+type LogsReply struct {
+	Entries []diag.Entry `json:"entries"`
+	Cursor  string       `json:"cursor"`
+}
+
+// UnitState is a systemd unit's state for check.
+type UnitState struct {
+	Name   string `json:"name"`
+	Active string `json:"active"` // systemctl is-active: active, inactive, failed, ...
+}
+
+// ModuleState is whether a kernel module is loaded.
+type ModuleState struct {
+	Name   string `json:"name"`
+	Loaded bool   `json:"loaded"`
+}
+
+// CheckReply is the answer to check: palm-gw setup --check's report, with
+// the units and kernel modules (PLAN.md section 8.12).
+type CheckReply struct {
+	setup.Report
+	Units   []UnitState   `json:"units"`
+	Modules []ModuleState `json:"modules"`
+}
+
+// CaptureState is the btmon capture running now, or the last one's error.
+type CaptureState struct {
+	Running bool      `json:"running"`
+	Name    string    `json:"name,omitempty"`
+	Started time.Time `json:"started,omitzero"`
+	Until   time.Time `json:"until,omitzero"`
+	Error   string    `json:"error,omitempty"`
+}
+
+// DiagnosticsReply is the answer to diagnostics: the captures and bundles
+// on the Pi, newest first, and the capture in progress.
+type DiagnosticsReply struct {
+	Captures []diag.File  `json:"captures"`
+	Bundles  []diag.File  `json:"bundles"`
+	Capture  CaptureState `json:"capture"`
+}
+
+// BundleReply is the answer to bundle.
+type BundleReply struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
+// ClassReply is the answer to class.toggle.
+type ClassReply struct {
+	Class    string `json:"class"`    // in effect once the apply is done, 0xXXXXXX
+	Previous string `json:"previous"` // before
+	Applying bool   `json:"applying"`
+}
+
+// AboutReply is the answer to about.
+type AboutReply struct {
+	Version   string             `json:"version"`
+	GoVersion string             `json:"go_version"`
+	Started   time.Time          `json:"started"`
+	Install   *setup.InstallInfo `json:"install,omitempty"`
+}
+
+// UpdateReply is the answer to update.check: palm-gw upgrade --check's words.
+type UpdateReply struct {
+	OK     bool   `json:"ok"`
+	Output string `json:"output"`
 }

@@ -31,6 +31,7 @@ func (d *Daemon) startWeb(ctx context.Context) {
 		Fingerprint:   fp,
 		ConnectedPort: 80,
 		Version:       d.opts.Version,
+		StateDir:      d.stateDir(),
 		Log:           d.opts.Log,
 	})
 	if err != nil {

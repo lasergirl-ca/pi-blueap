@@ -20,6 +20,8 @@
     <a href="/internet">Internet</a>
     <a href="/firewall">Firewall</a>
     <a href="/settings">Settings</a>
+    <a href="/logs">Logs</a>
+    <a href="/diagnostics">Diagnostics</a>
   </nav>
   <form method="post" action="/logout" class="logout">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -31,7 +33,7 @@
 {{end}}
 
 {{define "foot"}}</main>
-<footer>palm-gw{{if .Version}} {{.Version}}{{end}}{{if eq .Side "bluetooth"}} · Bluetooth side, TLS{{end}}</footer>
+<footer>palm-gw{{if .Version}} {{.Version}}{{end}}{{if .User}} · <a href="/about">About</a>{{end}}{{if eq .Side "bluetooth"}} · Bluetooth side, TLS{{end}}</footer>
 </body>
 </html>
 {{end}}
