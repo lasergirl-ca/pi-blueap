@@ -1,12 +1,13 @@
 # Connecting a Palm to the gateway
 
 This guide gets a Palm handheld onto the internet through a palm-gw gateway over Bluetooth. It
-is written for someone holding the Palm. You also need a shell on the gateway (the Raspberry Pi),
-or someone who has one, for the one step where the gateway shows a PIN.
+is written for someone holding the Palm. For the one step where the gateway shows a PIN you
+also need the gateway's web page in a browser on your home network, or a shell on the gateway
+(the Raspberry Pi), or someone who has one.
 
-> **Draft.** Written on 2026-11-09 from a real Palm T|X (Palm OS 5.4). Steps marked
-> *(not yet tested)* come from the design and have not been tried on a real device. Screen names
-> are given as the T|X shows them. Other models may word them slightly differently.
+Written from a real Palm T|X (Palm OS 5.4), 2026-11-09 to 2026-11-12. Steps marked
+*(not yet tested)* come from the design and have not been tried on a real device. Screen names
+are given as the T|X shows them. Other models may word them slightly differently.
 
 ## What you need
 
@@ -23,13 +24,17 @@ off. If Wi-Fi is on, the Palm tries to use it instead of Bluetooth when you tap 
 Pairing happens once per Palm. The gateway accepts new Palms only while a pairing window is open.
 That stops strangers from pairing with it.
 
-1. **On the gateway**, open a pairing window:
+1. **On the gateway**, open a pairing window. Either:
+   - in a browser on your home network, open `https://<the Pi's address>:8042/`, log in, go
+     to **Pair**, choose how long the window stays open, and tap **Open**. The page shows the
+     PIN and, below it, each Palm as it pairs; or
+   - in a shell on the gateway:
 
    ```
    palm-gwctl pair 5 --one
    ```
 
-   It prints a 4-digit PIN and waits:
+   The command prints a 4-digit PIN and waits:
 
    ```
    Pairing window open for 5m0s.
@@ -47,7 +52,8 @@ That stops strangers from pairing with it.
    - If it is not listed, tap the search again. One search sometimes misses the gateway even
      when it is visible.
 5. When the Palm asks for a passkey, enter the PIN from step 1.
-6. On the gateway the command reports the result and finishes:
+6. The gateway reports the result: the web page lists the Palm as paired, and the command
+   finishes:
 
    ```
      00:07:E0:3C:5E:FA  "Zoë's Palm TX"  PIN requested
@@ -125,8 +131,49 @@ given (10.42.0.10 to 10.42.0.99) and the DNS server (10.42.0.1). At the bottom o
 you can type a command such as `ping neverssl.com` to test the link without Blazer *(not yet
 tested)*.
 
-The gateway also serves a status page at `http://10.42.0.1/` from the Palm side once its web
-interface is installed.
+The gateway also answers at `http://10.42.0.1/` from the Palm side: Blazer shows a page saying
+the Palm is connected, with its address. The palm-gw app (below) shows much more.
+
+## The palm-gw app
+
+The palm-gw app runs the gateway from the Palm: everything the web page does, except
+downloading captures and support bundles. It needs Palm OS 5 on an ARM Palm (T|X, LifeDrive,
+Tungsten T3/T5/E2, Zire 72, Treo 650 and later) and the gateway's web access over Bluetooth,
+which is on unless someone turned it off (`[web] bluetooth_side`).
+
+**Install it.** HotSync `PalmGW.prc` to the Palm, or copy it to the card's `/PALM/Launcher/`
+folder. It shows in the Launcher as **palm-gw**.
+
+**First connection.**
+1. Connect the Palm to the gateway (step 4 above).
+2. Open palm-gw. The **Gateways** screen lists none yet. Tap **New**.
+3. **Log in** has the address `10.42.0.1` filled in. Type the gateway's user (`sysadmin`
+   unless you chose another) and its web password. The password shows as stars; tick
+   **Show** to see what you are writing. With the stars showing, the on-screen keyboard stays
+   closed (it would show the password): use Graffiti, or tick Show first.
+4. Leave **Remember this Palm** ticked if this Palm should log in by itself next time. The
+   gateway gives the Palm a key of its own; the password is never stored. Tap **Log in**.
+5. **Trust this gateway?** shows the gateway's certificate fingerprint. Compare it with the
+   fingerprint on the web page's login screen, then tap **Trust**. The app remembers it and
+   refuses a gateway whose certificate changes.
+
+**Status** then shows the gateway: name, version, connections, internet and the pairing
+window. **Pair** opens a pairing window for another Palm, with its PIN and a countdown. The
+**Gateway** menu has the rest: Devices, Sessions, Internet (Wi-Fi), Firewall, Settings, Logs,
+Diagnostics, About palm-gw and Log out. Anything that drops the Palm's own connection
+(restarting palm-gwd, network settings, switching between Ethernet and Wi-Fi) asks first,
+then goes back to Gateways with a note to connect again in about 20 seconds.
+
+The app keeps several gateways, each known by its certificate. **Details** on the Gateways
+screen shows one's address, user and fingerprint; the menu's **Forget** removes it.
+
+| What the app says | What to do |
+|---|---|
+| The Palm's Bluetooth did not answer (0x305) | Switch Bluetooth off and on in Prefs, then try again |
+| No connection to the gateway | Connect the Palm first (Prefs, Network, Connect) |
+| Its certificate is not the one trusted | If the gateway's network settings changed, its certificate did too: Forget the gateway in the app and connect again, comparing the new fingerprint |
+| The gateway no longer takes this Palm's key | The key was revoked (web page, Settings, Palm devices). Log in with the password |
+| The TLS module would not load | Close other apps, or soft-reset the Palm |
 
 ## Other connection types
 
@@ -145,7 +192,8 @@ The steps above are the recommended set-up. Two alternatives also work with the 
 
 - **Treo 650/680/700p, Tungsten T3/T5** *(not yet tested)*. The screens are the same, but
   Connection is a top-level item in Prefs.
-- **Zire 72, LifeDrive** *(not yet tested)*. Expected to match the T|X.
+- **Zire 72, LifeDrive** *(not yet tested)*. Expected to match the T|X. A LifeDrive is paired
+  with the test gateway; its connection steps are still to be written from its own screens.
 - **Palm OS 4 devices** such as the Tungsten T or m-series with a Bluetooth card *(not yet
   tested)*. Some of these wait for the computer to speak first. If one stalls at "Signing on...",
   add a login script in the network service under Details, then Script:
@@ -162,17 +210,16 @@ The steps above are the recommended set-up. Two alternatives also work with the 
 | What you see | Likely cause | What to do |
 |---|---|---|
 | Palm Gateway is not in the Add Device list | One search missed it, or the gateway is too far away | Search again; move closer |
-| Pairing fails with "Unable to connect" | No pairing window open, or wrong PIN | Run `palm-gwctl pair 5 --one` again and use the new PIN |
+| Pairing fails with "Unable to connect" | No pairing window open, or wrong PIN | Open a new window (the web page's Pair, or `palm-gwctl pair 5 --one`) and use the new PIN |
 | Connect fails straight away after a Palm reset | The Palm lost its pairing but the gateway still has it | On the gateway run `palm-gwctl forget <address>`, delete Palm Gateway from Trusted Devices on the Palm, and pair again |
 | Connect fails although pairing worked earlier | The gateway's allowlist no longer has this Palm | Pair again with a pairing window, or run `palm-gwctl allow <address>` on the gateway |
 | Connected, but no web pages load | HTTPS site, or DNS | Try `http://neverssl.com/`; check Query DNS is ticked |
 | "Modem not found", or stuck at "Connecting", with a Modem connection | Dial-up does not work on a T\|X yet | Use a connection with Connect to: PC |
 | The Palm uses Wi-Fi instead | Wi-Fi is on | Turn Wi-Fi off in Prefs |
 | The link drops after a few idle minutes | Palm idle timeout | Set Idle timeout to Never in the network service Details |
+| "Error: Serial: timeout. Could be bad cable or faulty Modem. (0x0305)" | The Palm's own Bluetooth radio stopped answering the Palm | In Prefs, Bluetooth, switch Bluetooth off and on, then connect again. If it keeps happening, soft-reset the Palm. On a Pi 5, also check the gateway's power supply (`TROUBLESHOOTING.md`) |
 
-On the gateway, `palm-gwctl status` lists paired devices and live connections. Every pairing
-attempt and connection is logged with the Palm's Bluetooth address:
-
-```
-journalctl -u palm-gwd -f
-```
+On the gateway, `palm-gwctl status` lists paired devices and live connections, and the web
+page's Logs shows every pairing attempt and connection with the Palm's Bluetooth address (or
+`journalctl -u palm-gwd -f` in a shell). [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) covers
+the gateway's side.

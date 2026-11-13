@@ -608,22 +608,29 @@ static void describe(UInt16 r)
 {
 	switch (r) {
 	case callNoNet:
-		StrPrintF(gWhy, "No connection to the gateway (error 0x%x). Is the Palm connected over Bluetooth or Wi-Fi?", gNetErr);
+		if (gNetErr == serErrTimeOut || gNetErr == serErrLineErr) {
+			/* the Palm's own Bluetooth radio stopped answering it (TESTING.md, 0x0305) */
+			StrPrintF(gWhy, "The Palm's Bluetooth did not answer (0x%x). Turn Bluetooth off and on in Prefs, then try again.", gNetErr);
+		} else if (gNetErr == netErrUserCancel) {
+			StrCopy(gWhy, "Connecting was cancelled.");
+		} else {
+			StrPrintF(gWhy, "No connection to the gateway (0x%x). Check Prefs, Network, then try again.", gNetErr);
+		}
 		break;
 	case callNoModule:
-		StrCopy(gWhy, "The TLS module would not load: too little memory?");
+		StrCopy(gWhy, "The TLS module would not load. Close other apps or reset the Palm, then try again.");
 		break;
 	case callTLS:
-		StrPrintF(gWhy, "The secure connection failed (TLS %d, wolfSSL %ld).", gTls.result, gTls.wolfErr);
+		StrPrintF(gWhy, "The secure connection failed (TLS %d, wolfSSL %ld). Try again.", gTls.result, gTls.wolfErr);
 		break;
 	case callTimeout:
-		StrCopy(gWhy, "The gateway did not answer in time.");
+		StrCopy(gWhy, "The gateway did not answer in time. Is the Palm still connected? Try again.");
 		break;
 	case callBadReply:
-		StrCopy(gWhy, "The gateway's reply was not understood.");
+		StrCopy(gWhy, "The gateway's reply was not understood. Is it a palm-gw gateway?");
 		break;
 	case callPin:
-		StrCopy(gWhy, "This is not the gateway that was trusted.");
+		StrCopy(gWhy, "Its certificate is not the one trusted. If its network settings changed, Forget it and connect again.");
 		break;
 	default:
 		gWhy[0] = 0;

@@ -106,4 +106,6 @@ Nothing is marked done before Zoe has seen it on the device.
   - Sessions, Internet (Wi-Fi), Settings, Palm devices, Logs, Diagnostics, About; the warning
     before anything that drops the Palm's link.
 - **M4: finish.** Icons, About with the build stamp, error texts, and `docs/PALM-SETUP.md`'s
-  app section.
+  app section. Built 2026-11-12: the logo icons (D-063), About with the build stamp and the
+  last handshake (M2), error texts that say what to do (the Palm's own 0x0305 among them), and
+  PALM-SETUP's "The palm-gw app". Checked on the T|X with M2's checklist.
