@@ -1190,6 +1190,18 @@ FuelLog lessons, is `docs/PALM-DEV.md`):
 
 ## Hardware observations
 
+### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)
+
+Seen during CradleSync over the gateway; TESTING.md has the capture.
+- **On the old supply:** the Pi 5 was on a charger offering at most 3 A at 5 V. Under load its
+  5 V rail sagged (69 under-voltage events in a day), heavy transfers stalled, and once the Pi
+  hung and its watchdog rebooted it. A Pi 5 needs a supply that offers 5 V 5 A (USB PD);
+  `palm-gw setup --check` already warns about this, and section 3 should say it plainly.
+- **On a 5 A supply:** the remaining errors came with a healthy link, both ways silent at the
+  IP level, and no drops at the gateway. That is an application-level wait between the
+  Palm's app and its server, not a gateway fault.
+- The invalid-packet drop now has a counter (`palm->invalid`).
+
 ### Test rig (kickoff rule 4), 2026-11-08
 
 - **Palm TX** (address 00:07:E0:3C:5E:FA, class 0x100114), added 2026-11-09. Pairs with a

@@ -36,7 +36,7 @@ table inet palm_gw {
 
     chain palm_forward {
         ct state established,related accept
-        ct state invalid drop
+        ct state invalid counter drop comment "palm->invalid"
         ip daddr . meta l4proto . th dport @lan_allow accept
         ip daddr @lan_allow_icmp ip protocol icmp accept
         ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 } counter drop comment "palm->rfc1918"

@@ -3028,3 +3028,32 @@ is caught.
   supply was swapped.
 - A new 10-minute capture started at 17:44:01, with `ppp.debug` on, to catch a first-connect
   drop.
+
+**What the capture showed (test33, 17:44-17:49, the new supply, no under-voltage).** The T|X
+showed "Serial: timeout (0x0305)" again during a CradleSync. The btmon capture and pppd's
+debug log:
+- **Bluetooth and PPP stayed up throughout.** One ACL link, no mode changes; it ended with the
+  Palm's disconnect (reason 0x13, remote user terminated). PPP negotiated in 40 ms. pppd sent
+  no LCP echo (it does only after 20 s with nothing received). Keepalives crossed both ways at
+  17:48:58 and 17:49:18, after the data stopped.
+- **The dongle never fell behind.** Every ACL packet sent to the T|X was completed by the
+  controller in the same second (Number of Completed Packets), with no backlog.
+- **IP traffic stopped in both directions** three times: 15 s from 17:46:02, 32 s from
+  17:47:20, then for good from 17:48:54. The first two times data resumed, at about 2.3 KB/s
+  each way. 361 KB went out to the Palm and 442 KB came in.
+- **Then temporary counters:** on the invalid-packet drop in `palm_forward`, on invalid
+  packets from eth0 to `ppp*`, and on everything from eth0 to `ppp*`. The next CradleSync
+  (17:53, finished fine) gave 0 invalid packets either way; 841 packets in from the internet,
+  all forwarded; `ip -s link show ppp0` 0 errors and 0 drops each way.
+
+**Conclusion.** The gateway neither drops nor holds back this traffic, and the radio link stays
+up. The 0x0305 errors had two causes. Under-voltage on the 3 A supply during heavy transfers is
+fixed by the 5 A supply. The rest are pauses where neither end sent anything, long enough for
+the T|X to give up: an application-level wait between CradleSync and its airlock, to be read
+in the airlock's session log. The short first-connect drops (35-40 s, nothing sent; D-050)
+did not happen again in the evening's connects (17:36, 17:44, 17:53). `ppp.debug` stays on
+until one does.
+
+The invalid-packet drop in `palm_forward` had no counter, which is why it took temporary rules
+to rule it out. It now counts as `palm->invalid` (test34), so the firewall page and
+`palm-gwctl firewall counters` show it like the other drops.
