@@ -3005,3 +3005,13 @@ over the gateway. From the gateway's log:
 - **After the reboot,** at 17:36:23, the T|X connected and PPP negotiated in 80 ms (LCP, then
   IPCP with address and DNS, all acknowledged both ways). The session stayed up past the
   35-40 s mark.
+
+**The test Pi's journal is now persistent** (Zoe's OK, 2026-11-12): the drop-in
+`/etc/systemd/journald.conf.d/50-palm-gw-persistent.conf` (`Storage=persistent`,
+`SystemMaxUse=100M`) overrides Raspberry Pi OS's
+`/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf`. After `systemctl restart
+systemd-journald` and `journalctl --flush`, the journal is at
+`/var/log/journal/<machine-id>/system.journal` (16 MB so far), and `journalctl -b -1` will
+show the boot before a reset. This is a change to the test Pi only, not to palm-gw; deleting
+the file goes back to the journal in RAM. `ppp.debug` stays on until the first-connect drop
+is caught.
