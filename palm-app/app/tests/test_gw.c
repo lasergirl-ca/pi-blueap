@@ -35,6 +35,16 @@ int main(void)
 	rec[0] = 2;
 	check("other version", !gwUnpack(rec, n, &h));
 
+	check("no key, no trailer", h.key[0] == 0);
+
+	/* The device key rides in a trailer (D-063). */
+	strcpy(g.key, "pgk1.0123456789ab.00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff");
+	n = gwPack(&g, rec);
+	check("trailer length", n == gwFixed + 21 + 10 + 9 + 83);
+	check("key unpacks", gwUnpack(rec, n, &h) && strcmp(h.key, g.key) == 0 && strcmp(h.user, "sysadmin") == 0);
+	check("old record, no key", gwUnpack(rec, gwFixed + 21 + 10 + 9, &h) && h.key[0] == 0);
+	g.key[0] = 0;
+
 	/* A name longer than the field is cut, and still unpacks. */
 	memset(g.name, 'x', sizeof g.name);
 	g.name[sizeof g.name - 1] = 0;

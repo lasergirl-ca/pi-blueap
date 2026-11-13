@@ -85,3 +85,22 @@ gateway (test32). The gateway's log:
 
 Still to note from the device: the handshake time Status shows ("Last call"), and the
 heap in About.
+
+## Remember and the logo (after the first device run)
+
+Zoe asked for the login to be remembered, and gave the app its logo (D-063).
+- **Log in:** a **Remember this Palm** box, ticked by default. With it, the gateway issues
+  this Palm a device key. The Palm keeps the key, never the password.
+- **Gateways:** Connect to a remembered gateway logs in with the key and goes straight to
+  Status. Details says "remembered".
+- **Gateway's Settings page:** **Palm devices** lists each key, with the Palm's HotSync name,
+  and revokes one. A revoked Palm is asked for the password at its next Connect.
+- **Launcher:** the palm-gw icon is Zoe's logo, in the Launcher and in list view.
+
+What to check on the T|X with `PalmGW-m1-remember.prc`:
+1. Log out, then Connect: Log in has Remember ticked. Log in with the password.
+2. On the web UI's Settings page, Palm devices lists the T|X by its HotSync name.
+3. Log out on the Palm and Connect again: no password, straight to Status.
+4. Revoke the key on the web page, then Connect on the Palm. It says the gateway no longer
+   takes its key and asks for the password.
+5. The Launcher shows the logo.

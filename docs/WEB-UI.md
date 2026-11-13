@@ -157,7 +157,9 @@ daemon's ctl handlers do the work and the API is a thin layer over them, as the 
     name (`rules` for the firewall).
   - In text, booleans are `1`/`0`, lists are space-separated, and a line break inside a
     value becomes a space.
-  - Login returns `token`, `expires` (RFC 3339), `expires_in` (seconds) and `role`.
+  - Login returns `token`, `expires` (RFC 3339), `expires_in` (seconds) and `role`. With
+    `remember=1` and `device=<name>` it also returns `device_key` and `device_key_id`; a later
+    login with `device_key=` alone needs no password (D-063).
   - `status` gives the PIN only to the admin. `events?since=N` returns `last`, to pass back
     as the next `since`; with no `since`, it returns the last 20 events.
   - `firewall/allow` takes `host`, `ports` (space-separated) and `comment`. `firewall/remove`
@@ -177,8 +179,8 @@ daemon's ctl handlers do the work and the API is a thin layer over them, as the 
 - Screens: login (gateway address, username, password, certificate fingerprint on first use),
   status, sessions, devices with disconnect, forget and rename, pairing (open a window and
   show the PIN large), firewall allow rules, settings.
-- It does not store the password. It may remember the gateway address, username and pinned
-  fingerprint.
+- It does not store the password. It remembers the gateway address, username, pinned key and,
+  with Remember, a device key the gateway can revoke (D-063).
 
 ### 8. The port-80 page
 

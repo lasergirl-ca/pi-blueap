@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
 	"palm-gw/internal/ctl"
+	"palm-gw/internal/devkey"
 	"palm-gw/internal/diag"
 	"palm-gw/internal/event"
 	"palm-gw/internal/fw"
@@ -42,6 +44,7 @@ type daemonFake struct {
 	// part 4
 	stateDir string
 	running  bool
+	keys     *devkey.Store // device keys (D-063), a real store in a temporary directory
 }
 
 func newDaemonFake() *daemonFake {
@@ -245,6 +248,32 @@ func (f *daemonFake) Call(ctx context.Context, req ctl.Request, emit func(json.R
 		return send(ctl.UpdateReply{OK: false, Output: "palm-gw upgrade: no release has been published yet"})
 	case "class.toggle":
 		return send(ctl.ClassReply{Class: "0x000104", Previous: "0x000300", Applying: true})
+	case "devkey.issue", "devkey.check", "devkey.list", "devkey.revoke":
+		if f.keys == nil {
+			return errors.New("no key store")
+		}
+		k := req.DevKey
+		switch req.Cmd {
+		case "devkey.issue":
+			key, e, err := f.keys.Issue(k.User, k.Role, k.Name)
+			if err != nil {
+				return err
+			}
+			return send(ctl.DevKeyReply{Key: key, Entry: e})
+		case "devkey.check":
+			e, err := f.keys.Check(k.Key, k.IP)
+			if err != nil {
+				return err
+			}
+			return send(ctl.DevKeyReply{Entry: e})
+		case "devkey.revoke":
+			e, err := f.keys.Revoke(k.ID)
+			if err != nil {
+				return err
+			}
+			return send(ctl.DevKeyReply{Entry: e})
+		}
+		return send(ctl.DevKeysReply{Keys: f.keys.List()})
 	case "network.set":
 		n := req.Network
 		if n.Subnet == "10.4.0.0/24" {
@@ -274,6 +303,7 @@ func loggedIn(t *testing.T, user, pw string) (*daemonFake, *httptest.Server, *ht
 	cfg.Web.ViewerUsername, cfg.Web.ViewerPasswordHash = "viewer", vh
 	f := newDaemonFake()
 	f.stateDir = t.TempDir()
+	f.keys, _ = devkey.Open(filepath.Join(f.stateDir, devkey.FileName))
 	s, err := New(Options{Config: func() *config.Config { return cfg }, Backend: f, StateDir: f.stateDir})
 	if err != nil {
 		t.Fatal(err)

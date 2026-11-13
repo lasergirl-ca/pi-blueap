@@ -221,6 +221,15 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 			secs = v
 		}
 		return c.capture(secs)
+	case "devkeys":
+		if len(cmdArgs) == 2 && cmdArgs[0] == "revoke" {
+			return c.devKeyRevoke(cmdArgs[1])
+		}
+		if len(cmdArgs) != 0 {
+			fmt.Fprintln(stderr, "palm-gwctl devkeys [revoke <id>]")
+			return 2
+		}
+		return c.devKeys()
 	case "check":
 		return c.check()
 	case "bundle":
@@ -283,6 +292,7 @@ Commands:
   choices / network           adapters, uplinks and the Palm network check, and the last apply
   network [--uplink IF] [--subnet A.B.C.0/24] [--tls self-signed|off] [--bluetooth-side on|off]
                               change them; runs palm-gw setup --apply, which restarts palm-gwd
+  devkeys [revoke <id>]       the Palms' device keys (logins without the password), or revoke one
   check                       health report
   class toggle                swap Class of Device with class_fallback
   bundle [--with-capture]     write a support bundle (hashes redacted) into /var/lib/palm-gw/bundles
@@ -1393,6 +1403,42 @@ func (c *cli) classToggle() int {
 	}
 	if !printed {
 		fmt.Fprintf(c.stdout, "Class of Device %s -> %s. palm-gw setup --apply rewrites main.conf and restarts bluetooth and palm-gwd.\n", r.Previous, r.Class)
+	}
+	return 0
+}
+
+func (c *cli) devKeys() int {
+	var r DevKeysReply
+	printed, err := c.call(Request{Cmd: "devkey.list"}, &r)
+	if err != nil || printed {
+		if err != nil {
+			return c.fail(err)
+		}
+		return 0
+	}
+	if len(r.Keys) == 0 {
+		fmt.Fprintln(c.stdout, "No Palm has a device key.")
+		return 0
+	}
+	fmt.Fprintf(c.stdout, "%-12s  %-20s  %-14s  %-16s  %s\n", "ID", "PALM", "ACCOUNT", "ISSUED", "LAST USED")
+	for _, k := range r.Keys {
+		last := "never"
+		if !k.LastUsed.IsZero() {
+			last = k.LastUsed.Local().Format("2006-01-02 15:04") + " " + k.LastIP
+		}
+		fmt.Fprintf(c.stdout, "%-12s  %-20s  %-14s  %-16s  %s\n", k.ID, k.Name, k.User+" ("+k.Role+")", k.Created.Local().Format("2006-01-02 15:04"), last)
+	}
+	return 0
+}
+
+func (c *cli) devKeyRevoke(id string) int {
+	var r DevKeyReply
+	printed, err := c.call(Request{Cmd: "devkey.revoke", DevKey: &DevKeyRequest{ID: id}}, &r)
+	if err != nil {
+		return c.fail(err)
+	}
+	if !printed {
+		fmt.Fprintf(c.stdout, "Revoked the key of %s; it logs in with the password again.\n", r.Entry.Name)
 	}
 	return 0
 }

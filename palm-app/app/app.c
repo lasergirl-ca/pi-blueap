@@ -9,6 +9,7 @@
  * TLS handshake, one request, the reply until the server closes. */
 #include <PalmOS.h>
 #include <NetMgr.h>
+#include <DLServer.h>
 #include "resources.h"
 #include "loader.c"
 #include "../tls/tlsmod.h"
@@ -782,7 +783,7 @@ static void mainDetails(void)
 		return;
 	}
 	gwFingerprint(gGws[i].cert, false, fp);
-	StrPrintF(who, "%s, user %s", gGws[i].name, gGws[i].user);
+	StrPrintF(who, "%s, user %s%s", gwLabel(&gGws[i]), gGws[i].user, gGws[i].key[0] ? ", remembered" : "");
 	FrmCustomAlert(DetailsAlert, who, gGws[i].addr, fp);
 }
 
@@ -829,7 +830,8 @@ static Boolean mainHandle(EventType *e)
 			return true;
 		case MainMenuForget:
 			i = mainSelection();
-			if (i >= 0 && FrmCustomAlert(ForgetAlert, gwLabel(&gGws[i]), " ", " ") == 0) {
+			if (i >= 0 && FrmCustomAlert(ForgetAlert, gwLabel(&gGws[i]),
+					gGws[i].key[0] ? " Revoke this Palm's key on the gateway's Settings page too." : " ", " ") == 0) {
 				gwForget(&gGws[i]);
 				mainFill(f, true);
 			}
@@ -981,24 +983,77 @@ static void showPass(FormType *f, Boolean show)
 	FldSetInsPtPosition(fld, FldGetTextLength(fld));
 }
 
+/* keyLogin logs in with this Palm's device key for gCur (D-063): no
+ * password. A key the gateway refuses (revoked, or its account gone) is
+ * dropped, and the password is asked for. True when it logged in. */
+static Boolean keyLogin(void)
+{
+	static Char form[gwKeyMax + 16];
+	KvRecord rec;
+	UInt16 r, pos = 0;
+
+	progress("Logging in with this Palm's key...");
+	form[0] = 0;
+	httpFormAdd(form, sizeof form, "device_key", gCur.key);
+	r = apiCall("POST", "/api/v1/login?format=text", form, false);
+	MemSet(form, sizeof form, 0);
+	if (r != callOK) {
+		progress("");
+		fail("Could not log in.");
+		return false;
+	}
+	if (gStatus == 200 && kvNext(gReply + gBodyOff, gBodyLen, &pos, &rec) &&
+		kvGet(&rec, "token", gToken, sizeof gToken)) {
+		MemSet(gReply, sizeof gReply, 0);
+		gCur.lastUsed = TimGetSeconds();
+		gwSave(&gCur);
+		FrmGotoForm(StatusForm);
+		return true;
+	}
+	if (gStatus == 401) {
+		gCur.key[0] = 0;
+		gwSave(&gCur);
+		progress("The gateway no longer takes this Palm's key (revoked?). Log in with the password.");
+		return false;
+	}
+	replyError();
+	progress("");
+	fail("Login refused.");
+	return false;
+}
+
+/* deviceName is what the gateway's Palm devices list calls this Palm: its
+ * HotSync name, or "Palm". */
+static void deviceName(Char *out)
+{
+	if (DlkGetSyncInfo(NULL, NULL, NULL, out, NULL, NULL) != errNone || out[0] == 0) {
+		StrCopy(out, "Palm");
+	}
+}
+
 /* doLogin: the handshake (which says which gateway this is), trust if it
  * is new, the login, then status, which names the gateway for the list. */
 static void doLogin(void)
 {
 	FormType *f = FrmGetActiveForm();
-	static Char form[200];
+	static Char form[512]; /* a 64-character password URL-encodes to up to 192 */
 	Char user[gwUserMax], addr[gwAddrMax];
 	KvRecord rec;
 	UInt16 r, pos = 0;
 	Int16 idx;
 	static const UInt8 zero[32];
 	static GatewayType replaced; /* a saved gateway whose changed key was trusted */
-	Boolean replacing = false;
+	Boolean replacing = false, remember;
+	Char name[dlkUserNameBufSize];
 
 	getEditable(f, LoginAddr, addr, sizeof addr);
 	getEditable(f, LoginUser, user, sizeof user);
 	if (gShowPass) {
 		passFromField(f);
+	}
+	if (gPassLen == 0 && gCurKnown && gCur.key[0] != 0 && StrCompare(addr, gCur.addr) == 0) {
+		keyLogin(); /* again, after a call that could not reach the gateway */
+		return;
 	}
 	if (addr[0] == 0 || user[0] == 0 || gPassLen == 0) {
 		gWhy[0] = 0;
@@ -1056,8 +1111,16 @@ static void doLogin(void)
 
 	progress("Logging in...");
 	form[0] = 0;
-	httpFormAdd(form, sizeof form, "username", user);
-	httpFormAdd(form, sizeof form, "password", gPass);
+	remember = CtlGetValue(getObject(f, LoginRemember)) != 0;
+	deviceName(name);
+	if (!httpFormAdd(form, sizeof form, "username", user) || !httpFormAdd(form, sizeof form, "password", gPass) ||
+		(remember && (!httpFormAdd(form, sizeof form, "remember", "1") || !httpFormAdd(form, sizeof form, "device", name)))) {
+		MemSet(form, sizeof form, 0);
+		gWhy[0] = 0;
+		progress("");
+		fail("The user name or password is too long.");
+		return;
+	}
 	r = apiCall("POST", "/api/v1/login?format=text", form, false);
 	MemSet(form, sizeof form, 0);
 	if (r != callOK) {
@@ -1074,7 +1137,10 @@ static void doLogin(void)
 	}
 	wipePass();
 	setEditable(f, LoginPass, ""); /* not even on a form that is closing */
-	MemSet(gReply, sizeof gReply, 0); /* the token was in it */
+	if (!remember || !kvGet(&rec, "device_key", gCur.key, sizeof gCur.key)) {
+		gCur.key[0] = 0;
+	}
+	MemSet(gReply, sizeof gReply, 0); /* the token and the key were in it */
 	gCur.lastUsed = TimGetSeconds();
 	if (MemCmp(gCur.pin, zero, 32) != 0) {
 		if (replacing) {
@@ -1099,8 +1165,12 @@ static Boolean loginHandle(EventType *e)
 		setEditable(f, LoginAddr, gCur.addr);
 		setEditable(f, LoginUser, gCurKnown ? gCur.user : "");
 		setField(f, LoginProgress, gProgress, false);
+		CtlSetValue(getObject(f, LoginRemember), 1);
 		FrmDrawForm(f);
 		FrmSetFocus(f, FrmGetObjectIndex(f, gCurKnown ? LoginPass : LoginUser));
+		if (gCurKnown && gCur.key[0] != 0) {
+			keyLogin();
+		}
 		return true;
 	case frmCloseEvent:
 		wipePass();

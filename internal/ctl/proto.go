@@ -17,6 +17,7 @@ import (
 	"palm-gw/internal/allow"
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
+	"palm-gw/internal/devkey"
 	"palm-gw/internal/diag"
 	"palm-gw/internal/fw"
 	"palm-gw/internal/nm"
@@ -53,6 +54,18 @@ type Request struct {
 	Logs *LogsRequest `json:"logs,omitempty"`
 	// bundle: add the newest btmon capture, which can hold link keys.
 	WithCapture bool `json:"with_capture,omitempty"`
+	// devkey.* (D-063). The key is never logged.
+	DevKey *DevKeyRequest `json:"devkey,omitempty"`
+}
+
+// DevKeyRequest carries the device key commands.
+type DevKeyRequest struct {
+	Key  string `json:"key,omitempty"`  // devkey.check
+	IP   string `json:"ip,omitempty"`   // devkey.check: where it was used from
+	User string `json:"user,omitempty"` // devkey.issue
+	Role string `json:"role,omitempty"` // devkey.issue: admin or viewer
+	Name string `json:"name,omitempty"` // devkey.issue: the Palm's name
+	ID   string `json:"id,omitempty"`   // devkey.revoke
 }
 
 // LogsRequest selects journal lines for logs.
@@ -398,4 +411,16 @@ type AboutReply struct {
 type UpdateReply struct {
 	OK     bool   `json:"ok"`
 	Output string `json:"output"`
+}
+
+// DevKeyReply answers devkey.issue (Key set, once) and devkey.check,
+// devkey.revoke (Key empty).
+type DevKeyReply struct {
+	Key   string       `json:"key,omitempty"`
+	Entry devkey.Entry `json:"entry"`
+}
+
+// DevKeysReply answers devkey.list.
+type DevKeysReply struct {
+	Keys []devkey.Entry `json:"keys"`
 }

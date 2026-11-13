@@ -227,12 +227,29 @@ func TestViewerSettingsReadOnly(t *testing.T) {
 	if strings.Contains(page, "Change the web password") || !strings.Contains(page, "disabled") {
 		t.Error("viewer settings page is editable")
 	}
-	for _, u := range []string{"/firewall/add", "/firewall/1/delete", "/firewall/test", "/settings", "/settings/network", "/settings/password", "/settings/restart"} {
+	for _, u := range []string{"/firewall/add", "/firewall/1/delete", "/firewall/test", "/settings", "/settings/network", "/settings/password", "/settings/restart", "/settings/devkeys/x/revoke"} {
 		if code, _, _ := post(t, c, ts.URL+u, url.Values{"csrf": {tok}}); code != http.StatusForbidden {
 			t.Errorf("viewer POST %s = %d", u, code)
 		}
 	}
 	if len(f.set) != 0 {
 		t.Errorf("viewer changed %v", f.set)
+	}
+}
+
+func TestSettingsDevKeys(t *testing.T) {
+	f, ts, c, tok := loggedIn(t, "admin", "admin-pw")
+	_, _, _ = f.keys.Issue("admin", "admin", "Zo\u00eb's Palm TX")
+	_, page, _ := get(t, c, ts.URL+"/settings")
+	if !strings.Contains(page, "Palm devices") || !strings.Contains(page, "Zoë&#39;s Palm TX") || !strings.Contains(page, ">never<") {
+		t.Errorf("settings page lacks the key")
+	}
+	id := f.keys.List()[0].ID
+	_, _, body := post(t, c, ts.URL+"/settings/devkeys/"+id+"/revoke", url.Values{"csrf": {tok}})
+	if !strings.Contains(body, "Revoked the key of Zoë&#39;s Palm TX.") || len(f.keys.List()) != 0 {
+		t.Errorf("revoke:\n%s", body)
+	}
+	if code, _, _ := post(t, c, ts.URL+"/settings/devkeys/nope/revoke", url.Values{"csrf": {tok}}); code != 400 {
+		t.Errorf("unknown id = %d", code)
 	}
 }

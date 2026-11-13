@@ -68,6 +68,11 @@ UInt16 gwPack(const GatewayType *g, UInt8 *out)
 	n = (UInt16)(n + putStr(out + n, g->name, gwNameMax));
 	n = (UInt16)(n + putStr(out + n, g->addr, gwAddrMax));
 	n = (UInt16)(n + putStr(out + n, g->user, gwUserMax));
+	if (g->key[0] != 0) {
+		/* a trailer: a record without it, or a reader that stops at the
+		 * user, is still a version 1 record (PALM-DEV.md section 8) */
+		n = (UInt16)(n + putStr(out + n, g->key, gwKeyMax));
+	}
 	return n;
 }
 
@@ -84,9 +89,16 @@ Boolean gwUnpack(const UInt8 *rec, UInt16 len, GatewayType *g)
 	}
 	g->port = get16(rec + 65);
 	g->lastUsed = get32(rec + 67);
-	return getStr(rec, len, &off, g->name, gwNameMax) &&
-		getStr(rec, len, &off, g->addr, gwAddrMax) &&
-		getStr(rec, len, &off, g->user, gwUserMax);
+	g->key[0] = 0;
+	if (!getStr(rec, len, &off, g->name, gwNameMax) ||
+		!getStr(rec, len, &off, g->addr, gwAddrMax) ||
+		!getStr(rec, len, &off, g->user, gwUserMax)) {
+		return false;
+	}
+	if (off < len && !getStr(rec, len, &off, g->key, gwKeyMax)) {
+		g->key[0] = 0; /* a trailer it cannot read is no key */
+	}
+	return true;
 }
 
 void gwFingerprint(const UInt8 *hash, Boolean lines, Char *out)

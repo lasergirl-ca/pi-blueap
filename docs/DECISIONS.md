@@ -1159,6 +1159,35 @@ FuelLog lessons, is `docs/PALM-DEV.md`):
 - `docs/WEB-UI.md` section 7 said "C, ARM only": this is that, with the ARM part where it
   pays, as Tessera's and CradleServer's apps do.
 
+### D-063: Palms remember a gateway with a device key, not the password; the app's logo
+
+- **Zoe asked for the app to remember the username and password.** The password would have
+  sat unencrypted on the Palm and in its backups, and it is the gateway's admin password.
+  Given the choice, she took a device key instead.
+- **Issuing:** a password login with `remember=1` (the app's **Remember this Palm**, ticked
+  by default) also returns `device_key` and `device_key_id`. The key is `pgk1.<id>.<64 hex>`,
+  32 random bytes.
+- **What the gateway keeps:** only each key's SHA-256, with the account, its role, the Palm's
+  name (its HotSync name, which it sends in Windows-1252 and the gateway turns into UTF-8),
+  when it was issued, and when and from where it was last used. They live in
+  `/var/lib/palm-gw/device-keys.json`, mode 0600, at most 64 keys (`internal/devkey`).
+- **Logging in with a key:** `POST /api/v1/login` with `device_key=` logs in without the
+  password. It counts towards the same rate limit as a password and gets an ordinary API
+  token. The key's account must still exist with the same role, so a removed viewer's or a
+  renamed admin's keys stop working. Keys are compared in constant time.
+- **On the Palm:** the key is a trailer on the gateway's record (a record without one is
+  unchanged). Connect to a remembered gateway logs in at once. If the gateway refuses the
+  key, the app drops it and asks for the password. Forget reminds you to revoke the key on
+  the gateway too.
+- **Revoking:** the settings page's new **Palm devices** card lists every key and revokes one
+  (admin only). `palm-gwctl devkeys [revoke <id>]` does the same through `devkey.list` and
+  `devkey.revoke`; `devkey.issue` and `devkey.check` serve the API. A password change does not
+  revoke keys: they are not derived from it, and revoking is one tap.
+- **The app's logo** is Zoe's (`palm-app/app/icons/logo.tiff`). `tools/mkicons.py` draws the
+  22, 44, 15x9 and 30x18 Launcher icons from it, in 1 and 8 bits. The PilRC Tessera's setup
+  builds (jichu4n/pilrc) reads standard 40-byte BMP headers; the padded layout in
+  PALM-DEV.md section 6 was for the original PilRC 3.2 and is refused by this one.
+
 ## Hardware observations
 
 ### Test rig (kickoff rule 4), 2026-11-08

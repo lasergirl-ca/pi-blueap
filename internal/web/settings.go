@@ -32,6 +32,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux, side Side) {
 	mux.Handle("POST /settings", a(s.settingsSave))
 	mux.Handle("POST /settings/network", a(s.networkSave))
 	mux.Handle("POST /settings/password", a(s.passwordChange))
+	mux.Handle("POST /settings/devkeys/{id}/revoke", a(s.devKeyRevoke))
 	mux.Handle("POST /settings/restart", a(s.restart))
 }
 
@@ -280,6 +281,10 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, code int
 	data["Adapters"] = adapterOptions(cfg.Bluetooth.Adapter, c)
 	data["Idle"] = idleOptions(cfg.PPP.IdleSeconds)
 	data["TLSModes"] = tlsOptions(cfg.Web.TLS)
+	var keys ctl.DevKeysReply
+	if err := s.call(r.Context(), ctl.Request{Cmd: "devkey.list"}, &keys); err == nil {
+		data["DevKeys"] = keys.Keys
+	}
 	for k, v := range extra {
 		data[k] = v
 	}
@@ -483,4 +488,16 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	data := s.page(r, "Restarting")
 	data["Refresh"] = "10;url=/login"
 	s.render(w, r, http.StatusOK, "restarting", data)
+}
+
+// devKeyRevoke revokes a Palm's device key (D-063): its next login asks
+// for the password again.
+func (s *Server) devKeyRevoke(w http.ResponseWriter, r *http.Request) {
+	var k ctl.DevKeyReply
+	if err := s.call(r.Context(), ctl.Request{Cmd: "devkey.revoke", DevKey: &ctl.DevKeyRequest{ID: r.PathValue("id")}}, &k); err != nil {
+		s.renderSettings(w, r, http.StatusBadRequest, map[string]any{"KeysError": err.Error()})
+		return
+	}
+	s.log.Info("web: device key revoked", "event", "web_setting", "user", sessionOf(r).user, "key", "devkey.revoke", "id", k.Entry.ID)
+	s.renderSettings(w, r, http.StatusOK, map[string]any{"KeysDone": "Revoked the key of " + k.Entry.Name + "."})
 }

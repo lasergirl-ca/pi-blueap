@@ -63,6 +63,18 @@
   </form>
 </section>
 
+<section class="card" id="devkeys">
+  <h2>Palm devices</h2>
+  <p class="muted">A Palm that logged in with Remember keeps its own key, not the password. Revoke a key if that Palm is lost or given away; it then has to log in with the password again.</p>
+  {{with .KeysError}}<p class="error">{{.}}</p>{{end}}{{with .KeysDone}}<p class="notice">{{.}}</p>{{end}}
+  {{if .DevKeys}}<div class="scroll"><table>
+    <tr><th>Palm</th><th>Account</th><th>Issued</th><th>Last used</th>{{if $admin}}<th></th>{{end}}</tr>
+    {{range .DevKeys}}<tr><td>{{.Name}}</td><td>{{.User}} <span class="muted">({{.Role}})</span></td><td>{{date .Created}}</td>
+      <td>{{if .LastUsed.IsZero}}<span class="muted">never</span>{{else}}{{date .LastUsed}} <span class="muted">{{.LastIP}}</span>{{end}}</td>
+      {{if $admin}}<td><form method="post" action="/settings/devkeys/{{.ID}}/revoke"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="danger">Revoke</button></form></td>{{end}}</tr>{{end}}
+  </table></div>{{else}}<p class="muted">No Palm has a key.</p>{{end}}
+</section>
+
 {{if $admin}}
 <section class="card">
   <h2>Change the web password</h2>

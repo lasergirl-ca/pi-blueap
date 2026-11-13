@@ -5,6 +5,7 @@
 #               $(PALM_PREFIX): prc-tools for 68k and ARM, PilRC, SDK 5r3;
 #               Tessera's scripts/setup.sh --palm installs it)
 #   make test   the host tests of the modules without UI (needs only cc)
+#   make icons  draw icons/*.bmp again from icons/logo.tiff (macOS: sips)
 #   make clean
 
 PALM_PREFIX ?= $(HOME)/.local/tessera-palm
@@ -31,7 +32,7 @@ $(B)/app: $(OBJS)
 $(TLS)/build/module/armh07d0.bin:
 	$(MAKE) -C $(TLS)
 
-$(B)/PalmGW.prc: $(B)/app palmgw.rcp palmgw.def resources.h $(TLS)/build/module/armh07d0.bin
+$(B)/PalmGW.prc: $(B)/app palmgw.rcp palmgw.def resources.h $(wildcard icons/*.bmp) $(TLS)/build/module/armh07d0.bin
 	rm -f $(B)/*.bin
 	cd $(B) && $(T)pilrc -q -I .. ../palmgw.rcp .
 	cd $(B) && $(T)build-prc -o PalmGW.prc ../palmgw.def app *.bin ../$(TLS)/build/module/*.bin
@@ -45,7 +46,10 @@ test:
 		grep -c '^ok' $(B)/tests/$$t.txt | sed "s/^/$$t: /; s/$$/ ok/"; grep '^FAIL' $(B)/tests/$$t.txt; \
 	done; exit $$fail
 
+icons:
+	python3 tools/mkicons.py icons/logo.tiff icons
+
 clean:
 	rm -rf $(B)
 
-.PHONY: all test clean
+.PHONY: all test icons clean

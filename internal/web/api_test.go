@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"palm-gw/internal/config"
+	"palm-gw/internal/devkey"
 )
 
 type apiFixture struct {
@@ -31,6 +33,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	cfg.Web.SessionHours = 1
 	clk := &clock{t: time.Now().UTC().Truncate(time.Second)}
 	f := newDaemonFake()
+	f.keys, _ = devkey.Open(filepath.Join(t.TempDir(), devkey.FileName))
 	s, err := New(Options{Config: func() *config.Config { return cfg }, Backend: f, Now: clk.now})
 	if err != nil {
 		t.Fatal(err)
@@ -188,6 +191,12 @@ func TestAPITextFormat(t *testing.T) {
 	if got := Windows1252("Zoë’s “Palm” – 5 € 日本"); !bytes.Equal(got, []byte("Zo\xeb\x92s \x93Palm\x94 \x96 5 \x80 ??")) {
 		t.Errorf("%q", got)
 	}
+	if got := FromWindows1252("Zo\xeb\x92s \x93Palm\x94 \x80"); got != "Zoë’s “Palm” €" {
+		t.Errorf("from: %q", got)
+	}
+	if got := FromWindows1252("Zoë"); got != "Zoë" {
+		t.Errorf("UTF-8 kept: %q", got)
+	}
 	_, body, _ = a.do(a.lan.URL, "GET", "/api/v1/nothing?format=text", tok, nil)
 	if !strings.HasPrefix(body, "error=not_found\r\nmessage=") {
 		t.Errorf("text error %q", body)
@@ -259,5 +268,59 @@ func TestAPIActions(t *testing.T) {
 	// Me: 127.0.0.1 has no session.
 	if _, body, _ := a.do(a.lan.URL, "GET", "/api/v1/me?format=text", tok, nil); !strings.Contains(body, "session=none\r\nip=127.0.0.1") {
 		t.Errorf("me %q", body)
+	}
+}
+
+// D-063: Remember gives the Palm a device key; the key logs in without the
+// password; a wrong or revoked key, or one whose account is gone, is refused.
+func TestAPIDeviceKey(t *testing.T) {
+	a := newAPIFixture(t)
+	// The Palm sends its name in Windows-1252: "Zo\xeb's" becomes "Zoë's".
+	code, body, _ := a.do(a.bt.URL, "POST", "/api/v1/login?format=text", "", url.Values{"username": {"admin"}, "password": {"admin-pw"}, "remember": {"1"}, "device": {"Zo\xeb\x92s Palm TX"}})
+	if code != 200 || !strings.Contains(body, "device_key=pgk1.") || !strings.Contains(body, "device_key_id=") {
+		t.Fatalf("remember: %d %q", code, body)
+	}
+	key := ""
+	for _, l := range strings.Split(body, "\r\n") {
+		if v, ok := strings.CutPrefix(l, "device_key="); ok {
+			key = v
+		}
+	}
+	// The key alone logs in, on either side.
+	for _, base := range []string{a.bt.URL, a.lan.URL} {
+		code, body, _ = a.do(base, "POST", "/api/v1/login", "", url.Values{"device_key": {key}})
+		if code != 200 || !strings.Contains(body, `"role":"admin"`) || !strings.Contains(body, `"user":"admin"`) {
+			t.Errorf("key login on %s: %d %s", base, code, body)
+		}
+	}
+	list := a.f.keys.List()
+	if len(list) != 1 || list[0].Name != "Zo\u00eb\u2019s Palm TX" || list[0].LastIP != "127.0.0.1" {
+		t.Errorf("keys %+v", list)
+	}
+	// A wrong key is refused and counts towards the limit.
+	for i := 0; i < maxFailures; i++ {
+		if code, _, _ := a.do(a.lan.URL, "POST", "/api/v1/login", "", url.Values{"device_key": {key + "0"}}); code != 401 {
+			t.Errorf("wrong key = %d", code)
+		}
+	}
+	if code, _, _ := a.do(a.lan.URL, "POST", "/api/v1/login", "", url.Values{"device_key": {key}}); code != 429 {
+		t.Errorf("after the limit = %d", code)
+	}
+	// A key whose account is gone is refused.
+	ghost, _, _ := a.f.keys.Issue("ghost", "admin", "old Palm")
+	if code, _, _ := a.do(a.bt.URL, "POST", "/api/v1/login", "", url.Values{"device_key": {ghost}}); code != 401 {
+		t.Errorf("ghost key = %d", code)
+	}
+	// A viewer key does not become admin.
+	vkey, _, _ := a.f.keys.Issue("viewer", "admin", "forged role")
+	if code, _, _ := a.do(a.bt.URL, "POST", "/api/v1/login", "", url.Values{"device_key": {vkey}}); code != 401 {
+		t.Errorf("viewer key claiming admin = %d", code)
+	}
+	// Revoked: refused.
+	if _, err := a.f.keys.Revoke(list[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if code, body, _ := a.do(a.bt.URL, "POST", "/api/v1/login", "", url.Values{"device_key": {key}}); code != 401 || !strings.Contains(body, "revoked") {
+		t.Errorf("revoked key = %d %s", code, body)
 	}
 }

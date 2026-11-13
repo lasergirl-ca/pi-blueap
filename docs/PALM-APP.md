@@ -64,6 +64,9 @@ gateway, a packed layout with a version byte, with a host test for packing:
 | 71 | … | NUL-terminated: name (from `status`), address (`10.42.0.1` or a LAN address), username |
 
 The password is never stored (WEB-UI section 7). The token lives in memory for the session.
+With **Remember this Palm** the gateway issues a device key, kept as a trailer after the
+username (a NUL-terminated string, absent in older records), and Connect logs in with it
+(D-063).
 
 **Forms:**
 1. **Gateways:** the list (name, last address, last used), Connect, New, Forget, and Details

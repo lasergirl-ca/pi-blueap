@@ -10,8 +10,9 @@
 #define gwNameMax   48 /* the gateway's Bluetooth name, from status */
 #define gwAddrMax   40 /* a dotted address or a host name */
 #define gwUserMax   33 /* palm-gw usernames are 1 to 32 characters */
-#define gwFixed     71 /* the fixed part, before the three strings */
-#define gwRecordMax (gwFixed + gwNameMax + gwAddrMax + gwUserMax)
+#define gwKeyMax    96 /* a device key, "pgk1." + 12 + "." + 64 (D-063) */
+#define gwFixed     71 /* the fixed part, before the strings */
+#define gwRecordMax (gwFixed + gwNameMax + gwAddrMax + gwUserMax + gwKeyMax)
 
 typedef struct {
 	UInt8 pin[32];  /* SHA-256 of the server key's SubjectPublicKeyInfo */
@@ -21,6 +22,7 @@ typedef struct {
 	Char name[gwNameMax];
 	Char addr[gwAddrMax];
 	Char user[gwUserMax];
+	Char key[gwKeyMax]; /* this Palm's device key, or empty; a trailer after user (D-063) */
 } GatewayType;
 
 /* gwPack writes g into out (at least gwRecordMax bytes) and returns the

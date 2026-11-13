@@ -47,6 +47,10 @@ func (d *Daemon) registerHandlers() {
 	d.ctl.Handle("class.toggle", d.handleClassToggle)
 	d.ctl.Handle("about", d.handleAbout)
 	d.ctl.Handle("update.check", d.handleUpdateCheck)
+	d.ctl.Handle("devkey.issue", d.handleDevKeyIssue)
+	d.ctl.Handle("devkey.check", d.handleDevKeyCheck)
+	d.ctl.Handle("devkey.list", d.handleDevKeyList)
+	d.ctl.Handle("devkey.revoke", d.handleDevKeyRevoke)
 }
 
 // handleEvents streams every daemon event until the client disconnects

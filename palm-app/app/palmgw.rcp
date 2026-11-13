@@ -3,6 +3,21 @@
 VERSION ID 1 "0.1"
 APPLICATIONICONNAME ID 1000 "palm-gw"
 
+// Zoe's logo (icons/logo.tiff), drawn at the Palm's sizes by tools/mkicons.py.
+ICONFAMILYEX
+BEGIN
+	BITMAP "icons/icon22-1.bmp" BPP 1
+	BITMAP "icons/icon22-8.bmp" BPP 8 TRANSPARENT 255 0 255
+	BITMAP "icons/icon44-8.bmp" BPP 8 DENSITY 144 TRANSPARENT 255 0 255
+END
+
+SMALLICONFAMILYEX
+BEGIN
+	BITMAP "icons/small15-1.bmp" BPP 1
+	BITMAP "icons/small15-8.bmp" BPP 8 TRANSPARENT 255 0 255
+	BITMAP "icons/small30-8.bmp" BPP 8 DENSITY 144 TRANSPARENT 255 0 255
+END
+
 FORM ID MainForm AT (0 0 160 160)
 NOFRAME
 MENUID MainMenu
@@ -39,7 +54,8 @@ BEGIN
 	LABEL "Password:" AUTOID AT (2 66)
 	FIELD ID LoginPass AT (48 66 70 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
 	CHECKBOX "Show" ID LoginShow AT (121 66 37 12)
-	FIELD ID LoginProgress AT (2 86 156 55) NONEDITABLE MULTIPLELINES MAXCHARS 200
+	CHECKBOX "Remember this Palm" ID LoginRemember AT (46 81 110 12)
+	FIELD ID LoginProgress AT (2 97 156 44) NONEDITABLE MULTIPLELINES MAXCHARS 200
 	BUTTON "Log in" ID LoginGo AT (2 146 40 12)
 	BUTTON "Cancel" ID LoginCancel AT (48 146 40 12)
 	GRAFFITISTATEINDICATOR AT (148 148)
@@ -95,7 +111,7 @@ ALERT ID ForgetAlert
 CONFIRMATION
 BEGIN
 	TITLE "Forget gateway"
-	MESSAGE "Forget ^1? Next time this Palm asks to trust it again."
+	MESSAGE "Forget ^1? Next time this Palm asks to trust it again.^2"
 	BUTTONS "Forget" "Cancel"
 END
 

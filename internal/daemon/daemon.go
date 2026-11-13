@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
 	"palm-gw/internal/ctl"
+	"palm-gw/internal/devkey"
 	"palm-gw/internal/event"
 	"palm-gw/internal/fw"
 	"palm-gw/internal/ppp"
@@ -71,6 +73,7 @@ type Daemon struct {
 	panLog  *slog.Logger
 	events  *event.Bus
 	store   *state.Store
+	devkeys *devkey.Store // the Palms' device keys (D-063)
 	allow   *allow.List
 	ctl     *ctl.Server
 	started time.Time
@@ -125,6 +128,10 @@ func New(opts Options) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	dk, err := devkey.Open(filepath.Join(filepath.Dir(opts.StatePath), devkey.FileName))
+	if err != nil {
+		return nil, err
+	}
 	if opts.DnsmasqConf == "" {
 		opts.DnsmasqConf = defaultDnsmasqConf
 	}
@@ -140,6 +147,7 @@ func New(opts Options) (*Daemon, error) {
 		panLog:   opts.Log.With("component", "pan"),
 		events:   event.New(),
 		store:    st,
+		devkeys:  dk,
 		started:  time.Now(),
 		reattach: make(chan struct{}, 1),
 	}

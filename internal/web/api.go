@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"palm-gw/internal/config"
 	"palm-gw/internal/ctl"
@@ -102,6 +103,31 @@ func Windows1252(s string) []byte {
 		}
 	}
 	return out
+}
+
+// FromWindows1252 turns text a Palm sent (its character set is Windows-1252)
+// into UTF-8; text that is valid UTF-8 already is returned as is.
+func FromWindows1252(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c < 0x80 || c >= 0xA0:
+			b.WriteRune(rune(c))
+		default:
+			r := '?'
+			for k, v := range cp1252 {
+				if v == c {
+					r = k
+				}
+			}
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func wantText(r *http.Request) bool { return r.URL.Query().Get("format") == "text" }
@@ -212,6 +238,10 @@ func (s *Server) apiLogin(side Side) http.HandlerFunc {
 			s.apiError(w, r, http.StatusTooManyRequests, "too many failed logins; wait a minute")
 			return
 		}
+		if key := r.PostFormValue("device_key"); key != "" {
+			s.apiKeyLogin(w, r, side, ip, key)
+			return
+		}
 		user := r.PostFormValue("username")
 		role := check(s.accounts(), user, r.PostFormValue("password"))
 		if role == "" {
@@ -222,9 +252,48 @@ func (s *Server) apiLogin(side Side) http.HandlerFunc {
 		}
 		se := s.sessions.createAPI(user, role, side, s.o.SessionTTL)
 		s.log.Info("api login", "event", "web_login", "side", side, "ip", ip, "user", user, "role", role, "api", true)
-		s.apiOK(w, r, kv{"token", se.token}, kv{"expires", se.expires.UTC().Format(time.RFC3339)},
-			kv{"expires_in", int64(se.expires.Sub(s.sessions.now()).Seconds())}, kv{"role", string(role)})
+		fields := []kv{{"token", se.token}, {"expires", se.expires.UTC().Format(time.RFC3339)},
+			{"expires_in", int64(se.expires.Sub(s.sessions.now()).Seconds())}, {"role", string(role)}}
+		if v := r.PostFormValue("remember"); v == "1" || v == "true" {
+			// A device key, so this Palm need not keep the password (D-063).
+			var k ctl.DevKeyReply
+			err := s.call(r.Context(), ctl.Request{Cmd: "devkey.issue", DevKey: &ctl.DevKeyRequest{
+				User: user, Role: string(role), Name: FromWindows1252(r.PostFormValue("device"))}}, &k)
+			if err != nil {
+				fields = append(fields, kv{"device_key_error", err.Error()})
+			} else {
+				fields = append(fields, kv{"device_key", k.Key}, kv{"device_key_id", k.Entry.ID})
+			}
+		}
+		s.apiOK(w, r, fields...)
 	}
+}
+
+// apiKeyLogin logs in with a device key (D-063). The key must be live and
+// its account must still exist with the same role; a refusal counts
+// towards the login limit, as a wrong password does.
+func (s *Server) apiKeyLogin(w http.ResponseWriter, r *http.Request, side Side, ip, key string) {
+	var k ctl.DevKeyReply
+	var role Role
+	err := s.call(r.Context(), ctl.Request{Cmd: "devkey.check", DevKey: &ctl.DevKeyRequest{Key: key, IP: ip}}, &k)
+	if err == nil {
+		for _, a := range s.accounts() {
+			if a.user == k.Entry.User && a.hash != "" && string(a.role) == k.Entry.Role {
+				role = a.role
+			}
+		}
+	}
+	if role == "" {
+		n := s.limiter.failed(side, ip)
+		s.log.Warn("api login by device key refused", "event", "web_login_failed", "side", side, "ip", ip, "failures", n, "api", true, "device_key", k.Entry.ID)
+		s.apiError(w, r, http.StatusUnauthorized, "this device key is unknown or revoked: log in with the password")
+		return
+	}
+	se := s.sessions.createAPI(k.Entry.User, role, side, s.o.SessionTTL)
+	s.log.Info("api login by device key", "event", "web_login", "side", side, "ip", ip, "user", k.Entry.User, "role", role,
+		"api", true, "device_key", k.Entry.ID, "device", k.Entry.Name)
+	s.apiOK(w, r, kv{"token", se.token}, kv{"expires", se.expires.UTC().Format(time.RFC3339)},
+		kv{"expires_in", int64(se.expires.Sub(s.sessions.now()).Seconds())}, kv{"role", string(role)}, kv{"user", k.Entry.User})
 }
 
 func (s *Server) apiLogout(w http.ResponseWriter, r *http.Request) {
