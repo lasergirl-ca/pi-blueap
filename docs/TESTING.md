@@ -3359,3 +3359,29 @@ home connection. On the gateway:
 With `palm->other` at 0 in fail-closed mode, nothing from the T|X tried to leave by the uplink.
 Lyman stays on the tunnel, full and fail closed. Surrey stays without one (AS393941 directly).
 
+### v0.7.0 (D-073), 2026-11-13
+
+- `make test`, `make lint`, `make vet` and the Palm app's host tests passed at the tag.
+- `make publish`, then `make image` and `make publish-image`: the release holds the `.deb`,
+  `install.sh`, `PalmGW.prc` (stamp `v0.7.0`, with the WireGuard menu), `SHA256SUMS`, the image
+  (547 MB), its `.sha256`, `.json` and `palm-gw.rpi-imager-manifest`.
+  `releases/latest/download/palm-gw.rpi-imager-manifest` names the v0.7.0 image, which downloads.
+- Lyman, from the test build, with no session open:
+
+  ```
+  $ sudo palm-gw upgrade --check
+  palm-gw v0.7.0 is available (installed: 0.6.1~wg1). Install it with: sudo palm-gw upgrade
+  $ sudo palm-gw upgrade
+  palm-gw upgraded: 0.6.1~wg1 -> 0.7.0. Config and paired devices are unchanged.
+  palm-gwd v0.7.0
+  wireguard: up on wg0 10.17.200.5/32, full tunnel, fail closed when down, last heard 5s ago
+  $ palm-gwctl wg down
+  wireguard: DOWN (full tunnel, fail closed when down); palm-gwctl wg up
+  $ palm-gwctl wg up
+  wireguard: up on wg0 10.17.200.5/32, full tunnel, fail closed when down, last heard 13s ago
+  ```
+
+  The upgrade's apply rebuilt the tunnel from the key NetworkManager held (no `.conf` needed),
+  with rules 4241 and 4242 and table 4242 as before; `wg down` and `wg up` now answer with the
+  state after the change.
+
