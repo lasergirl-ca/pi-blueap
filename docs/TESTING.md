@@ -3128,8 +3128,26 @@ $ ssh sysadmin@10.4.1.118 'sudo btmon -T -r /var/tmp/palm-watch.btsnoop' | ...
   - `hciconfig` shows 0 errors either way and no reset since boot;
   - the Pi's own Wi-Fi is on 5 GHz (channel 48);
   - no mode changes (no sniff) during the link.
-- **Next:** the airlock's log for 19:32:58-19:33:02 says whether it ended the session as
-  complete or on an error. The stop comes as a CradleSync session ends, on the T|X. CradleSync closes
+- **The airlock's side** (`journalctl -u cradle-airlock` on 10.4.0.7):
+
+  ```
+  19:32:58.290  connection accepted remote=tls:10.4.1.118:36815
+  19:32:59.142  TLS established (TLS 1.3)
+  19:32:59.622  palm connected user="Zoë Leto"
+  19:32:59.794  turned off on the Palm off=backup,sync
+  19:32:59.890  palm connection link=Bluetooth profile="Palm Gateway - Lyman" address=10.42.0.10
+  19:33:00.019  palm authenticated
+  19:33:01.946  clock: set
+  19:33:02.247  session finished outcome=backup duration=3.103s exit=0 backedUp=0 failed=0
+  ```
+
+  The session was complete: Sync and Backup were unticked on the T|X, so there was nothing to
+  do but authenticate and set the clock, and the airlock finished it with exit 0.
+- **Conclusion.** The gateway carried the session without a pause, and the airlock finished it
+  cleanly. About 6 seconds later the T|X's Bluetooth stopped answering, while CradleSync's
+  progress screen was still up, and the T|X showed 0x0305. The cause is on the T|X, in how a
+  CradleSync session ends; CradleServer's own notes record T|X resets in the seconds after a
+  session's end. It belongs to CradleSync, not palm-gw. CradleSync closes
   with `NetLibSocketClose`, `restoreNetTimeouts` (it puts back the interface's inactivity
   timeout) and `NetLibClose(ref, false)`. To compare: let a session of the palm-gw app alone
   idle past a minute, and a CradleSync session end while watched, noting when the dialog

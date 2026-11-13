@@ -1225,8 +1225,9 @@ Seen during CradleSync over the gateway; TESTING.md has the capture.
 - The invalid-packet drop now has a counter (`palm->invalid`).
 - **A second kind, 19:33 the same day:** a 4-second CradleSync session ran without a pause
   and the airlock closed it; about 6 s later the T|X stopped answering at the radio level, and the link ended on the
-  supervision timeout (0x08). The gateway had nothing outstanding; the cause is on the T|X,
-  at the end of a CradleSync session (TESTING.md).
+  supervision timeout (0x08). The gateway had nothing outstanding, and the airlock's log
+  shows the session finished cleanly (exit 0), so the cause is on the T|X as a CradleSync
+  session ends, not in palm-gw (TESTING.md).
 
 ### Test rig (kickoff rule 4), 2026-11-08
 
