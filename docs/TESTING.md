@@ -3205,7 +3205,7 @@ check-sections: ok (102 sectioned function(s))
 9532a57b…3c44  install.sh
 a36ab370…6276  PalmGW.prc
 $ strings <scratch>/PalmGW.prc | grep -c v0.0.0-relcheck
-1
+2
 ```
 
 The app is built clean with the tag as its build stamp. `ParseSums` (`palm-gw upgrade`) and the
