@@ -22,7 +22,7 @@ ADAPTER  ?=
 UPLINK   ?=
 CONFIG   ?=
 
-.PHONY: all build build-arm64 test vet lint fmt install uninstall deb image release publish support-bundle clean
+.PHONY: all build build-arm64 test vet lint fmt install uninstall deb image release publish publish-image support-bundle clean
 
 all: build
 
@@ -88,7 +88,9 @@ release:
 # the .deb installed, built by packaging/build-image.sh in a privileged arm64 Docker container
 # (on a Linux arm64 host, run the script directly as root). The base is downloaded once into
 # dist/base/ and checked against PIOS_SHA256. Writes dist/palm-gw-<ver>-rpi-arm64.img.xz, its
-# .sha256, and a Raspberry Pi Imager repository file (.json).
+# .sha256, a Raspberry Pi Imager repository file (.json), and the same file as
+# dist/palm-gw.rpi-imager-manifest: Imager opens it on a double-click, settings and all, and
+# its fixed name lets releases/latest/download/ always name the newest (D-071).
 PIOS_URL    ?= https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2026-10-06/2026-10-06-raspios-trixie-arm64-lite.img.xz
 PIOS_SHA256 ?= 483db18a48da399b5b7022ffae9a07bc6d99daab30e593aedac09b69ff422843
 PIOS_IMG    := $(DIST)/base/$(notdir $(PIOS_URL))
@@ -108,7 +110,8 @@ image: deb $(PIOS_IMG)
 		-e WORK=/work -e DEBIAN_FRONTEND=noninteractive -e IMAGE_VERSION='$(DEB_VERSION)' -e IMAGE_URL='$(IMAGE_URL)' debian:trixie-slim \
 		bash -c 'apt-get update -qq && apt-get install -y -qq fdisk e2fsprogs xz-utils zerofree >/dev/null && \
 			packaging/build-image.sh "$(PIOS_IMG)" "$(DIST)/palm-gw_$(DEB_VERSION)_arm64.deb" "$(IMAGE)"'
-	@ls -l $(IMAGE) $(IMAGE).sha256 $(IMAGE:.img.xz=.json)
+	cp $(IMAGE:.img.xz=.json) $(DIST)/palm-gw.rpi-imager-manifest
+	@ls -l $(IMAGE) $(IMAGE).sha256 $(IMAGE:.img.xz=.json) $(DIST)/palm-gw.rpi-imager-manifest
 
 # Pushes the tag, creates the GitHub release and uploads the artefacts. A tag with a
 # hyphen (v0.6.0-rc1) is a pre-release, which releases/latest skips.
@@ -121,6 +124,13 @@ publish: release
 # On the Pi: a support bundle (journals, configs with the password hash redacted, install
 # info, and the newest capture) in /var/lib/palm-gw/bundles/, the same as the web UI's
 # Diagnostics page. It replaces PLAN.md's scripts/support-bundle.sh (D-067).
+# Uploads the image built by `make image` at the same v* tag to that tag's release (after
+# `make publish`): the .img.xz, its .sha256, the .json and palm-gw.rpi-imager-manifest.
+publish-image:
+	@test -n "$(RELEASE_TAG)" || { echo "make publish-image: HEAD is not at a v* tag" >&2; exit 2; }
+	@test -f $(IMAGE) || { echo "make publish-image: no $(IMAGE); run make image at the tag first" >&2; exit 2; }
+	gh release upload $(RELEASE_TAG) --clobber $(IMAGE) $(IMAGE).sha256 $(IMAGE:.img.xz=.json) $(DIST)/palm-gw.rpi-imager-manifest
+
 support-bundle:
 	palm-gwctl bundle --with-capture
 

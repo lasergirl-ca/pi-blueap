@@ -25,32 +25,37 @@ been verified.
 
 ## Quick start
 
-On the Pi:
+**Flash the ready-made image.** It is Raspberry Pi OS Lite (64-bit) with palm-gw installed, for
+a Pi 4 or a Pi 5.
+
+1. Download
+   [`palm-gw.rpi-imager-manifest`](https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/palm-gw.rpi-imager-manifest)
+   and double-click it. Raspberry Pi Imager (2.0 or later) opens with **palm-gw** in its list.
+   (Or, in Imager: **App Options**, **Content Repository**, **Edit**, **Use custom URL**, and
+   paste that link.)
+2. Choose your Pi, **palm-gw** and the card. When Imager offers to customise, set a user, turn
+   on SSH, and set Wi-Fi if the Pi will not be on Ethernet, as for any Pi.
+3. Put the card in the Pi and power it up with the right supply (above). Log in over SSH and
+   run `sudo palm-gw setup`; the login reminds you. It asks for the gateway's name, the
+   Bluetooth adapter and the uplink, and sets up the web UI's user and password.
+4. Open the web address the wizard prints at the end (`https://<the Pi's address>:8042/`) in
+   a browser on your home network, and log in with the user (`admin` unless you chose
+   another) and password from the wizard. The browser warns about the certificate the first
+   time: it is the gateway's own, and the login page shows its fingerprint.
+5. On **Pair**, open a pairing window and pair the Palm with the PIN it shows. Then follow
+   [docs/PALM-SETUP.md](docs/PALM-SETUP.md) to create the Palm's connection and tap Connect.
+6. Optionally, install the palm-gw app on the Palm
+   ([`PalmGW.prc`](https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/PalmGW.prc))
+   to run the gateway from the Palm itself.
+
+**Or install on a Pi that already runs Raspberry Pi OS Lite (64-bit):**
 
 ```sh
 curl -fsSL https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/install.sh | sudo bash
 ```
 
-1. That installs the package and starts the setup wizard (`sudo palm-gw setup`, which you can
-   run again any time). It asks for the gateway's name, the Bluetooth adapter and the
-   uplink, and sets up the web UI's user and password.
-2. Open the web address the wizard prints at the end (`https://<the Pi's address>:8042/`) in
-   a browser on your home network, and log in with the user (`admin` unless you chose
-   another) and password from the wizard. The browser warns about the certificate the first
-   time: it is the gateway's own, and the login page shows its fingerprint.
-3. On **Pair**, open a pairing window and pair the Palm with the PIN it shows. Then follow
-   [docs/PALM-SETUP.md](docs/PALM-SETUP.md) to create the Palm's connection and tap Connect.
-4. Optionally, install the palm-gw app on the Palm (`PalmGW.prc`, on each release) to run the
-   gateway from the Palm itself.
-
-`sudo palm-gw upgrade` installs a newer release later.
-
-Or flash the ready-made image (`palm-gw-<ver>-rpi-arm64.img.xz`, Raspberry Pi OS Lite with
-palm-gw installed) with Raspberry Pi Imager, set the user, SSH and Wi-Fi in Imager as usual,
-and run `sudo palm-gw setup` after the first login. Open Imager with the release's `.json`
-so it offers those settings (`rpi-imager --repo palm-gw-<ver>-rpi-arm64.json`; on a Mac,
-`"/Applications/Raspberry Pi Imager.app/Contents/MacOS/rpi-imager" --repo …`). Imager's
-"Use custom" writes the image without them: no user, no SSH.
+It installs the package and starts the same wizard. `sudo palm-gw upgrade` installs a newer
+release later, either way.
 
 Developers build the package on their own machine and install it on the Pi:
 

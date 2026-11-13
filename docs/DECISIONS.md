@@ -1274,10 +1274,29 @@ The release goes out in two steps from one commit:
 - `v0.6.0-rc1`: a GitHub pre-release, which `releases/latest` and `palm-gw upgrade` skip, with
   the `.deb`, `install.sh`, `PalmGW.prc` (D-068), `SHA256SUMS` and the Pi image.
 - Phase 8's final test: the rc1 installer run on a freshly flashed stock card on the Pi 5.
-- `v0.6.0`: the same commit, published once that passes, with its own image.
+- `v0.6.0`: published once that passes, with its own image (on a later commit, D-071).
 
 The version follows the test packages (`0.6.0~testN` sort before `0.6.0`, so the test Pi
 upgrades). WireGuard follows in a later version (D-069).
+
+### D-071: The image is the main way in; Imager opens it from a manifest
+
+Zoe (2026-11-12): "I want images for Rpi make it super easy". The README's quick start now
+starts with the image, and the one-line installer is the second way, for a Pi that already runs
+Pi OS. Raspberry Pi Imager 2.0 offers its customisation (user, SSH, Wi-Fi) only for an entry
+from a repository file (D-046), which until now meant starting it with `--repo`. Imager 2.0
+registers `.rpi-imager-manifest` files, so `make image` also writes the `.json` as
+`palm-gw.rpi-imager-manifest`: a double-click opens Imager with palm-gw listed, and its fixed
+name lets `releases/latest/download/palm-gw.rpi-imager-manifest` always name the newest (it
+also works pasted into Imager's App Options, Content Repository, Use custom URL). `make
+publish-image` uploads the image, its `.sha256`, the `.json` and the manifest to the tag's
+release, after `make publish`.
+
+Because these changes come after the rc1 tag, `v0.6.0` is tagged on the commit that carries
+them; the gateway's code is the same as rc1's. After the flash the wizard still runs over SSH
+(D-045); a gateway that sets itself up with no terminal at all is a separate change.
+
+## Hardware observations
 
 ## Hardware observations
 
