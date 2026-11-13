@@ -3015,3 +3015,16 @@ systemd-journald` and `journalctl --flush`, the journal is at
 show the boot before a reset. This is a change to the test Pi only, not to palm-gw; deleting
 the file goes back to the journal in RAM. `ppp.debug` stays on until the first-connect drop
 is caught.
+
+**The test Pi's supply, 2026-11-12.**
+- **Before:** Zoe's Anker 35 W charger. Its USB PD offers, read from
+  `/proc/device-tree/chosen/power/usbpd_power_data_objects`, were 5 V 3 A, 9 V 3 A, 15 V 2 A
+  and 20 V 1.5 A. A Pi 5 takes only 5 V, so it got 15 W, `max_current` 3000, and USB limited to
+  600 mA.
+- **After, at 17:41:** another supply that offers 5 V 5 A (also 9 V 3 A, 12 V 3 A, 15 V 3 A,
+  20 V 2.25 A and PPS). The Pi negotiated `max_current` 5000, `EXT5V_V` reads 5.19 V,
+  `get_throttled` is 0x0, and there was no under-voltage after the boot.
+- `journalctl --list-boots` already shows the previous boot, which ended at 17:41:07 when the
+  supply was swapped.
+- A new 10-minute capture started at 17:44:01, with `ppp.debug` on, to catch a first-connect
+  drop.
