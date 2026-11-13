@@ -3191,3 +3191,23 @@ $ ssh sysadmin@10.4.1.118 'sudo btmon -T -r /var/tmp/palm-watch.btsnoop' | ...
   (20:19:01, PPP up in 0.6 s; a short session the T|X ended cleanly, 0x13), and again at
   20:21:30.
 
+## Phase 8: Documentation and release (in progress)
+
+### The release recipe with the Palm app (D-068), 2026-11-12
+
+`make release` with a made-up tag on the command line, into a scratch folder: no git tag is
+made and nothing reaches GitHub.
+
+```
+$ make release RELEASE_TAG=v0.0.0-relcheck REL=<scratch>
+check-sections: ok (102 sectioned function(s))
+29ebf401…aa06  palm-gw_0.0.0-relcheck_arm64.deb
+9532a57b…3c44  install.sh
+a36ab370…6276  PalmGW.prc
+$ strings <scratch>/PalmGW.prc | grep -c v0.0.0-relcheck
+1
+```
+
+The app is built clean with the tag as its build stamp. `ParseSums` (`palm-gw upgrade`) and the
+bootstrap installer pass over `PalmGW.prc` in `SHA256SUMS`; `release_test.go` now lists it.
+
