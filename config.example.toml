@@ -101,3 +101,4 @@ keepalive_seconds = 25
 mode              = "full"           # "full": all Palm traffic through the tunnel | "split": allowed_ips only
 on_down           = "fail_closed"    # tunnel down: "fail_closed" stops Palm traffic | "fallback" uses the normal uplink
 dns               = []               # resolvers through the tunnel for the Palms (the .conf's DNS =)
+public_key        = ""               # the gateway's own public key, for the peer's admin; written by setup

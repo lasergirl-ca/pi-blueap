@@ -325,3 +325,10 @@ func (d *Daemon) untrustDisallowed(why string) {
 		d.events.Emit("untrusted", dev.Address, dev.DisplayName(), "why", why)
 	}
 }
+
+// panClients counts the PAN clients connected now.
+func (d *Daemon) panClients() int {
+	d.panMu.Lock()
+	defer d.panMu.Unlock()
+	return len(d.pan.clients)
+}

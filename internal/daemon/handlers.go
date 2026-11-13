@@ -51,6 +51,12 @@ func (d *Daemon) registerHandlers() {
 	d.ctl.Handle("devkey.check", d.handleDevKeyCheck)
 	d.ctl.Handle("devkey.list", d.handleDevKeyList)
 	d.ctl.Handle("devkey.revoke", d.handleDevKeyRevoke)
+	d.ctl.Handle("wg", d.handleWG)
+	d.ctl.Handle("wg.set", d.handleWGSet)
+	d.ctl.Handle("wg.import", d.handleWGImport)
+	d.ctl.Handle("wg.generate", d.handleWGGenerate)
+	d.ctl.Handle("wg.up", d.handleWGUpDown(true))
+	d.ctl.Handle("wg.down", d.handleWGUpDown(false))
 }
 
 // handleEvents streams every daemon event until the client disconnects
@@ -141,7 +147,7 @@ func (d *Daemon) handleDisconnect(_ context.Context, req ctl.Request, w *ctl.Wri
 	return w.Send(ctl.DisconnectReply{OK: true, Address: addr, Sessions: n, PAN: panDropped})
 }
 
-func (d *Daemon) handleStatus(_ context.Context, _ ctl.Request, w *ctl.Writer) error {
+func (d *Daemon) handleStatus(ctx context.Context, _ ctl.Request, w *ctl.Writer) error {
 	d.mu.Lock()
 	st := ctl.StatusReply{
 		Version:       d.opts.Version,
@@ -161,6 +167,9 @@ func (d *Daemon) handleStatus(_ context.Context, _ ctl.Request, w *ctl.Writer) e
 	st.Firewall = d.fw
 	d.fwMu.Unlock()
 	st.PAN = d.panStatus()
+	if d.config().WireGuard.Enabled {
+		st.WireGuard = d.wgStatus(ctx)
+	}
 
 	st.PairingWindow = d.window.State()
 	st.Profiles = d.profiles.Status()

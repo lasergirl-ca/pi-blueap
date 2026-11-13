@@ -326,7 +326,7 @@ func setupWireGuard(importPath, cfgPath string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if importPath == "" {
-		res, err := setup.GenerateWG("/", setup.StateDir)
+		res, err := setup.GenerateWG("/", cfgPath, setup.StateDir)
 		if err != nil {
 			fmt.Fprintln(stderr, "palm-gw setup --wg-generate:", err)
 			return 1

@@ -68,13 +68,13 @@ func TestParseWGConf(t *testing.T) {
 		c.PublicKey != peerPub || strings.Join(c.DNS, ",") != "10.17.200.1" || strings.Join(c.AllowedIPs, ",") != "0.0.0.0/0" {
 		t.Fatalf("parsed %+v", c)
 	}
-	kvs := WGKVs(c)
+	kvs := WGKVs(c, testPub)
 	if kvs[6].Value != `"full"` {
 		t.Fatalf("mode = %s, want full", kvs[6].Value)
 	}
 	split := strings.Replace(sample(), "AllowedIPs = 0.0.0.0/0, ::/0", "AllowedIPs = 10.17.0.0/16", 1)
 	c, err = ParseWGConf(split)
-	if err != nil || WGKVs(c)[6].Value != `"split"` {
+	if err != nil || WGKVs(c, testPub)[6].Value != `"split"` {
 		t.Fatalf("split: %v %+v", err, c)
 	}
 	for name, text := range map[string]string{
@@ -112,7 +112,7 @@ func TestImportWGWritesConfigAndStashesKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := cfg.WireGuard
-	if !g.Enabled || g.Address != "10.17.200.5/32" || g.PeerPublicKey != peerPub || g.OnDown != "fail_closed" {
+	if !g.Enabled || g.Address != "10.17.200.5/32" || g.PeerPublicKey != peerPub || g.OnDown != "fail_closed" || g.PublicKey != testPub {
 		t.Fatalf("[wireguard] = %+v", g)
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, cfgPath))

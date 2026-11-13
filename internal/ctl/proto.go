@@ -56,6 +56,53 @@ type Request struct {
 	WithCapture bool `json:"with_capture,omitempty"`
 	// devkey.* (D-063). The key is never logged.
 	DevKey *DevKeyRequest `json:"devkey,omitempty"`
+	// wg.* (D-069). A .conf carries a private key and is never logged.
+	WG *WGRequest `json:"wg,omitempty"`
+}
+
+// WGRequest carries the wg.* commands: wg.set changes the settings given,
+// wg.import reads Conf.
+type WGRequest struct {
+	Enabled       *bool    `json:"enabled,omitempty"`
+	Mode          string   `json:"mode,omitempty"`    // full or split
+	OnDown        string   `json:"on_down,omitempty"` // fail_closed or fallback
+	AllowedIPs    []string `json:"allowed_ips,omitempty"`
+	Address       string   `json:"address,omitempty"`
+	Endpoint      string   `json:"endpoint,omitempty"`
+	PeerPublicKey string   `json:"peer_public_key,omitempty"`
+	Conf          string   `json:"conf,omitempty"` // wg.import: a wg-quick .conf
+}
+
+// WGStatus is the tunnel as status and wg show report it (D-069).
+type WGStatus struct {
+	Enabled       bool     `json:"enabled"`
+	State         string   `json:"state"` // off, up, down, missing (enabled but no profile: apply)
+	Interface     string   `json:"interface"`
+	Mode          string   `json:"mode"`
+	OnDown        string   `json:"on_down"`
+	Address       string   `json:"address,omitempty"`
+	Endpoint      string   `json:"endpoint,omitempty"`
+	PublicKey     string   `json:"public_key,omitempty"` // the gateway's
+	PeerPublicKey string   `json:"peer_public_key,omitempty"`
+	AllowedIPs    []string `json:"allowed_ips"`
+	DNS           []string `json:"dns"`
+	RxBytes       uint64   `json:"rx_bytes"`
+	TxBytes       uint64   `json:"tx_bytes"`
+	// Seconds since the tunnel last received anything; -1 before it has. With a
+	// keepalive the peer answers within seconds, so minutes mean it is stale.
+	LastHeardSeconds int64 `json:"last_heard_seconds"`
+	Stale            bool  `json:"stale"`
+	Applying         bool  `json:"applying"`
+}
+
+// WGSetReply answers wg.set, wg.import and wg.generate.
+type WGSetReply struct {
+	OK        bool     `json:"ok"`
+	Changed   []string `json:"changed"`
+	Applying  bool     `json:"applying"` // palm-gw setup --apply started; palm-gwd restarts
+	Unit      string   `json:"unit,omitempty"`
+	PublicKey string   `json:"public_key,omitempty"` // the gateway's
+	Mode      string   `json:"mode,omitempty"`
 }
 
 // DevKeyRequest carries the device key commands.
@@ -134,6 +181,7 @@ type StatusReply struct {
 	PoolInUse     int                `json:"ppp_pool_in_use"`
 	Firewall      FirewallStatus     `json:"firewall"`
 	PAN           PANStatus          `json:"pan"`
+	WireGuard     *WGStatus          `json:"wireguard,omitempty"`
 	Config        *config.Config     `json:"config"`
 }
 

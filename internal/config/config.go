@@ -146,9 +146,10 @@ type WireGuard struct {
 	PeerPublicKey    string   `toml:"peer_public_key" json:"peer_public_key"` // base64, 32 bytes
 	AllowedIPs       []string `toml:"allowed_ips" json:"allowed_ips"`
 	KeepaliveSeconds int      `toml:"keepalive_seconds" json:"keepalive_seconds"`
-	Mode             string   `toml:"mode" json:"mode"`       // "full": all Palm traffic; "split": allowed_ips only
-	OnDown           string   `toml:"on_down" json:"on_down"` // "fail_closed" or "fallback" (full mode)
-	DNS              []string `toml:"dns" json:"dns"`         // resolvers through the tunnel, for dnsmasq
+	Mode             string   `toml:"mode" json:"mode"`             // "full": all Palm traffic; "split": allowed_ips only
+	OnDown           string   `toml:"on_down" json:"on_down"`       // "fail_closed" or "fallback" (full mode)
+	DNS              []string `toml:"dns" json:"dns"`               // resolvers through the tunnel, for dnsmasq
+	PublicKey        string   `toml:"public_key" json:"public_key"` // the gateway's own, written by setup; for the peer's admin
 }
 
 // Default returns the configuration that an empty file yields (PLAN.md section 7).

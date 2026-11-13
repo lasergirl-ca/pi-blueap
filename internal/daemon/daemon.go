@@ -60,6 +60,8 @@ type Options struct {
 	Btmon string
 	// Conntrack reads the connection tracking table (nil = ctnetlink).
 	Conntrack func() ([]fw.Conn, error)
+	// IfBytes reads an interface's rx and tx byte counters (nil = /sys).
+	IfBytes func(ifname string) (rx, tx uint64)
 	// OnReady is called once, the first time the agent is registered
 	// (sd_notify READY=1 lives in main).
 	OnReady func()
@@ -101,6 +103,9 @@ type Daemon struct {
 	fw   ctl.FirewallStatus
 
 	cfgEditMu sync.Mutex // serialises config.set
+
+	wgOnce sync.Once // the WireGuard watch (D-069)
+	wgw    *wgWatch
 
 	capMu   sync.Mutex
 	capture ctl.CaptureState // the btmon capture running, or the last one (D-057)
@@ -211,6 +216,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.keepFirewall(ctx)
 	// PAN registers itself once BlueZ and the bridge are there (section 8.6).
 	go d.keepPAN(ctx)
+	// The WireGuard tunnel's watch (D-069): wg_stale when it goes quiet.
+	go d.keepWG(ctx)
 	if _, err := d.syncDnsmasq(ctx, d.config()); err != nil {
 		d.log.Error("dnsmasq configuration not written", "err", err)
 	}

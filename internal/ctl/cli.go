@@ -221,6 +221,8 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 			secs = v
 		}
 		return c.capture(secs)
+	case "wg":
+		return c.wg(cmdArgs)
 	case "devkeys":
 		if len(cmdArgs) == 2 && cmdArgs[0] == "revoke" {
 			return c.devKeyRevoke(cmdArgs[1])
@@ -293,6 +295,14 @@ Commands:
   network [--uplink IF] [--subnet A.B.C.0/24] [--tls self-signed|off] [--bluetooth-side on|off]
                               change them; runs palm-gw setup --apply, which restarts palm-gwd
   devkeys [revoke <id>]       the Palms' device keys (logins without the password), or revoke one
+  wg [show]                   the WireGuard tunnel for the Palm network (D-069)
+  wg up | down                bring the tunnel up or down now (it comes back at boot)
+  wg on | off                 turn WireGuard on or off in config.toml, and apply
+  wg mode full|split          all Palm traffic through the tunnel, or wg networks only
+  wg on-down fail_closed|fallback   tunnel down: stop Palm traffic, or use the uplink
+  wg networks CIDR[,CIDR...]  what a split tunnel carries
+  wg import FILE|-            read a wg-quick .conf (keys, address, peer, DNS), and apply
+  wg generate                 make the gateway a key pair; prints the public key
   check                       health report
   class toggle                swap Class of Device with class_fallback
   bundle [--with-capture]     write a support bundle (hashes redacted) into /var/lib/palm-gw/bundles
@@ -460,6 +470,9 @@ func (c *cli) status() int {
 			ip = "(no lease yet)"
 		}
 		fmt.Fprintf(w, "  %s  %-20q pan %-6s %-14s up %s\n", c.Addr, c.Name, c.Ifname, ip, time.Since(c.Since).Round(time.Second))
+	}
+	if g := st.WireGuard; g != nil {
+		fmt.Fprintf(w, "wireguard: %s\n", wgLine(g))
 	}
 	switch f := st.Firewall; {
 	case !f.Managed:
@@ -1441,4 +1454,168 @@ func (c *cli) devKeyRevoke(id string) int {
 		fmt.Fprintf(c.stdout, "Revoked the key of %s; it logs in with the password again.\n", r.Entry.Name)
 	}
 	return 0
+}
+
+// wgLine is the tunnel in one line, for status and wg show.
+func wgLine(g *WGStatus) string {
+	if !g.Enabled {
+		return "off ([wireguard] enabled = false)"
+	}
+	how := g.Mode + " tunnel"
+	if g.Mode == "full" {
+		how += ", " + strings.ReplaceAll(g.OnDown, "_", " ") + " when down"
+	} else {
+		how += " (" + strings.Join(g.AllowedIPs, ", ") + ")"
+	}
+	switch g.State {
+	case "up":
+		heard := "nothing received yet"
+		if g.LastHeardSeconds >= 0 {
+			heard = fmt.Sprintf("last heard %ds ago", g.LastHeardSeconds)
+		}
+		if g.Stale {
+			heard = "STALE: " + heard
+		}
+		return fmt.Sprintf("up on %s %s, %s, %s, rx %d tx %d bytes", g.Interface, g.Address, how, heard, g.RxBytes, g.TxBytes)
+	case "missing":
+		return fmt.Sprintf("ENABLED BUT NOT SET UP (%s): sudo palm-gw setup --apply", how)
+	}
+	return fmt.Sprintf("DOWN (%s); palm-gwctl wg up", how)
+}
+
+// wg is palm-gwctl wg: show, up, down, on, off, mode, on-down, networks, import, generate.
+func (c *cli) wg(args []string) int {
+	sub := "show"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	need := func(n int, usage string) bool {
+		if len(args) != n {
+			fmt.Fprintln(c.stderr, "palm-gwctl wg "+usage)
+			return false
+		}
+		return true
+	}
+	set := func(r WGRequest) int {
+		var rep WGSetReply
+		printed, err := c.call(Request{Cmd: "wg.set", WG: &r}, &rep)
+		if err != nil {
+			return c.fail(err)
+		}
+		if !printed {
+			c.wgSaved(rep)
+		}
+		return 0
+	}
+	switch sub {
+	case "show":
+		var g WGStatus
+		printed, err := c.call(Request{Cmd: "wg"}, &g)
+		if err != nil || printed {
+			if err != nil {
+				return c.fail(err)
+			}
+			return 0
+		}
+		fmt.Fprintf(c.stdout, "wireguard: %s\n", wgLine(&g))
+		if g.Enabled {
+			fmt.Fprintf(c.stdout, "  endpoint %s, peer %s\n  dns %s\n", g.Endpoint, g.PeerPublicKey, strings.Join(g.DNS, ", "))
+		}
+		if g.PublicKey != "" {
+			fmt.Fprintf(c.stdout, "  the gateway's public key: %s\n", g.PublicKey)
+		}
+		return 0
+	case "up", "down":
+		if !need(1, sub) {
+			return 2
+		}
+		var g WGStatus
+		printed, err := c.call(Request{Cmd: "wg." + sub}, &g)
+		if err != nil {
+			return c.fail(err)
+		}
+		if !printed {
+			fmt.Fprintf(c.stdout, "wireguard: %s\n", wgLine(&g))
+		}
+		return 0
+	case "on", "off":
+		if !need(1, sub) {
+			return 2
+		}
+		on := sub == "on"
+		return set(WGRequest{Enabled: &on})
+	case "mode":
+		if !need(2, "mode full|split") {
+			return 2
+		}
+		return set(WGRequest{Mode: args[1]})
+	case "on-down":
+		if !need(2, "on-down fail_closed|fallback") {
+			return 2
+		}
+		return set(WGRequest{OnDown: args[1]})
+	case "networks":
+		if !need(2, "networks CIDR[,CIDR...]") {
+			return 2
+		}
+		return set(WGRequest{AllowedIPs: strings.Split(args[1], ",")})
+	case "import":
+		if !need(2, "import FILE|-") {
+			return 2
+		}
+		var b []byte
+		var err error
+		if args[1] == "-" {
+			b, err = io.ReadAll(os.Stdin)
+		} else {
+			b, err = os.ReadFile(args[1])
+		}
+		if err != nil {
+			return c.fail(err)
+		}
+		var rep WGSetReply
+		printed, err := c.call(Request{Cmd: "wg.import", WG: &WGRequest{Conf: string(b)}}, &rep)
+		if err != nil {
+			return c.fail(err)
+		}
+		if !printed {
+			fmt.Fprintf(c.stdout, "Imported (%s tunnel).\n", rep.Mode)
+			c.wgSaved(rep)
+			if args[1] != "-" {
+				fmt.Fprintf(c.stdout, "You can delete %s now: the gateway keeps the key root only.\n", args[1])
+			}
+		}
+		return 0
+	case "generate":
+		if !need(1, "generate") {
+			return 2
+		}
+		var rep WGSetReply
+		printed, err := c.call(Request{Cmd: "wg.generate"}, &rep)
+		if err != nil {
+			return c.fail(err)
+		}
+		if !printed {
+			fmt.Fprintf(c.stdout, "The gateway's public key (give it to the peer's admin): %s\n", rep.PublicKey)
+			if rep.Applying {
+				c.wgSaved(rep)
+			} else {
+				fmt.Fprintln(c.stdout, "Then: palm-gwctl set wireguard.address, wireguard.endpoint, wireguard.peer_public_key, and palm-gwctl wg on.")
+			}
+		}
+		return 0
+	}
+	fmt.Fprintln(c.stderr, "palm-gwctl wg [show|up|down|on|off|mode|on-down|networks|import|generate]")
+	return 2
+}
+
+func (c *cli) wgSaved(rep WGSetReply) {
+	if !rep.Applying {
+		fmt.Fprintln(c.stdout, "Nothing changed.")
+		return
+	}
+	fmt.Fprintf(c.stdout, "Saved %s; applying in %s: palm-gwd restarts and Palms reconnect.\n", strings.Join(rep.Changed, ", "), rep.Unit)
+	if rep.PublicKey != "" {
+		fmt.Fprintf(c.stdout, "The gateway's public key: %s\n", rep.PublicKey)
+	}
 }

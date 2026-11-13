@@ -501,3 +501,75 @@ func Trim(ssid string) (string, error) {
 	}
 	return ssid, nil
 }
+
+// connectionByID finds a saved connection by its name (connection.id).
+func (c *Client) connectionByID(id string) (dbus.ObjectPath, error) {
+	var paths []dbus.ObjectPath
+	if err := c.obj(settingsPath).Call(service+".Settings.ListConnections", 0).Store(&paths); err != nil {
+		return "", fmt.Errorf("NetworkManager: %w", err)
+	}
+	for _, p := range paths {
+		s, err := c.settings(p)
+		if err != nil {
+			continue
+		}
+		if name, _ := s["connection"]["id"].Value().(string); name == id {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("NetworkManager has no connection %q", id)
+}
+
+// activeFor returns the active connection made from conn, or "" when it is not active.
+func (c *Client) activeFor(conn dbus.ObjectPath) (dbus.ObjectPath, error) {
+	actives, err := propAs[[]dbus.ObjectPath](c, rootPath, service, "ActiveConnections")
+	if err != nil {
+		return "", fmt.Errorf("NetworkManager: %w", err)
+	}
+	for _, a := range actives {
+		if p, err := propAs[dbus.ObjectPath](c, a, ifaceActive, "Connection"); err == nil && p == conn {
+			return a, nil
+		}
+	}
+	return "", nil
+}
+
+// ConnectionActive reports whether the saved connection id exists and is active.
+func (c *Client) ConnectionActive(id string) (exists, active bool, err error) {
+	p, err := c.connectionByID(id)
+	if err != nil {
+		return false, false, nil
+	}
+	a, err := c.activeFor(p)
+	return true, a != "", err
+}
+
+// ConnectionUp activates the saved connection id (for any device it names).
+func (c *Client) ConnectionUp(id string) error {
+	p, err := c.connectionByID(id)
+	if err != nil {
+		return err
+	}
+	var active dbus.ObjectPath
+	if err := c.obj(rootPath).Call(service+".ActivateConnection", 0, p, dbus.ObjectPath("/"), dbus.ObjectPath("/")).Store(&active); err != nil {
+		return fmt.Errorf("NetworkManager: %w", err)
+	}
+	return nil
+}
+
+// ConnectionDown deactivates the saved connection id; a connection that is not
+// active is left as it is.
+func (c *Client) ConnectionDown(id string) error {
+	p, err := c.connectionByID(id)
+	if err != nil {
+		return err
+	}
+	a, err := c.activeFor(p)
+	if err != nil || a == "" {
+		return err
+	}
+	if err := c.obj(rootPath).Call(service+".DeactivateConnection", 0, a).Err; err != nil {
+		return fmt.Errorf("NetworkManager: %w", err)
+	}
+	return nil
+}

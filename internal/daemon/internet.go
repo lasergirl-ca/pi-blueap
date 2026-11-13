@@ -27,6 +27,10 @@ type NetManager interface {
 	Join(ctx context.Context, ssid, password string, hidden bool) error
 	Prefer(kind string) error
 	Forget(ssid string) error
+	// The WireGuard tunnel's profile (D-069).
+	ConnectionActive(id string) (exists, active bool, err error)
+	ConnectionUp(id string) error
+	ConnectionDown(id string) error
 	Close()
 }
 

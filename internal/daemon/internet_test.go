@@ -21,6 +21,31 @@ type fakeNM struct {
 	joined  []string // ssid/password
 	prefer  []string
 	forgot  []string
+	wgUp    *bool    // the tunnel profile: nil = no profile
+	wgCalls []string // up, down
+}
+
+func (f *fakeNM) ConnectionActive(string) (bool, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.wgUp == nil {
+		return false, false, nil
+	}
+	return true, *f.wgUp, nil
+}
+
+func (f *fakeNM) ConnectionUp(string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.wgCalls = append(f.wgCalls, "up")
+	return nil
+}
+
+func (f *fakeNM) ConnectionDown(string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.wgCalls = append(f.wgCalls, "down")
+	return nil
 }
 
 func (f *fakeNM) Devices() ([]nm.Device, error) {

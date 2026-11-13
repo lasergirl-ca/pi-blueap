@@ -196,7 +196,7 @@ func NewWGKey() (priv, pub string, err error) {
 // WGKVs are the [wireguard] keys an imported .conf sets. Mode follows AllowedIPs:
 // full when they include 0.0.0.0/0, split otherwise. The interface and on_down are
 // the gateway's own and stay as they are.
-func WGKVs(c WGConf) []KV {
+func WGKVs(c WGConf, pub string) []KV {
 	mode := "split"
 	for _, p := range c.AllowedIPs {
 		if p == "0.0.0.0/0" {
@@ -216,6 +216,7 @@ func WGKVs(c WGConf) []KV {
 		{Section: "wireguard", Key: "keepalive_seconds", Value: strconv.Itoa(c.Keepalive)},
 		{Section: "wireguard", Key: "mode", Value: TOMLString(mode)},
 		{Section: "wireguard", Key: "dns", Value: TOMLStrings(dns)},
+		{Section: "wireguard", Key: "public_key", Value: TOMLString(pub)},
 	}
 }
 
@@ -240,7 +241,7 @@ func ImportWG(root, cfgPath, stateDir, confText string) (WGImportResult, error) 
 	if err != nil {
 		return WGImportResult{}, err
 	}
-	kvs := WGKVs(c)
+	kvs := WGKVs(c, pub)
 	if err := editConfigKVs(filepath.Join(root, cfgPath), kvs); err != nil {
 		return WGImportResult{}, err
 	}
@@ -250,12 +251,16 @@ func ImportWG(root, cfgPath, stateDir, confText string) (WGImportResult, error) 
 	return WGImportResult{PublicKey: pub, Mode: strings.Trim(kvs[6].Value, `"`)}, nil
 }
 
-// GenerateWG makes a new key pair for the gateway and leaves the private key for
-// the next apply. The rest of [wireguard] (address, endpoint, peer key) is set by
-// the caller; the public key goes to the peer's admin.
-func GenerateWG(root, stateDir string) (WGImportResult, error) {
+// GenerateWG makes a new key pair for the gateway, records the public key in
+// [wireguard] and leaves the private key for the next apply. The rest of
+// [wireguard] (address, endpoint, peer key) is set by the caller; the public key
+// goes to the peer's admin.
+func GenerateWG(root, cfgPath, stateDir string) (WGImportResult, error) {
 	priv, pub, err := NewWGKey()
 	if err != nil {
+		return WGImportResult{}, err
+	}
+	if err := editConfigKVs(filepath.Join(root, cfgPath), []KV{{Section: "wireguard", Key: "public_key", Value: TOMLString(pub)}}); err != nil {
 		return WGImportResult{}, err
 	}
 	if err := stashWGKey(filepath.Join(root, stateDir), priv); err != nil {

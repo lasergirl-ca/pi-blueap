@@ -298,6 +298,11 @@ func (c *Config) validateWireGuard(subnet netip.Prefix, subnetOK bool, add func(
 	if g.OnDown != "fail_closed" && g.OnDown != "fallback" {
 		add("wireguard.on_down", "must be fail_closed or fallback, got %q", g.OnDown)
 	}
+	if g.PublicKey != "" {
+		if k, err := base64.StdEncoding.DecodeString(g.PublicKey); err != nil || len(k) != 32 {
+			add("wireguard.public_key", "must be a WireGuard public key (44 characters of base64), or empty")
+		}
+	}
 	if g.KeepaliveSeconds < 0 || g.KeepaliveSeconds > 65535 {
 		add("wireguard.keepalive_seconds", "must be 0 to 65535, got %d", g.KeepaliveSeconds)
 	}
