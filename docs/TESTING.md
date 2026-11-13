@@ -3183,4 +3183,7 @@ $ ssh sysadmin@10.4.1.118 'sudo btmon -T -r /var/tmp/palm-watch.btsnoop' | ...
   gateway; on the T|X the Bluetooth radio sits behind an internal serial line, and 0x0305 is
   Palm OS's serial timeout. Nothing on the gateway can see or change that; a second try, or
   Bluetooth off and on in the T|X's Prefs, is the way past it.
+- **Confirmed:** after Zoe switched the T|X's Bluetooth off and on, it connected at once
+  (20:19:01, PPP up in 0.6 s; a short session the T|X ended cleanly, 0x13), and again at
+  20:21:30.
 
