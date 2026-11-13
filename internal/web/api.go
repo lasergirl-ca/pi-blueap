@@ -203,6 +203,7 @@ func (s *Server) apiRoutes(mux *http.ServeMux, side Side) {
 	mux.Handle("POST /api/v1/firewall/allow", get(s.apiFirewallAllow))
 	mux.Handle("POST /api/v1/firewall/remove", get(s.apiFirewallRemove))
 	mux.Handle("POST /api/v1/settings", get(s.apiSettings))
+	s.apiRoutes2(mux, side)
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, http.StatusNotFound, "no such API call: "+r.Method+" "+r.URL.Path)
 	}))

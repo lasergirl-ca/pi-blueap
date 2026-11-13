@@ -1188,6 +1188,21 @@ FuelLog lessons, is `docs/PALM-DEV.md`):
   builds (jichu4n/pilrc) reads standard 40-byte BMP headers; the padded layout in
   PALM-DEV.md section 6 was for the original PilRC 3.2 and is refused by this one.
 
+### D-064: The Palm app does everything the web UI does
+
+- **Zoe asked for "1:1 feature parity"** between the Palm app and the web UI. `/api/v1` now
+  has a call for every web action (`internal/web/api2.go`; the table in `docs/WEB-UI.md`
+  section 6), each the same ctl command its page uses, in JSON and `?format=text`. Viewers
+  read everything and change nothing, as on the web.
+- **Downloads stay in the browser.** The app can start a btmon capture and make a support
+  bundle, but cannot fetch either: a Palm has no use for a .btsnoop or a .tar.gz, and WEB-UI
+  section 5 already says the app does not offer them. The app says where to download them.
+- **Actions that drop the Palm's own link warn first:** restart, the network settings, the
+  Class of Device switch and an adapter change.
+- **The app grows past one 68K code resource,** so its forms move into further code sections
+  (`palmgw.def`'s `multiple code`), with the section attribute on every prototype and a link
+  check, as PALM-DEV.md section 3 describes.
+
 ## Hardware observations
 
 ### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)

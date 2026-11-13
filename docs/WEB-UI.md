@@ -129,6 +129,19 @@ daemon's ctl handlers do the work and the API is a thin layer over them, as the 
 | `GET /api/v1/firewall` | the allow rules |
 | `POST /api/v1/firewall/allow` / `POST /api/v1/firewall/remove` | add or remove an allow rule, then reload |
 | `POST /api/v1/settings` | the settings section 8.12 exposes; replies name anything that needs a restart |
+| `POST /api/v1/devices/allow` (`addr`, `name`) | allowlist a device paired elsewhere (D-064) |
+| `POST /api/v1/firewall/save` (`n`, `host`, `ports`, `comment`) | change rule n |
+| `POST /api/v1/firewall/test` (`host`, `port`) | a TCP connect from the Pi: `reached`, `ms`, `allowed`, `problem` |
+| `GET /api/v1/firewall/counters`, `GET /api/v1/nat` | the drop counters; the NAT table |
+| `GET /api/v1/internet`, `POST /api/v1/internet/use` (`use`) | Ethernet and Wi-Fi state, saved networks, a join in progress; switch the uplink |
+| `GET /api/v1/wifi/scan?rescan=1`, `POST /api/v1/wifi/join` (`ssid`, `password`, `hidden`), `/wifi/forget` (`ssid`), `/wifi/radio` (`on`) | the Wi-Fi wizard |
+| `GET /api/v1/settings` | the settings' values and the adapters to choose from |
+| `POST /api/v1/network` (`uplink`, `subnet`, `tls`, `bluetooth_side`) | the settings setup applies; palm-gwd restarts |
+| `POST /api/v1/password` (`current`, `new`), `POST /api/v1/restart` | change the account's password; restart palm-gwd |
+| `GET /api/v1/devkeys`, `POST /api/v1/devkeys/revoke` (`id`) | Palm devices (D-063) |
+| `GET /api/v1/logs?n=&event=&q=&unit=` | the logs page, newest first, at most 100 lines |
+| `GET /api/v1/check`, `GET /api/v1/diagnostics`, `POST /api/v1/capture` (`seconds`), `POST /api/v1/bundle` | the diagnostics page; captures and bundles are made here and downloaded in a browser |
+| `GET /api/v1/about`, `POST /api/v1/update-check`, `POST /api/v1/class-toggle` | About, the update check, the Class of Device switch |
 
 - **Auth.** `Authorization: Bearer <token>`. The token is 256 random bits (D-058), kept in memory, and
   expires after `session_hours`. A token is not sent automatically the way a cookie is, so CSRF
