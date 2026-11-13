@@ -6,10 +6,10 @@ and gets routed, NAT'd internet over Bluetooth (Serial Port, LAN Access or Dial-
 profile, all PPP over RFCOMM). Pocket PCs, Android phones and laptops get the same through
 Bluetooth PAN. Palms are firewalled away from the home LAN unless you allow a host.
 
-**Status: Phase 8 of 8 (documentation and release) under way; no release published yet.**
-Pairing, PPP, PAN, the firewall, the setup wizard, the .deb, the one-line installer, the image,
-the web UI and the Palm app work on a Pi 5 with a real Palm T|X. The Pi 4 runs, and the Palm
-app's last checks on the T|X, come before the first release (D-041, D-065). See
+**Status: v0.6.0, the first release.** Pairing, PPP, PAN, the firewall, the setup wizard, the
+.deb, the one-line installer, the image, the web UI and the Palm app work on a Pi 5 with a real
+Palm T|X. **Not yet tested:** a Pi 4 (D-041), a LifeDrive, and the Palm app's full checklist on
+the T|X (D-070). WireGuard for the Palm network follows in a later version (D-069). See
 [PLAN.md](PLAN.md) for the specification and [docs/TESTING.md](docs/TESTING.md) for what has
 been verified.
 
@@ -25,7 +25,7 @@ been verified.
 
 ## Quick start
 
-Once a release is published, on the Pi:
+On the Pi:
 
 ```sh
 curl -fsSL https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/install.sh | sudo bash

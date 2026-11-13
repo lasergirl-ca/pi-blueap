@@ -1265,6 +1265,20 @@ Zoe answered docs/WIREGUARD.md's open questions on 2026-11-12 (D-018's added sco
 The build is six parts, listed in WIREGUARD.md. Zoe chose (2026-11-12) to build it after the
 first release, so the release goes out without WireGuard and it follows in a later version.
 
+### D-070: The first release now, as v0.6.0-rc1 then v0.6.0
+
+On 2026-11-12 Zoe asked for the release now, ahead of what D-041 and D-065 held it for: the
+Pi 4 half of Phases 5 and 6, the LifeDrive's screens in PALM-SETUP.md, and the Palm app's
+checklist on the T|X (PALM-M2.md). Those stay open and are listed as untested in the README.
+The release goes out in two steps from one commit:
+- `v0.6.0-rc1`: a GitHub pre-release, which `releases/latest` and `palm-gw upgrade` skip, with
+  the `.deb`, `install.sh`, `PalmGW.prc` (D-068), `SHA256SUMS` and the Pi image.
+- Phase 8's final test: the rc1 installer run on a freshly flashed stock card on the Pi 5.
+- `v0.6.0`: the same commit, published once that passes, with its own image.
+
+The version follows the test packages (`0.6.0~testN` sort before `0.6.0`, so the test Pi
+upgrades). WireGuard follows in a later version (D-069).
+
 ## Hardware observations
 
 ### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)
