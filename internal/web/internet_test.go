@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"palm-gw/internal/ctl"
 )
 
 func TestInternetPage(t *testing.T) {
@@ -75,5 +77,51 @@ func TestInternetViewer(t *testing.T) {
 	}
 	if _, ok := f.last("wifi.join"); ok {
 		t.Error("viewer joined")
+	}
+}
+
+func TestInternetWireGuard(t *testing.T) {
+	f, ts, c, tok := loggedIn(t, "admin", "admin-pw")
+	_, page, _ := get(t, c, ts.URL+"/internet")
+	for _, want := range []string{"<h2>WireGuard", "It is off.", `action="/internet/wg/import"`, `action="/internet/wg/generate"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("off: page lacks %s", want)
+		}
+	}
+	f.mu.Lock()
+	f.wg = ctl.WGStatus{Enabled: true, State: "up", Interface: "wg0", Mode: "full", OnDown: "fail_closed", Address: "10.17.200.5/32",
+		Endpoint: "vpn.example.net:51820", AllowedIPs: []string{"0.0.0.0/0"}, DNS: []string{"10.17.200.1"}, RxBytes: 4096, LastHeardSeconds: 12,
+		PublicKey: "gateway-pub"}
+	f.mu.Unlock()
+	_, page, _ = get(t, c, ts.URL+"/internet")
+	for _, want := range []string{
+		`WireGuard <span class="badge">up</span>`,
+		"All Palm traffic goes through the tunnel. When the tunnel is down, Palm traffic stops",
+		"same guards as your LAN", "<code>10.17.200.1</code> (through the tunnel)", "gateway-pub",
+		"Bring the tunnel down now", "Turn WireGuard off",
+		`name="on_down" value="fail_closed" checked`, `name="mode" value="full" checked`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("up: page lacks %s", want)
+		}
+	}
+	// Saving goes to wg.set and ends on the applying page.
+	code, _, body := post(t, c, ts.URL+"/internet/wg/set", url.Values{"csrf": {tok}, "mode": {"split"}, "networks": {"10.17.0.0/16, 192.168.50.0/24"}, "on_down": {"fallback"}})
+	req, _ := f.last("wg.set")
+	if code != 200 || req.WG.Mode != "split" || strings.Join(req.WG.AllowedIPs, ",") != "10.17.0.0/16,192.168.50.0/24" || req.WG.OnDown != "fallback" || !strings.Contains(body, "WireGuard: wireguard.mode") {
+		t.Errorf("set %d %+v", code, req.WG)
+	}
+	// A bad .conf is shown, not applied.
+	code, _, body = post(t, c, ts.URL+"/internet/wg/import", url.Values{"csrf": {tok}, "conf": {"a bad conf"}})
+	if code != http.StatusBadRequest || !strings.Contains(body, "PublicKey is missing") {
+		t.Errorf("bad import %d", code)
+	}
+}
+
+func TestInternetWireGuardViewer(t *testing.T) {
+	_, ts, c, _ := loggedIn(t, "viewer", "viewer-pw")
+	_, page, _ := get(t, c, ts.URL+"/internet")
+	if !strings.Contains(page, "<h2>WireGuard") || strings.Contains(page, "/internet/wg/") {
+		t.Error("a viewer sees the WireGuard forms")
 	}
 }

@@ -41,6 +41,7 @@ type daemonFake struct {
 	rules  []config.AllowRule
 	set    map[string]json.RawMessage // config.set calls by key
 	job    *ctl.WifiJob
+	wg     ctl.WGStatus // the tunnel (D-069); zero = off
 	// part 4
 	stateDir string
 	running  bool
@@ -184,6 +185,27 @@ func (f *daemonFake) Call(ctx context.Context, req ctl.Request, emit func(json.R
 				NATAddr: netip.MustParseAddr("10.4.1.118"), NATPort: 1028, State: "established", Assured: true, Replied: true, Timeout: 431990}},
 			{Conn: fw.Conn{Proto: "udp", Src: netip.MustParseAddr("10.42.0.10"), SrcPort: 1029, Dst: netip.MustParseAddr("10.42.0.1"), DstPort: 53, Replied: true, Timeout: 25}},
 		}})
+	case "wg", "wg.up", "wg.down":
+		f.mu.Lock()
+		g := f.wg
+		f.mu.Unlock()
+		if g.Interface == "" {
+			g = ctl.WGStatus{State: "off", Interface: "wg0", Mode: "full", OnDown: "fail_closed", AllowedIPs: []string{"0.0.0.0/0"}, DNS: []string{}, LastHeardSeconds: -1}
+		}
+		switch req.Cmd {
+		case "wg.up":
+			g.State = "up"
+		case "wg.down":
+			g.State = "down"
+		}
+		return send(g)
+	case "wg.set", "wg.import":
+		if req.WG != nil && strings.Contains(req.WG.Conf, "bad") {
+			return errors.New("[Peer] PublicKey is missing or not a WireGuard key")
+		}
+		return send(ctl.WGSetReply{OK: true, Changed: []string{"wireguard.mode"}, Applying: true, Unit: "palm-gw-apply", Mode: "full"})
+	case "wg.generate":
+		return send(ctl.WGSetReply{OK: true, Changed: []string{"wireguard.public_key"}, PublicKey: "pub-key-for-the-peer"})
 	case "internet":
 		f.mu.Lock()
 		job := f.job

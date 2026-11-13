@@ -53,6 +53,61 @@
   {{if and $admin (not .WifiInUse)}}<form method="post" action="/internet/radio"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="on" value="0"><button type="submit" class="secondary">Turn Wi-Fi off</button></form>{{end}}
   {{end}}
 </section>
+{{with .WG}}<section class="card">
+  <h2>WireGuard {{if eq .State "up"}}<span class="badge">up</span>{{else if .Enabled}}<span class="badge" style="background: var(--bad)">{{.State}}</span>{{end}}</h2>
+  {{if .Enabled}}
+  <p>{{if eq .Mode "full"}}All Palm traffic goes through the tunnel. When the tunnel is down, Palm traffic {{if eq .OnDown "fail_closed"}}stops{{else}}uses the connection above{{end}}.
+     {{else}}Palm traffic to {{join .AllowedIPs ", "}} goes through the tunnel; the rest uses the connection above.{{end}}
+     Hosts behind the tunnel get the same guards as your LAN: a Palm reaches one only through a rule on the <a href="/firewall">Firewall</a> page, and nothing on the far side can connect to a Palm or to this Pi.</p>
+  <dl>
+    <dt>Tunnel address</dt><dd><code>{{.Address}}</code></dd>
+    <dt>Peer</dt><dd><code>{{.Endpoint}}</code></dd>
+    {{if .DNS}}<dt>DNS for the Palms</dt><dd><code>{{join .DNS ", "}}</code> (through the tunnel)</dd>{{end}}
+    {{if eq .State "up"}}<dt>Traffic</dt><dd>received {{bytes .RxBytes}}, sent {{bytes .TxBytes}}{{if ge .LastHeardSeconds 0}}; last heard {{secs .LastHeardSeconds}} ago{{end}}{{if .Stale}} <strong class="error">: nothing for 3 minutes</strong>{{end}}</dd>{{end}}
+    {{if .PublicKey}}<dt>This gateway's public key</dt><dd><code>{{.PublicKey}}</code></dd>{{end}}
+  </dl>
+  {{if eq .State "missing"}}<p class="error">WireGuard is on in the settings but the tunnel is not set up: save the settings below again, or import the .conf again.</p>{{end}}
+  {{if .Applying}}<p class="notice">Applying now: palm-gwd restarts in a moment.</p>{{end}}
+  {{if $admin}}
+  <div class="row">
+    <form method="post" action="/internet/wg/updown"><input type="hidden" name="csrf" value="{{$csrf}}">{{if eq .State "up"}}<button type="submit" class="secondary">Bring the tunnel down now</button>{{else}}<input type="hidden" name="up" value="1"><button type="submit">Bring the tunnel up now</button>{{end}}</form>
+    <form method="post" action="/internet/wg/set"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="enabled" value="0"><button type="submit" class="danger">Turn WireGuard off</button></form>
+  </div>
+  <details><summary>Tunnel settings</summary>
+    <form method="post" action="/internet/wg/set" class="narrow-form"><input type="hidden" name="csrf" value="{{$csrf}}">
+      <fieldset><legend>What goes through the tunnel</legend>
+        <label><input type="radio" name="mode" value="full"{{if eq .Mode "full"}} checked{{end}}> All Palm traffic</label>
+        <label><input type="radio" name="mode" value="split"{{if eq .Mode "split"}} checked{{end}}> Only these networks:</label>
+        <input name="networks" value="{{if eq .Mode "split"}}{{join .AllowedIPs ", "}}{{end}}" placeholder="10.17.0.0/16, 192.168.50.0/24" aria-label="Networks for a split tunnel">
+      </fieldset>
+      <fieldset><legend>When the tunnel is down (all-traffic mode)</legend>
+        <label><input type="radio" name="on_down" value="fail_closed"{{if eq .OnDown "fail_closed"}} checked{{end}}> Stop Palm traffic until it is back</label>
+        <label><input type="radio" name="on_down" value="fallback"{{if eq .OnDown "fallback"}} checked{{end}}> Use the connection above</label>
+      </fieldset>
+      <button type="submit">Save and apply</button>
+    </form></details>
+  {{end}}
+  {{else}}
+  <p>WireGuard can carry the Palm network through a tunnel to another network, with the same guards as your LAN. It is off.</p>
+  {{if .PublicKey}}<p>This gateway's public key: <code>{{.PublicKey}}</code></p>{{end}}
+  {{if $admin}}
+  <details><summary>Import a .conf from the tunnel's admin</summary>
+    <form method="post" action="/internet/wg/import" class="narrow-form"><input type="hidden" name="csrf" value="{{$csrf}}">
+      <label>The .conf, pasted in <textarea name="conf" rows="10" spellcheck="false" autocomplete="off" required placeholder="[Interface]&#10;PrivateKey = …&#10;Address = …&#10;&#10;[Peer]&#10;PublicKey = …&#10;AllowedIPs = 0.0.0.0/0&#10;Endpoint = host:51820"></textarea></label>
+      <p class="muted">Its private key goes to NetworkManager's root-only store, not to config.toml. A .conf with AllowedIPs = 0.0.0.0/0 sends all Palm traffic through the tunnel.</p>
+      <button type="submit">Import and turn on</button>
+    </form></details>
+  <details><summary>Or make this gateway a key pair</summary>
+    <form method="post" action="/internet/wg/generate"><input type="hidden" name="csrf" value="{{$csrf}}"><button type="submit" class="secondary">Make a key pair</button></form>
+    {{if .PublicKey}}<form method="post" action="/internet/wg/set" class="narrow-form"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="enabled" value="1">
+      <label>This gateway's tunnel address <input name="address" placeholder="10.17.200.5/32" required></label>
+      <label>Peer (host:port) <input name="endpoint" placeholder="vpn.example.net:51820" required></label>
+      <label>Peer's public key <input name="peer_public_key" required></label>
+      <button type="submit">Turn on</button>
+    </form>{{end}}
+  </details>
+  {{end}}{{end}}
+</section>{{end}}
 {{if $admin}}<p class="muted">Switching between Ethernet and Wi-Fi rewrites the firewall and restarts palm-gwd, which takes about 20 seconds: connected Palms are disconnected and you log in again. A Wi-Fi network that cannot be joined within 45 seconds is removed again and the Pi goes back to the network it had. If this browser reaches the Pi over Wi-Fi, joining another network moves the Pi there, at a new address.</p>{{end}}
 {{template "foot" .}}{{end}}
 

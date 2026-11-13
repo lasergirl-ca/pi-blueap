@@ -135,6 +135,7 @@ daemon's ctl handlers do the work and the API is a thin layer over them, as the 
 | `GET /api/v1/firewall/counters`, `GET /api/v1/nat` | the drop counters; the NAT table |
 | `GET /api/v1/internet`, `POST /api/v1/internet/use` (`use`) | Ethernet and Wi-Fi state, saved networks, a join in progress; switch the uplink |
 | `GET /api/v1/wifi/scan?rescan=1`, `POST /api/v1/wifi/join` (`ssid`, `password`, `hidden`), `/wifi/forget` (`ssid`), `/wifi/radio` (`on`) | the Wi-Fi wizard |
+| `GET /api/v1/wireguard`; `POST /api/v1/wireguard/set` (`enabled`, `mode`, `on_down`, `networks`, `address`, `endpoint`, `peer_public_key`), `/import` (`conf`), `/generate`, `/up`, `/down` | the WireGuard tunnel for the Palm network (D-069): state, settings, a `.conf` import or a new key pair, up or down now; changes that rebuild it restart palm-gwd |
 | `GET /api/v1/settings` | the settings' values and the adapters to choose from |
 | `POST /api/v1/network` (`uplink`, `subnet`, `tls`, `bluetooth_side`) | the settings setup applies; palm-gwd restarts |
 | `POST /api/v1/password` (`current`, `new`), `POST /api/v1/restart` | change the account's password; restart palm-gwd |
