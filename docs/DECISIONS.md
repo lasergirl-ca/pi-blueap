@@ -841,6 +841,12 @@ Left open: the first Connect after pairing on the stock-card run timed out on th
 timeout", PPP up, no IP data from the Pi, 40 s); the next Connects worked. It has not recurred;
 a btmon trace of a failing attempt is the next step if it does.
 
+**Closed 2026-11-12:** it recurred on the T|X's first Connect to each rc1 card, and the second
+was caught with `ppp.debug` and btmon. The failing first Connect and a good one are the same
+on the wire, frame for frame, and the T|X ends the failing one itself (IPCP TermReq, HCI
+reason 0x13). It is the T|X's behaviour on its first Connect after pairing a gateway, not the
+gateway's; TROUBLESHOOTING.md says to tap Connect again (TESTING.md, Phase 8's final test).
+
 ### D-051: Web UI part 1: how the listeners and logins work
 
 Phase 7 part 1 (`internal/web`). Where it departs from or fills in section 8.12 and

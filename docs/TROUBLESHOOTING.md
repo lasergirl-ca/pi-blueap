@@ -117,7 +117,7 @@ or change. After Bluetooth off and on in the T|X's Prefs it connected at once (2
 
 **What to do.** On the Palm: try again, or switch Bluetooth off and on in Prefs.
 
-### Kind 5: the first Connect after pairing drops after about 40 s (D-050, open)
+### Kind 5: the first Connect after pairing drops after about 40 s (D-050)
 
 **What you see.** PPP comes up, nothing loads, and the T|X shows 0x0305 after 35-40 s. A second
 tap straight after works.
@@ -130,9 +130,12 @@ From the stock-card run (TESTING.md, Phase 6 part 7, 2026-11-11):
 21:58:25 IPCP terminated by peer ; Sent 0 bytes, received 4 bytes. ; session ended  duration=40s
 ```
 
-**What it means.** Not known. PPP and IPCP came up with the bridge, dnsmasq and nftables all
-up; pppd sent 0 bytes and received 4, and the Palm closed the link. Seen again on the test14
-card (23:35, 39 s, `pppd_exit`) and on 2026-11-12 at 17:01 and 17:13. **Open.**
+**What it means.** The T|X decides it. PPP and IPCP come up, and the T|X sends nothing and
+then hangs up itself (IPCP TermReq, LCP TermReq, HCI reason 0x13). A capture with `ppp.debug`
+on (TESTING.md, Phase 8's final test, 2026-11-12) shows this first Connect and a good one are
+the same on the wire, frame for frame, so nothing on the gateway's side differs. Seen on every
+gateway the T|X has newly paired with: the test14 card, 2026-11-12 at 17:01 and 17:13, and on
+both rc1 cards.
 
 **What to do.** Tap Connect again. To help close it, catch one with a capture running and
 `ppp.debug` on, then make a bundle with the capture:
@@ -443,8 +446,8 @@ also show a name mismatch; that is expected.
 
 ## Still open
 
-- **D-050:** the first Connect after pairing dropping at 35-40 s with nothing sent. Needs a
-  capture of a failing attempt.
+- **D-050:** the T|X's first Connect after pairing ends itself at 35-40 s. Captured; the
+  gateway's side is the same as a good Connect, so the cause is in the T|X.
 - **0x0305 after a CradleSync session ends:** on the T|X side; to be compared with a session of
   the palm-gw app alone.
 - **Pi 4 and the 24-hour soak:** every Phase 5 test is still to be repeated on a Pi 4; the soak

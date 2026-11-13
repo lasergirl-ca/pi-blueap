@@ -3211,3 +3211,50 @@ $ strings <scratch>/PalmGW.prc | grep -c v0.0.0-relcheck
 The app is built clean with the tag as its build stamp. `ParseSums` (`palm-gw upgrade`) and the
 bootstrap installer pass over `PalmGW.prc` in `SHA256SUMS`; `release_test.go` now lists it.
 
+### Phase 8's final test: the v0.6.0-rc1 image on two clean cards, 2026-11-12
+
+`v0.6.0-rc1` was published as a pre-release (D-070) with the `.deb`, `install.sh`,
+`PalmGW.prc`, `SHA256SUMS`, the image, its `.sha256`, `.json` and
+`palm-gw.rpi-imager-manifest` (D-071). Zoe wrote the image to two cards with Raspberry Pi
+Imager 2.0 (opened on a local copy of the rc1 entry), for both Pi 5s:
+
+```
+Verify hash: "549448bc1e04409b1a4b1799317d26a87738377e3e5534951f8921dc5ab22043"   (both writes)
+_customizeImage: _initFormat= "cloudinit-rpi" initCloud= true
+```
+
+The hash is the entry's `extract_sha256`. She ran `sudo palm-gw setup` on each and paired the
+T|X with both from the web UI. Then, over SSH:
+
+| | Lyman (10.4.1.118) | Surrey (10.4.0.241) |
+|---|---|---|
+| `/etc/palm-gw-image` | `PALM_GW_VERSION=0.6.0~rc1`, built 2026-11-13T04:49:01Z | the same |
+| palm-gwd | `v0.6.0-rc1`, active | `v0.6.0-rc1`, active |
+| adapter | USB dongle, configured by address | USB dongle, configured by address (`rfkill_unblocked` at first start, D-046) |
+| T\|X paired | 22:26:05 | 22:29:13 |
+| supply | 5000 mA, `get_throttled` 0x0 | **1500 mA** (setup's warning), `get_throttled` 0x0 |
+
+Surrey's supply is under what a Pi 5 needs (PLAN.md section 3); it stays on the list to fix.
+
+**D-050 caught with `ppp.debug` and a capture (Surrey, the T|X's first Connect after pairing).**
+Lyman's first Connect had already shown it (22:26:35 to 22:27:06, 31 s, "IPCP terminated by
+peer", "Sent 0 bytes, received 4 bytes"). On Surrey, `palm-gwctl set ppp.debug true` and
+`palm-gwctl capture 600` ran before the T|X's first Connect:
+
+```
+22:46:51.059  Connect Request; role switch; SDP; Authentication with the stored key; Encryption on
+22:46:51.445  RFCOMM PN dlci 4: frame_size 328, credits 7; SABM/UA; MSC both ways
+22:46:51.819  LCP ConfReq/ConfRej/ConfAck both ways
+22:46:51.905  IPCP ConfAck addr 10.42.0.10 ms-dns 10.42.0.1; ip-up done at .913
+22:47:11.881  gateway LCP EchoReq -> T|X EchoRep at .929 (the link is healthy)
+22:47:30.001  T|X: IPCP TermReq; 22:47:30.017 LCP TermReq; RFCOMM DISC; HCI reason 0x13
+```
+
+The T|X sent no IP packet in those 38 s and ended the session itself. Its next Connect
+(22:49:12, after one Zoe ended herself) stayed up. Compared frame by frame, the failed and the
+good Connect are the same on the wire: the same RFCOMM parameters, credits and modem status,
+the same LCP and IPCP exchange in the same order, and no IP from the T|X in their first 10 s.
+So nothing the gateway sends differs; the T|X decides, on its first Connect after pairing a
+gateway, to hang up after about 35-40 s. D-050 is a T|X behaviour; the second Connect is the
+way past it.
+
