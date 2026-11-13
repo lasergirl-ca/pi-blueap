@@ -3175,11 +3175,11 @@ $ ssh sysadmin@10.4.1.118 'sudo btmon -T -r /var/tmp/palm-watch.btsnoop' | ...
 - Three sessions from 20:00 to 20:11 (1m50s, 3m17s, 3m51s; up to 830 KB out, 616 KB in) each
   ended with the T|X's LCP TermReq and an HCI disconnect for reason 0x13 (remote user
   terminated): clean hang-ups.
-- At 20:17 Zoe saw "Serial: timeout (0x0305)" on the T|X. The capture has nothing from the
+- At 20:17 and again at 20:18 Zoe saw "Serial: timeout (0x0305)" on the T|X. The capture has nothing from the
   T|X after 20:11:24: no HCI Connection Request, no log line. The adapter was connectable the
   whole time (`hciconfig`: UP RUNNING PSCAN ISCAN, 0 errors; btmgmt: connectable), and
   `get_throttled` read 0x0.
-- So that attempt never reached the gateway's radio. The T|X failed before it paged the
+- So neither attempt reached the gateway's radio. The T|X failed before it paged the
   gateway; on the T|X the Bluetooth radio sits behind an internal serial line, and 0x0305 is
   Palm OS's serial timeout. Nothing on the gateway can see or change that; a second try, or
   Bluetooth off and on in the T|X's Prefs, is the way past it.
