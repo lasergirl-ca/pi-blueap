@@ -1,8 +1,9 @@
-# WireGuard uplink: design sketch
+# WireGuard uplink: design
 
-**Status:** draft for discussion, 2026-11-09. Nothing here is built. This is the added scope
-recorded as DECISIONS.md D-018, planned for the last phase (Phase 8). The open questions at the
-end need Zoe's answers before any code is written.
+**Status:** design agreed 2026-11-12 (D-018, D-069); nothing is built yet. Zoe's answers to the
+open questions are at the end. In short: full or split tunnel and fail-closed or fall-back are
+both settings, keys are imported from a `.conf` or generated on the Pi, the peer is plain
+WireGuard, and **everything behind the tunnel gets the same firewall guards as the home LAN**.
 
 ## Goal
 
@@ -23,6 +24,11 @@ Palm ── Bluetooth PPP/PAN ── Pi (10.42.0.1) ══ wg0 tunnel ══ con
   Question 3 asks whether that is right.
 - The existing firewall structure stays. The `inet palm_gw` table gains rules and does not
   replace anything.
+- **The guards stay the same everywhere.** `palm_forward` matches destinations by address,
+  whatever interface a packet leaves by. So the private-address drop (`palm->rfc1918`) and the
+  `[[firewall.allow]]` list apply to hosts behind the tunnel exactly as they do to the home LAN:
+  Palms reach the internet through the tunnel, and a private host behind the concentrator only
+  when an allow rule names it (host, protocol and port, or ICMP).
 
 ## How it would work
 
@@ -69,12 +75,32 @@ ip saddr 10.42.0.0/24 oifname "wg0" masquerade
 ```
 
 In `palm_forward`, allow the tunnel as an exit, with MSS clamping (WireGuard's MTU is 1420, so
-this matters more than on Ethernet):
+this matters more than on Ethernet). The two rules go **after** the allow sets and the
+`palm->rfc1918` drop, next to the uplink's, so the tunnel is an exit to the internet and to
+allowed hosts only:
 
 ```
+ct state established,related accept
+ct state invalid counter drop comment "palm->invalid"
+ip daddr . meta l4proto . th dport @lan_allow accept     # home LAN and tunnel hosts alike
+ip daddr @lan_allow_icmp ip protocol icmp accept
+ip daddr { 10.0.0.0/8, … } counter drop comment "palm->rfc1918"
 oifname "wg0" tcp flags syn tcp option maxseg size set rt mtu
 oifname "wg0" accept
+oifname "{{UPLINK}}" accept                               # only when on_down = "fallback" or split
+counter drop comment "palm->other"
 ```
+
+Nothing may start a connection from the tunnel into the Palm network, so a concentrator that
+routes 10.42.0.0/24 back to the Pi still cannot reach a Palm:
+
+```
+chain forward { …
+    iifname "wg0" oifname { "ppp*", "{{BRIDGE}}" } ct state new counter drop comment "wg->palm"
+}
+```
+
+The firewall page and `palm-gwctl firewall counters` show `wg->palm` with the other drops.
 
 ### 4. When the tunnel is down
 
@@ -96,10 +122,13 @@ default they bypass the tunnel. That leaks which names the Palms look up. Option
 
 ### 6. Reaching networks behind the concentrator
 
-Today `palm_forward` drops all RFC 1918 destinations (`palm->rfc1918`), so Palms cannot reach
-private LANs. Networks behind the concentrator are usually private addresses, so this rule would
-block them. The proposal is a `reach` list in config: those prefixes are allowed only when the
-packet leaves through `wg0`. The home LAN stays blocked.
+The same way as the home LAN: not at all, unless an allow rule names the host. Today
+`palm_forward` drops all private destinations (`palm->rfc1918`) and lets through only what
+`[[firewall.allow]]` lists. A host behind the concentrator is added the same way, on the web
+UI's Firewall page, `palm-gwctl firewall add`, or the Palm app. The reachability test on that page
+runs from the Pi, so it follows the same routes as a Palm. With a split tunnel, the tunnel
+carries `allowed_ips` only, so a private host there needs both: its network in `allowed_ips`
+and its host in an allow rule.
 
 ### 7. Configuration
 
@@ -114,10 +143,11 @@ peer_public_key = "…"
 allowed_ips    = ["0.0.0.0/0"]      # what the tunnel carries for Palm traffic
 keepalive_seconds = 25
 mode           = "full"             # "full": all Palm traffic; "split": only allowed_ips
-on_down        = "fail_closed"      # or "fallback"
-dns_via_tunnel = true
-reach          = []                 # private prefixes behind the concentrator Palms may reach
+on_down        = "fail_closed"      # or "fallback"; full mode only (split never stops traffic)
+dns_via_tunnel = true               # dnsmasq's upstream through the tunnel (dns_upstream there)
 ```
+
+Both `mode` and `on_down` are settings in the web UI and the Palm app, not just in the file.
 
 `config.Validate()` would check that the keys are valid, that `address` does not overlap
 `network.subnet`, and that `mode = "split"` comes with specific `allowed_ips`.
@@ -133,7 +163,10 @@ reach          = []                 # private prefixes behind the concentrator P
   wireguard: up, handshake 42s ago, rx 1.2 MiB tx 310 KiB, full tunnel, fail closed
   ```
 
-- **`palm-gwctl wg up|down|show`**, and a matching panel in the web UI.
+- **`palm-gwctl wg up|down|show`**, a WireGuard card on the web UI's Internet page (state, mode,
+  on-down behaviour, import a `.conf` or make keys and show the public key, up and down), and
+  the same in the Palm app's Internet screen (D-064's parity; the `.conf` import stays in the
+  browser, as file downloads do).
 - **Health check.** The daemon reads the handshake age every 30 s. If it goes over 3 minutes
   with Palm sessions live, it logs `wg_stale`. The daemon never edits the tunnel itself:
   NetworkManager owns it.
@@ -152,23 +185,26 @@ reach          = []                 # private prefixes behind the concentrator P
 - **Recovery.** Reboot, an uplink change from Ethernet to Wi-Fi, and an endpoint IP change all
   bring the tunnel back without help.
 
-## Open questions for Zoe
+## Zoe's answers, 2026-11-12
 
-1. **Full or split tunnel?** Should all Palm traffic go through the concentrator, or only
-   traffic to certain networks, with the rest using the normal uplink?
-2. **When the tunnel is down,** should Palm traffic stop (fail closed) or fall back to the
-   normal uplink?
-3. **The Pi's own traffic.** Should updates, SSH and the web UI also use the tunnel, or stay on
-   the normal uplink?
-4. **Keys.** Will the concentrator's admin hand you a ready `.conf` file, or should the gateway
-   generate its own keys and print the public key for them?
-5. **DNS.** Should Palm DNS lookups go through the tunnel, and is there a resolver on the
-   concentrator's side to use?
-6. **Networks behind the concentrator.** Should Palms reach private networks there (which
-   ones?), or only the internet through it?
-7. **"Devices" in your request.** Does this mean PAN clients such as phones and laptops on
-   `br-palm` (covered above, since they share 10.42.0.0/24), or something else, such as LAN
-   hosts using the Pi as a gateway?
-8. **Concentrator software.** Is it plain WireGuard, or a product built on it (for example
-   Firezone, Netmaker, Tailscale or a firewall appliance)? Some products need their own client
-   and would change the approach.
+1. **Full or split:** both, as a setting (`mode`).
+2. **When the tunnel is down:** both, as a setting (`on_down`): stop Palm traffic, or fall
+   back to the normal uplink.
+3. **The Pi's own traffic:** not asked; it stays on the normal uplink (the sketch's default).
+4. **Keys:** both: import a `.conf` from the concentrator's admin, or generate keys on the Pi
+   and show the public key.
+5. **DNS:** not asked; through the tunnel by default when `mode = "full"` (`dns_via_tunnel`).
+6. **Networks behind the concentrator:** the same guards as the home LAN: private hosts there
+   only through allow rules; no separate `reach` list.
+7. **"Devices":** everything on the Palm network, 10.42.0.0/24: PPP Palms and PAN clients.
+8. **Concentrator:** plain WireGuard.
+
+## Build parts
+
+1. Config: the `[wireguard]` table, validation, defaults; `palm-gwctl get/set`.
+2. Setup: the NetworkManager profile (import or generate), policy routing for `mode` and
+   `on_down`, the nft rules above (`nft -c` in tests), `palm-gw setup --check` for the tunnel.
+3. Daemon and CLI: the status line, `wg_stale`, `palm-gwctl wg up|down|show`, the counters.
+4. Web UI and API: the WireGuard card, `/api/v1` calls for it.
+5. The Palm app: WireGuard on the Internet screen.
+6. On the Pi with a test peer: the tests above, each guard checked from a Palm.

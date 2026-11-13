@@ -1248,6 +1248,23 @@ the newest. `palm-gw upgrade` and the bootstrap installer pick the `.deb` out of
 `SHA256SUMS` by name and pass over the `.prc`. Building a release therefore needs the Palm
 toolchain on the release machine (`docs/PALM-DEV.md`).
 
+### D-069: WireGuard's design agreed: settings for the tunnel's scope and its failure, the LAN's guards behind it
+
+Zoe answered docs/WIREGUARD.md's open questions on 2026-11-12 (D-018's added scope):
+- **Full or split tunnel, fail-closed or fall-back:** both, as settings in the config, the web
+  UI and the Palm app, not fixed choices.
+- **Keys:** import a `.conf` or generate them on the Pi.
+- **The peer:** plain WireGuard.
+- **Guards:** hosts behind the tunnel get the same guards as the home LAN, so the sketch's
+  `reach` list is dropped. `palm_forward` already matches destinations by address, so the
+  private-address drop and `[[firewall.allow]]` cover tunnel destinations unchanged. A new
+  `wg->palm` drop stops connections started from the tunnel into the Palm network.
+- **Not asked, so the sketch's defaults stand:** the Pi's own traffic stays on the normal
+  uplink; DNS goes through the tunnel in full mode.
+
+The build is six parts, listed in WIREGUARD.md. It is added scope in Phase 8 and is not
+needed for the first release unless Zoe says so.
+
 ## Hardware observations
 
 ### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)
