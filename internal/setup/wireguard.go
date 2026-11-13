@@ -46,6 +46,7 @@ type WGConf struct {
 	Endpoint     string
 	AllowedIPs   []string // IPv4 networks; ::/0 and other IPv6 are dropped
 	Keepalive    int
+	KeepaliveSet bool // the .conf named PersistentKeepalive (else the gateway's 25 s stands)
 }
 
 // ParseWGConf reads a .conf with one [Interface] and exactly one [Peer]. Keys are
@@ -113,6 +114,7 @@ func ParseWGConf(text string) (WGConf, error) {
 				}
 			}
 		case "peer.persistentkeepalive":
+			c.KeepaliveSet = true
 			if v == "off" {
 				c.Keepalive = 0
 			} else if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 65535 {
@@ -207,13 +209,19 @@ func WGKVs(c WGConf, pub string) []KV {
 	if dns == nil {
 		dns = []string{}
 	}
+	// Without PersistentKeepalive the gateway's default stands: behind home NAT the
+	// tunnel needs it, and the stale watch counts on the peer's answers (D-072).
+	keepalive := config.Default().WireGuard.KeepaliveSeconds
+	if c.KeepaliveSet {
+		keepalive = c.Keepalive
+	}
 	return []KV{
 		{Section: "wireguard", Key: "enabled", Value: "true"},
 		{Section: "wireguard", Key: "address", Value: TOMLString(c.Address)},
 		{Section: "wireguard", Key: "endpoint", Value: TOMLString(c.Endpoint)},
 		{Section: "wireguard", Key: "peer_public_key", Value: TOMLString(c.PublicKey)},
 		{Section: "wireguard", Key: "allowed_ips", Value: TOMLStrings(c.AllowedIPs)},
-		{Section: "wireguard", Key: "keepalive_seconds", Value: strconv.Itoa(c.Keepalive)},
+		{Section: "wireguard", Key: "keepalive_seconds", Value: strconv.Itoa(keepalive)},
 		{Section: "wireguard", Key: "mode", Value: TOMLString(mode)},
 		{Section: "wireguard", Key: "dns", Value: TOMLStrings(dns)},
 		{Section: "wireguard", Key: "public_key", Value: TOMLString(pub)},

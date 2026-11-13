@@ -72,6 +72,11 @@ func TestParseWGConf(t *testing.T) {
 	if kvs[6].Value != `"full"` {
 		t.Fatalf("mode = %s, want full", kvs[6].Value)
 	}
+	// No PersistentKeepalive in the .conf: the gateway's 25 s stands.
+	c, _ = ParseWGConf(strings.Replace(sample(), "PersistentKeepalive = 25\n", "", 1))
+	if v := WGKVs(c, testPub)[5].Value; v != "25" {
+		t.Fatalf("keepalive without the line = %s, want 25", v)
+	}
 	split := strings.Replace(sample(), "AllowedIPs = 0.0.0.0/0, ::/0", "AllowedIPs = 10.17.0.0/16", 1)
 	c, err = ParseWGConf(split)
 	if err != nil || WGKVs(c, testPub)[6].Value != `"split"` {
