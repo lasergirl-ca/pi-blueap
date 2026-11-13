@@ -186,6 +186,82 @@ func TestValidationRules(t *testing.T) {
 	}
 }
 
+// wgOn is a valid enabled tunnel shaped like an imported .conf (a made-up key).
+func wgOn(c *Config) {
+	c.WireGuard.Enabled = true
+	c.WireGuard.Address = "10.17.200.5/32"
+	c.WireGuard.Endpoint = "vpn.example.net:51820"
+	c.WireGuard.PeerPublicKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	c.WireGuard.DNS = []string{"10.17.200.1"}
+}
+
+func TestWireGuardValidation(t *testing.T) {
+	bad := []struct {
+		name   string
+		mutate func(c *Config)
+		key    string
+	}{
+		{"mode", func(c *Config) { c.WireGuard.Mode = "half" }, "wireguard.mode"},
+		{"on_down", func(c *Config) { c.WireGuard.OnDown = "leak" }, "wireguard.on_down"},
+		{"interface is the uplink", func(c *Config) { c.WireGuard.Interface = "eth0" }, "wireguard.interface"},
+		{"interface ppp", func(c *Config) { c.WireGuard.Interface = "ppp9" }, "wireguard.interface"},
+		{"keepalive", func(c *Config) { c.WireGuard.KeepaliveSeconds = -1 }, "wireguard.keepalive_seconds"},
+		{"no address", func(c *Config) { wgOn(c); c.WireGuard.Address = "" }, "wireguard.address"},
+		{"address in the Palm network", func(c *Config) { wgOn(c); c.WireGuard.Address = "10.42.0.250/32" }, "wireguard.address"},
+		{"endpoint without port", func(c *Config) { wgOn(c); c.WireGuard.Endpoint = "vpn.example.net" }, "wireguard.endpoint"},
+		{"endpoint port 0", func(c *Config) { wgOn(c); c.WireGuard.Endpoint = "vpn.example.net:0" }, "wireguard.endpoint"},
+		{"short key", func(c *Config) { wgOn(c); c.WireGuard.PeerPublicKey = "AAAA" }, "wireguard.peer_public_key"},
+		{"full without 0/0", func(c *Config) { wgOn(c); c.WireGuard.AllowedIPs = []string{"10.17.0.0/16"} }, "wireguard.allowed_ips"},
+		{"split with 0/0", func(c *Config) { wgOn(c); c.WireGuard.Mode = "split" }, "wireguard.allowed_ips"},
+		{"split over the Palm network", func(c *Config) {
+			wgOn(c)
+			c.WireGuard.Mode = "split"
+			c.WireGuard.AllowedIPs = []string{"10.17.0.0/16", "10.42.0.0/16"}
+		}, "wireguard.allowed_ips[1]"},
+		{"allowed_ips not a network", func(c *Config) { wgOn(c); c.WireGuard.AllowedIPs = []string{"0.0.0.0/0", "10.17.200.1/16"} }, "wireguard.allowed_ips[1]"},
+		{"dns outside the tunnel", func(c *Config) {
+			wgOn(c)
+			c.WireGuard.Mode = "split"
+			c.WireGuard.AllowedIPs = []string{"10.17.0.0/16"}
+			c.WireGuard.DNS = []string{"1.1.1.1"}
+		}, "wireguard.dns[0]"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			tc.mutate(c)
+			err := c.Validate()
+			if err == nil {
+				t.Fatalf("expected an error naming %s", tc.key)
+			}
+			mustHaveKey(t, err, tc.key)
+		})
+	}
+	good := []struct {
+		name   string
+		mutate func(c *Config)
+	}{
+		{"off ignores the tunnel's keys", func(c *Config) { c.WireGuard.Endpoint = "nonsense"; c.WireGuard.AllowedIPs = nil }},
+		{"full, fail closed, like an imported .conf", wgOn},
+		{"full, fall back", func(c *Config) { wgOn(c); c.WireGuard.OnDown = "fallback" }},
+		{"split", func(c *Config) {
+			wgOn(c)
+			c.WireGuard.Mode = "split"
+			c.WireGuard.AllowedIPs = []string{"10.17.0.0/16", "192.168.50.0/24"}
+		}},
+		{"no keepalive", func(c *Config) { wgOn(c); c.WireGuard.KeepaliveSeconds = 0 }},
+	}
+	for _, tc := range good {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			tc.mutate(c)
+			if err := c.Validate(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestValidationAccepts(t *testing.T) {
 	cases := []struct {
 		name   string

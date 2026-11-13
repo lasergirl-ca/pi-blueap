@@ -29,6 +29,7 @@ type Config struct {
 	Logging   Logging   `toml:"logging" json:"logging"`
 	Ctl       Ctl       `toml:"ctl" json:"ctl"`
 	Web       Web       `toml:"web" json:"web"`
+	WireGuard WireGuard `toml:"wireguard" json:"wireguard"`
 }
 
 // Bluetooth is the [bluetooth] table.
@@ -133,6 +134,23 @@ type Web struct {
 	ViewerPasswordHash string `toml:"viewer_password_hash" json:"viewer_password_hash"`
 }
 
+// WireGuard is the [wireguard] table (D-018, D-069, docs/WIREGUARD.md): the gateway as
+// a WireGuard client for the Palm network. The private key is not here: setup keeps
+// it in NetworkManager's root-only secret store, since this file is readable by the
+// palm-gw group.
+type WireGuard struct {
+	Enabled          bool     `toml:"enabled" json:"enabled"`
+	Interface        string   `toml:"interface" json:"interface"`
+	Address          string   `toml:"address" json:"address"`                 // the Pi's tunnel address, CIDR
+	Endpoint         string   `toml:"endpoint" json:"endpoint"`               // the peer, host:port
+	PeerPublicKey    string   `toml:"peer_public_key" json:"peer_public_key"` // base64, 32 bytes
+	AllowedIPs       []string `toml:"allowed_ips" json:"allowed_ips"`
+	KeepaliveSeconds int      `toml:"keepalive_seconds" json:"keepalive_seconds"`
+	Mode             string   `toml:"mode" json:"mode"`       // "full": all Palm traffic; "split": allowed_ips only
+	OnDown           string   `toml:"on_down" json:"on_down"` // "fail_closed" or "fallback" (full mode)
+	DNS              []string `toml:"dns" json:"dns"`         // resolvers through the tunnel, for dnsmasq
+}
+
 // Default returns the configuration that an empty file yields (PLAN.md section 7).
 func Default() *Config {
 	return &Config{
@@ -190,6 +208,15 @@ func Default() *Config {
 			SessionHours:  72,
 			AllowCIDRs:    []string{},
 			BluetoothSide: true,
+		},
+		WireGuard: WireGuard{
+			Enabled:          false,
+			Interface:        "wg0",
+			AllowedIPs:       []string{"0.0.0.0/0"},
+			KeepaliveSeconds: 25,
+			Mode:             "full",
+			OnDown:           "fail_closed",
+			DNS:              []string{},
 		},
 	}
 }

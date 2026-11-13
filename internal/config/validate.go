@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -273,10 +274,88 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	c.validateWireGuard(subnet, haveSubnet, add)
+
 	if len(errs) == 0 {
 		return nil
 	}
 	return errs
+}
+
+// validateWireGuard checks [wireguard] (D-069). The choices are checked always;
+// the tunnel's own keys only when it is enabled.
+func (c *Config) validateWireGuard(subnet netip.Prefix, subnetOK bool, add func(string, string, ...any)) {
+	g := &c.WireGuard
+	if !ifnameRe.MatchString(g.Interface) {
+		add("wireguard.interface", "must be an interface name (1 to 15 characters), got %q", g.Interface)
+	} else if g.Interface == c.Network.Uplink || g.Interface == c.PAN.Bridge || strings.HasPrefix(g.Interface, "ppp") {
+		add("wireguard.interface", "must differ from network.uplink, pan.bridge and ppp*, got %q", g.Interface)
+	}
+	full := g.Mode == "full"
+	if g.Mode != "full" && g.Mode != "split" {
+		add("wireguard.mode", "must be full or split, got %q", g.Mode)
+	}
+	if g.OnDown != "fail_closed" && g.OnDown != "fallback" {
+		add("wireguard.on_down", "must be fail_closed or fallback, got %q", g.OnDown)
+	}
+	if g.KeepaliveSeconds < 0 || g.KeepaliveSeconds > 65535 {
+		add("wireguard.keepalive_seconds", "must be 0 to 65535, got %d", g.KeepaliveSeconds)
+	}
+	if !g.Enabled {
+		return
+	}
+	if a, err := netip.ParsePrefix(g.Address); err != nil || !a.Addr().Is4() {
+		add("wireguard.address", "must be the Pi's IPv4 tunnel address with its prefix, e.g. 10.17.200.5/32, got %q", g.Address)
+	} else if subnetOK && a.Masked().Overlaps(subnet) {
+		add("wireguard.address", "%s overlaps network.subnet %s", a, subnet)
+	}
+	if host, port, err := net.SplitHostPort(g.Endpoint); err != nil || host == "" {
+		add("wireguard.endpoint", "must be host:port, got %q", g.Endpoint)
+	} else if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		add("wireguard.endpoint", "port must be 1 to 65535, got %q", port)
+	}
+	if k, err := base64.StdEncoding.DecodeString(g.PeerPublicKey); err != nil || len(k) != 32 {
+		add("wireguard.peer_public_key", "must be a WireGuard public key (44 characters of base64)")
+	}
+	var allowed []netip.Prefix
+	everything := false
+	for i, s := range g.AllowedIPs {
+		p, err := netip.ParsePrefix(s)
+		if err != nil || !p.Addr().Is4() || p != p.Masked() {
+			add(fmt.Sprintf("wireguard.allowed_ips[%d]", i), "must be an IPv4 network, e.g. 10.17.0.0/16, got %q", s)
+			continue
+		}
+		if p.Bits() == 0 {
+			everything = true
+		} else if subnetOK && p.Overlaps(subnet) {
+			add(fmt.Sprintf("wireguard.allowed_ips[%d]", i), "%s overlaps network.subnet %s", p, subnet)
+		}
+		allowed = append(allowed, p)
+	}
+	switch {
+	case len(g.AllowedIPs) == 0:
+		add("wireguard.allowed_ips", "must name at least one network")
+	case full && !everything:
+		add("wireguard.allowed_ips", `must include 0.0.0.0/0 when mode = "full": the tunnel carries all Palm traffic`)
+	case !full && everything:
+		add("wireguard.allowed_ips", `must not include 0.0.0.0/0 when mode = "split"; use mode = "full"`)
+	}
+	for i, s := range g.DNS {
+		a, err := netip.ParseAddr(s)
+		if err != nil || !a.Is4() {
+			add(fmt.Sprintf("wireguard.dns[%d]", i), "must be an IPv4 address, got %q", s)
+			continue
+		}
+		inside := false
+		for _, p := range allowed {
+			if p.Contains(a) {
+				inside = true
+			}
+		}
+		if !inside {
+			add(fmt.Sprintf("wireguard.dns[%d]", i), "%s is not in wireguard.allowed_ips, so it would not be reached through the tunnel", a)
+		}
+	}
 }
 
 // Warnings returns the startup warnings PLAN.md asks for that are not errors.

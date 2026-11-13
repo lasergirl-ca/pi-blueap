@@ -134,23 +134,28 @@ and its host in an allow rule.
 
 ```toml
 [wireguard]
-enabled        = false
-interface      = "wg0"
-config_file    = ""                 # optional wg-quick .conf to import at setup
-address        = "10.99.0.7/32"     # the Pi's tunnel address
-endpoint       = "vpn.example.net:51820"
-peer_public_key = "…"
-allowed_ips    = ["0.0.0.0/0"]      # what the tunnel carries for Palm traffic
+enabled           = false
+interface         = "wg0"
+address           = "10.17.200.5/32"   # the Pi's tunnel address
+endpoint          = "vpn.example.net:51820"
+peer_public_key   = "…"
+allowed_ips       = ["0.0.0.0/0"]      # what the tunnel carries for Palm traffic
 keepalive_seconds = 25
-mode           = "full"             # "full": all Palm traffic; "split": only allowed_ips
-on_down        = "fail_closed"      # or "fallback"; full mode only (split never stops traffic)
-dns_via_tunnel = true               # dnsmasq's upstream through the tunnel (dns_upstream there)
+mode              = "full"             # "full": all Palm traffic; "split": only allowed_ips
+on_down           = "fail_closed"      # or "fallback"; full mode only (split never stops traffic)
+dns               = ["10.17.200.1"]    # resolvers through the tunnel for the Palms (a .conf's DNS =)
 ```
 
-Both `mode` and `on_down` are settings in the web UI and the Palm app, not just in the file.
+The private key is not in `config.toml`, which the `palm-gw` group can read: setup keeps it in
+NetworkManager's root-only secret store. An imported `.conf` fills every key above, its
+`DNS =` line included. Both `mode` and `on_down` are settings in the web UI and the Palm app,
+not just in the file.
 
-`config.Validate()` would check that the keys are valid, that `address` does not overlap
-`network.subnet`, and that `mode = "split"` comes with specific `allowed_ips`.
+`config.Validate()` checks, with the tunnel enabled: the address is IPv4 with a prefix and
+outside `network.subnet`; the endpoint is host:port; the peer key is 32 bytes of base64;
+`allowed_ips` are IPv4 networks outside the Palm network, with 0.0.0.0/0 in full mode and
+without it in split mode; each `dns` server is inside `allowed_ips`. Always: `mode`,
+`on_down`, the keepalive, and an interface name that is not the uplink, the bridge or `ppp*`.
 
 ### 8. Operation
 

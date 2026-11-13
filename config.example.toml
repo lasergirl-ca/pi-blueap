@@ -89,3 +89,15 @@ allow_cidrs    = []                 # [] = any LAN source; or ["192.168.1.0/24"]
 bluetooth_side = true               # also serve the UI and API on the gateway address, TLS only (D-026, D-039)
 viewer_username      = ""           # optional read-only account (D-049)
 viewer_password_hash = ""
+
+[wireguard]                        # the Palm network through a WireGuard tunnel (D-018, D-069, docs/WIREGUARD.md)
+enabled           = false
+interface         = "wg0"
+address           = ""               # the Pi's tunnel address, e.g. "10.17.200.5/32"; the private key is kept by NetworkManager, not here
+endpoint          = ""               # the peer, "host:port"
+peer_public_key   = ""
+allowed_ips       = ["0.0.0.0/0"]    # what the tunnel carries; "full" needs 0.0.0.0/0, "split" lists networks
+keepalive_seconds = 25
+mode              = "full"           # "full": all Palm traffic through the tunnel | "split": allowed_ips only
+on_down           = "fail_closed"    # tunnel down: "fail_closed" stops Palm traffic | "fallback" uses the normal uplink
+dns               = []               # resolvers through the tunnel for the Palms (the .conf's DNS =)
