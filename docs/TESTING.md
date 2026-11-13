@@ -2936,11 +2936,15 @@ Modem".
   - PAN: the connected page.
   - Bluetooth side: login over TLS only, no plain HTTP, a pairing window and PIN through the
     API, the LAN address on 8042 dropped, and nmap.
+  - A firewall rule's effect seen from a Palm (below).
+  - Disconnect and forget from the Devices page in a browser: forget is in the test16 run's log
+    (`web_forget`); Zoe confirmed both on 2026-11-12 ("good"). The test Pi's journal from
+    before 17:27 that day was lost with the reboot for the supply swap, so the disconnect has
+    no log line here.
+  - A support bundle downloaded from the browser, with the password hash redacted (Zoe,
+    2026-11-12, from the bundle's config: `password_hash  = "REDACTED"`).
 - **Still to do:**
-  - Disconnect and forget from the Devices page in a browser.
-  - A firewall rule's effect seen from a Palm.
-  - A support bundle downloaded from the browser.
-  - The Palm app's checks (part 7).
+  - The Palm app's checks on the T|X (`docs/PALM-M2.md`).
 
 **D-060, Zoe's "Yes, fix it" for the Pocket PC:** `ms_timeout_ms` defaults to 10000, and the
 `[handshake]` keys apply on reload. On test31:

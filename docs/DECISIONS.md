@@ -1210,6 +1210,17 @@ FuelLog lessons, is `docs/PALM-DEV.md`):
   field memory is zeroed before it is freed. A wrong current password (401 from
   `/api/v1/password`) is reported as such and does not end the session.
 
+### D-065: Phase 8's documents start while Phase 7's T|X checks are open
+
+On 2026-11-12 Zoe asked for M4 (finishing the Palm app) and Phase 8 to start. Phase 7's
+accept is done except the Palm app's checks on the T|X (`docs/PALM-M2.md`), and Phase 5 and
+Phase 6 still wait for a Pi 4 (D-041). The documents (`PALM-SETUP.md`, `TROUBLESHOOTING.md`,
+`README.md`, this file) are written now from what is already verified. The release itself
+waits: no tag, `make publish` or GitHub release until Phase 7's T|X checks pass, the Pi 4
+half of Phases 5 and 6 is run (D-041), and Zoe approves the release. The final test,
+installing the release artefact on a clean image of each board, runs on the Pi 5 first and on
+the Pi 4 when it arrives.
+
 ## Hardware observations
 
 ### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)
