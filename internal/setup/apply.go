@@ -232,6 +232,11 @@ func ApplySystem(o ApplyOptions) (ApplyResult, error) {
 	}
 	a.note("nft -c accepts %s", nftConfPath)
 
+	a.say("WireGuard")
+	if err := a.applyWireGuard(cfg); err != nil {
+		return a.res, fmt.Errorf("WireGuard: %w", err)
+	}
+
 	a.say("Bluetooth adapter mode")
 	mode, added, err := a.adapterMode(cfg, prev)
 	if err != nil {
@@ -327,8 +332,9 @@ func startOrRestart(changed bool) string {
 // BridgeEnv is /etc/palm-gw/bridge.env, read by palm-gwd-nm-bridge.service.
 func BridgeEnv(cfg *config.Config) string {
 	p := netip.MustParsePrefix(cfg.Network.Subnet)
-	return fmt.Sprintf("# Written by palm-gw setup from config.toml; edits are overwritten.\nBRIDGE=%s\nGATEWAY=%s\nPREFIX=%d\n",
-		cfg.PAN.Bridge, cfg.Network.Gateway, p.Bits())
+	rules, routes := WGBridgeRouting(cfg)
+	return fmt.Sprintf("# Written by palm-gw setup from config.toml; edits are overwritten.\nBRIDGE=%s\nGATEWAY=%s\nPREFIX=%d\nWG_RULES=\"%s\"\nWG_ROUTES=\"%s\"\n",
+		cfg.PAN.Bridge, cfg.Network.Gateway, p.Bits(), rules, routes)
 }
 
 func (a *applier) ensureNftInclude() error {

@@ -21,18 +21,23 @@ table inet palm_gw {
     # policy accept + jump means this table coexists with any other firewall on the Pi.
     chain forward {
         type filter hook forward priority filter; policy accept;
-        iifname "{{BRIDGE}}" jump palm_forward
+{{if WG}}        # Nothing starts a connection from the tunnel into the Palm network (D-069)
+        iifname "{{WG_IF}}" oifname { "{{BRIDGE}}", "ppp*" } ct state new counter drop comment "wg->palm"
+{{end}}        iifname "{{BRIDGE}}" jump palm_forward
         iifname "ppp*"    jump palm_forward
     }
     chain input {
         type filter hook input priority filter; policy accept;
-        iifname "{{BRIDGE}}" jump palm_input
+{{if WG}}        # ... nor to the Pi itself: the far side is as locked out as the Palms (D-069)
+        iifname "{{WG_IF}}" ct state new counter drop comment "wg->pi"
+{{end}}        iifname "{{BRIDGE}}" jump palm_input
         iifname "ppp*"    jump palm_input
     }
     chain postrouting {
         type nat hook postrouting priority srcnat; policy accept;
         ip saddr {{SUBNET}} oifname "{{UPLINK}}" masquerade
-    }
+{{if WG}}        ip saddr {{SUBNET}} oifname "{{WG_IF}}" masquerade
+{{end}}    }
 
     chain palm_forward {
         ct state established,related accept
@@ -40,9 +45,13 @@ table inet palm_gw {
         ip daddr . meta l4proto . th dport @lan_allow accept
         ip daddr @lan_allow_icmp ip protocol icmp accept
         ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 } counter drop comment "palm->rfc1918"
-{{if MSS_CLAMP}}        oifname "{{UPLINK}}" tcp flags syn tcp option maxseg size set rt mtu
+{{if WG}}        # The tunnel is an exit to the internet and to allowed hosts only: after the
+        # private-address drop, like the uplink (D-069). Its MTU is 1420, so clamp always.
+        oifname "{{WG_IF}}" tcp flags syn tcp option maxseg size set rt mtu
+        oifname "{{WG_IF}}" accept
+{{end}}{{if UPLINK_EXIT}}{{if MSS_CLAMP}}        oifname "{{UPLINK}}" tcp flags syn tcp option maxseg size set rt mtu
 {{end}}        oifname "{{UPLINK}}" accept
-        counter drop comment "palm->other"
+{{end}}        counter drop comment "palm->other"
     }
     chain palm_input {
         ct state established,related accept

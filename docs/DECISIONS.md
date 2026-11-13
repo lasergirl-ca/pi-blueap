@@ -1302,6 +1302,66 @@ Because these changes come after the rc1 tag, `v0.6.0` is tagged on the commit t
 them; the gateway's code is the same as rc1's. After the flash the wizard still runs over SSH
 (D-045); a gateway that sets itself up with no terminal at all is a separate change.
 
+### D-072: WireGuard part 2: how setup builds the tunnel, and three defaults
+
+Where Part 2 (`internal/setup/wireguard.go`) fills in D-069 and docs/WIREGUARD.md:
+- **The key never sits in a file the daemon writes, or on a command line.**
+  - `palm-gw setup --wg-import FILE` or `--wg-generate` writes `[wireguard]`'s public keys to
+    `config.toml` and leaves the private key in `/var/lib/palm-gw/wg-pending.key` (0600).
+  - The next `--apply` writes a root-only `.conf` under `/run/palm-gw/wg-import/`, hands it
+    to NetworkManager's own importer (`nmcli connection import type wireguard`), and deletes
+    it and the pending key.
+  - A later apply reads the key back from the profile (`nmcli -s -g`), so changing the endpoint
+    or the mode rebuilds the profile without asking for the key again.
+- **Routing goes on the bridge's profile**, which is up whenever the gateway is, so
+  fail-closed holds while the tunnel is down:
+  - rule 4241: Palm traffic looks in the main table, default route suppressed;
+  - rule 4242: everything else from the Palm network uses table 4242;
+  - full, fail-closed mode also adds an unreachable default to table 4242.
+  - The tunnel profile itself carries only its routes into table 4242 and its DNS servers'
+    routes in the main table, with `peer-routes` off and `never-default` on, so the Pi's own
+    traffic never uses the tunnel.
+- **Three defaults chosen here, not asked:**
+  - Nothing may start a connection from the tunnel to the Pi itself (`wg->pi`), as well as
+    into the Palm network (`wg->palm`). The far side is as locked out as the Palms; SSH and the
+    web UI stay on the LAN.
+  - With `dns` set, the Palms' DNS goes only through the tunnel, also in fall-back mode, so a
+    down tunnel stops lookups rather than leaking them. Empty `dns` keeps the Pi's resolvers.
+  - A `.conf` with a `PresharedKey` is refused for now; it would need a second secret kept
+    the same way.
+
+## Hardware observations
+
+## Hardware observations
+
+### D-072: WireGuard part 2: how setup builds the tunnel, and three defaults
+
+Where Part 2 (`internal/setup/wireguard.go`) fills in D-069 and docs/WIREGUARD.md:
+- **The key never sits in a file the daemon writes, or on a command line.**
+  - `palm-gw setup --wg-import FILE` or `--wg-generate` writes `[wireguard]`'s public keys to
+    `config.toml` and leaves the private key in `/var/lib/palm-gw/wg-pending.key` (0600).
+  - The next `--apply` writes a root-only `.conf` under `/run/palm-gw/wg-import/`, hands it
+    to NetworkManager's own importer (`nmcli connection import type wireguard`), and deletes
+    it and the pending key.
+  - A later apply reads the key back from the profile (`nmcli -s -g`), so changing the endpoint
+    or the mode rebuilds the profile without asking for the key again.
+- **Routing goes on the bridge's profile**, which is up whenever the gateway is, so
+  fail-closed holds while the tunnel is down:
+  - rule 4241: Palm traffic looks in the main table, default route suppressed;
+  - rule 4242: everything else from the Palm network uses table 4242;
+  - full, fail-closed mode also adds an unreachable default to table 4242.
+  - The tunnel profile itself carries only its routes into table 4242 and its DNS servers'
+    routes in the main table, with `peer-routes` off and `never-default` on, so the Pi's own
+    traffic never uses the tunnel.
+- **Three defaults chosen here, not asked:**
+  - Nothing may start a connection from the tunnel to the Pi itself (`wg->pi`), as well as
+    into the Palm network (`wg->palm`). The far side is as locked out as the Palms; SSH and the
+    web UI stay on the LAN.
+  - With `dns` set, the Palms' DNS goes only through the tunnel, also in fall-back mode, so a
+    down tunnel stops lookups rather than leaking them. Empty `dns` keeps the Pi's resolvers.
+  - A `.conf` with a `PresharedKey` is refused for now; it would need a second secret kept
+    the same way.
+
 ## Hardware observations
 
 ## Hardware observations

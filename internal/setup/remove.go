@@ -105,13 +105,15 @@ func RemoveSystem(o RemoveOptions) error {
 	}
 	if out, err := a.run("nmcli", "-t", "-f", "NAME", "con", "show"); err == nil {
 		for _, l := range strings.Split(string(out), "\n") {
-			if strings.TrimSpace(l) == bridge {
-				if _, err := a.run("nmcli", "con", "delete", bridge); err == nil {
-					a.note("NetworkManager connection %s removed", bridge)
+			if name := strings.TrimSpace(l); name == bridge || name == WGProfile {
+				if _, err := a.run("nmcli", "con", "delete", name); err == nil {
+					a.note("NetworkManager connection %s removed", name)
 				}
 			}
 		}
 	}
+
+	_ = os.Remove(a.path(filepath.Join(o.StateDir, WGPendingKey))) // a WireGuard key never applied
 
 	a.say("Restoring %s", mainConfPath)
 	if ch, err := RemoveFile(a.path(mainConfPath)); err == nil && ch {

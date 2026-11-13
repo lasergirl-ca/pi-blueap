@@ -3258,3 +3258,27 @@ So nothing the gateway sends differs; the T|X decides, on its first Connect afte
 gateway, to hang up after about 35-40 s. D-050 is a T|X behaviour; the second Connect is the
 way past it.
 
+### WireGuard part 1 and 2 (D-069, D-072), 2026-11-12, on branch `wireguard`
+
+- Part 1: `[wireguard]` in the schema, its defaults, `config.example.toml`, and validation;
+  `TestWireGuardValidation` checks each rule names its key (20 cases).
+- Part 2, on the Mac: `go test ./...` passes; `internal/setup/wireguard_test.go` checks
+  - the `.conf` parser on a made-up conf shaped like the test peer's (IPv6 parts and search
+    domains dropped; two peers, no peer, a bad key, no endpoint, IPv6 only and unknown keys refused);
+  - key derivation against RFC 7748 section 6.1's vector, and a fresh key pair;
+  - an import: `config.toml` gets the public parts and no private key, the pending key is 0600;
+  - the bridge's rules and routes, and the tunnel's routes, in each mode;
+  - the rendered firewall in each mode, with the tunnel's exit after `palm->rfc1918`;
+  - the `nmcli` sequence through a fake runner: the private key on no command line, the
+    import file and the pending key deleted, and "no WireGuard key" when there is none.
+- On Lyman, check only (`nft -c`, nothing loaded), the firewall rendered four ways:
+
+  ```
+  nft-full-closed.nft        ok
+  nft-full-fallback.nft      ok
+  nft-off.nft                ok
+  nft-split.nft              ok
+  ```
+
+Not yet run on a Pi: the NetworkManager import and the routing rules, with the test peer (Part 6).
+

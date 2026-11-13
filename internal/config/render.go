@@ -31,14 +31,36 @@ func (c *Config) Funcs() template.FuncMap {
 		"DHCP_START":   func() string { return c.Network.DHCPPool[0] },
 		"DHCP_END":     func() string { return c.Network.DHCPPool[1] },
 		"MSS_CLAMP":    func() bool { return c.Network.MSSClamp },
-		"DNS_UPSTREAM": func() []string { return c.Network.DNSUpstream },
+		"DNS_UPSTREAM": c.DNSServers,
 		"PPP_OPTIONS":  func() string { return c.PPP.OptionsFile },
 		"CTL_SOCKET":   func() string { return c.Ctl.Socket },
 		"CTL_GROUP":    func() string { return c.Ctl.Group },
 		// The web UI's port, and whether the Bluetooth side serves it (D-026, D-039).
 		"WEB_PORT":    c.WebPort,
 		"WEB_BT_SIDE": func() bool { return c.Web.Enabled && c.Web.BluetoothSide && c.Web.TLS != "off" },
+		// The WireGuard tunnel (D-069): whether it is on, its interface, and whether Palm
+		// traffic may still leave through the uplink (not in full, fail-closed mode).
+		"WG":          func() bool { return c.WireGuard.Enabled },
+		"WG_IF":       func() string { return c.WireGuard.Interface },
+		"UPLINK_EXIT": c.UplinkExit,
 	}
+}
+
+// DNSServers is dnsmasq's upstream: the tunnel's resolvers while WireGuard is on
+// and names some, otherwise [network].dns_upstream (empty: the Pi's resolv.conf).
+func (c *Config) DNSServers() []string {
+	if c.WireGuard.Enabled && len(c.WireGuard.DNS) > 0 {
+		return c.WireGuard.DNS
+	}
+	return c.Network.DNSUpstream
+}
+
+// UplinkExit says whether Palm traffic may leave through network.uplink: always,
+// except with a full tunnel that fails closed (D-069). Allowed LAN hosts stay
+// reachable either way; their rules come first.
+func (c *Config) UplinkExit() bool {
+	g := c.WireGuard
+	return !g.Enabled || g.Mode != "full" || g.OnDown != "fail_closed"
 }
 
 // Render fills a deploy/ template with values from the configuration. A file

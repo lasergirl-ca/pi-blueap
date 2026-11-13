@@ -55,6 +55,8 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	root := fs.String("root", "/", "with --install-files: target root (a staging directory for packaging)")
 	remove := fs.Bool("remove", false, "undo --apply and a source install's files; keeps config and paired devices")
 	purge := fs.Bool("purge", false, "with --remove: also delete config.toml and the paired devices")
+	wgImport := fs.String("wg-import", "", "read a WireGuard .conf (wg-quick style; - for stdin) into [wireguard]; its private key waits, root only, for --apply")
+	wgGenerate := fs.Bool("wg-generate", false, "make the gateway a WireGuard key pair and print its public key; the private key waits, root only, for --apply")
 	var wf wizardFlags
 	fs.StringVar(&wf.name, "name", "", "gateway name as the Palm sees it (PALM_GW_NAME)")
 	fs.StringVar(&wf.adapter, "adapter", "", "onboard, dongle (turns the onboard radio off), dongle-keep, or an hciN/address (PALM_GW_ADAPTER)")
@@ -81,6 +83,8 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 		layout = l
 	}
 	switch {
+	case *wgImport != "" || *wgGenerate:
+		return setupWireGuard(*wgImport, *cfgPath, stdout, stderr)
 	case *installFiles:
 		if *root == "/" && os.Geteuid() != 0 {
 			fmt.Fprintln(stderr, "palm-gw setup --install-files: run as root (or give --root)")
@@ -311,4 +315,52 @@ func webCert(cfg *config.Config, stdout io.Writer) (string, error) {
 	}
 	fmt.Fprintf(stdout, "    %s/cert.pem %s\n", setup.TLSDir, map[bool]string{true: "created", false: "unchanged"}[created])
 	return fp, nil
+}
+
+// setupWireGuard is --wg-import and --wg-generate (D-069): it writes [wireguard]
+// and keeps the private key for the next --apply, which hands it to
+// NetworkManager. Nothing on the system changes until then.
+func setupWireGuard(importPath, cfgPath string, stdout, stderr io.Writer) int {
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(stderr, "palm-gw setup --wg-import/--wg-generate: run as root (the private key is kept root only)")
+		return 1
+	}
+	if importPath == "" {
+		res, err := setup.GenerateWG("/", setup.StateDir)
+		if err != nil {
+			fmt.Fprintln(stderr, "palm-gw setup --wg-generate:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "The gateway's WireGuard public key (give it to the peer's admin):\n\n    %s\n\n", res.PublicKey)
+		fmt.Fprintln(stdout, "Then set the tunnel from what the peer's admin gives you, and apply:")
+		fmt.Fprintln(stdout, "    palm-gwctl set wireguard.address 10.x.y.z/32")
+		fmt.Fprintln(stdout, "    palm-gwctl set wireguard.endpoint host:port")
+		fmt.Fprintln(stdout, "    palm-gwctl set wireguard.peer_public_key KEY")
+		fmt.Fprintln(stdout, "    palm-gwctl set wireguard.enabled true")
+		fmt.Fprintln(stdout, "    sudo palm-gw setup --apply      (restarts palm-gwd: Palms reconnect)")
+		return 0
+	}
+	var text []byte
+	var err error
+	if importPath == "-" {
+		text, err = io.ReadAll(os.Stdin)
+	} else {
+		text, err = os.ReadFile(importPath)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "palm-gw setup --wg-import:", err)
+		return 1
+	}
+	res, err := setup.ImportWG("/", cfgPath, setup.StateDir, string(text))
+	if err != nil {
+		fmt.Fprintln(stderr, "palm-gw setup --wg-import:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Imported into [wireguard] (%s tunnel). The gateway's public key: %s\n", res.Mode, res.PublicKey)
+	fmt.Fprintln(stdout, "The private key is kept root only until the next apply hands it to NetworkManager.")
+	if importPath != "-" {
+		fmt.Fprintf(stdout, "You can delete %s now.\n", importPath)
+	}
+	fmt.Fprintln(stdout, "Next: sudo palm-gw setup --apply      (restarts palm-gwd: Palms reconnect)")
+	return 0
 }
