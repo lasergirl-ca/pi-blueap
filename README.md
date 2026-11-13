@@ -6,10 +6,11 @@ and gets routed, NAT'd internet over Bluetooth (Serial Port, LAN Access or Dial-
 profile, all PPP over RFCOMM). Pocket PCs, Android phones and laptops get the same through
 Bluetooth PAN. Palms are firewalled away from the home LAN unless you allow a host.
 
-**Status: v0.6.0, the first release.** Pairing, PPP, PAN, the firewall, the setup wizard, the
-.deb, the one-line installer, the image, the web UI and the Palm app work on a Pi 5 with a real
-Palm T|X. **Not yet tested:** a Pi 4 (D-041), a LifeDrive, and the Palm app's full checklist on
-the T|X (D-070). WireGuard for the Palm network follows in a later version (D-069). See
+**Status: v0.7.0.** Pairing, PPP, PAN, the firewall, the setup wizard, the .deb, the one-line
+installer, the image, the web UI and the Palm app work on a Pi 5 with a real Palm T|X. New in
+0.7.0: the Palm network can go through a WireGuard tunnel, with the same guards as your LAN
+(D-069). **Not yet tested:** a Pi 4 (D-041), a LifeDrive, and the Palm app's full checklist on
+the T|X (D-070). See
 [PLAN.md](PLAN.md) for the specification and [docs/TESTING.md](docs/TESTING.md) for what has
 been verified.
 
@@ -57,6 +58,9 @@ curl -fsSL https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/in
 It installs the package and starts the same wizard. `sudo palm-gw upgrade` installs a newer
 release later, either way.
 
+To send the Palm network through a WireGuard tunnel, paste the tunnel's `.conf` on the web UI's
+Internet page ([docs/WIREGUARD.md](docs/WIREGUARD.md)).
+
 Developers build the package on their own machine and install it on the Pi:
 
 ```sh
@@ -72,7 +76,7 @@ ssh pi 'sudo apt install ./palm-gw_*_arm64.deb && sudo palm-gw setup'
 | [docs/PALM-SETUP.md](docs/PALM-SETUP.md) | Connecting a Palm, and the palm-gw app on the Palm |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | When something goes wrong, with real log excerpts |
 | [docs/WEB-UI.md](docs/WEB-UI.md) | The web UI, its listeners and the `/api/v1` API |
-| [docs/WIREGUARD.md](docs/WIREGUARD.md) | Reaching the gateway from outside over WireGuard |
+| [docs/WIREGUARD.md](docs/WIREGUARD.md) | Sending the Palm network through a WireGuard tunnel |
 | [docs/PALM-APP.md](docs/PALM-APP.md), [docs/PALM-DEV.md](docs/PALM-DEV.md) | The Palm app's design, and building Palm OS code |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Every deviation from the plan, with its reason |
 | [docs/TESTING.md](docs/TESTING.md) | The acceptance evidence, phase by phase |

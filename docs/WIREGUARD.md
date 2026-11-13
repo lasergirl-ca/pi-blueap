@@ -1,10 +1,23 @@
 # WireGuard uplink: design
 
-**Status:** built 2026-11-12 on branch `wireguard` (D-069, D-072) and tested on a Pi with a
-real peer (TESTING.md); it ships in the release after v0.6.0. Zoe's answers to the
-open questions are at the end. In short: full or split tunnel and fail-closed or fall-back are
-both settings, keys are imported from a `.conf` or generated on the Pi, the peer is plain
-WireGuard, and **everything behind the tunnel gets the same firewall guards as the home LAN**.
+**Status:** in palm-gw 0.7.0 (D-069, D-072), tested on a Pi 5 with a real peer and a Palm
+T|X (TESTING.md). The design below is how it is built.
+
+## Using it
+
+- **Turn it on:** on the web UI's Internet page, under WireGuard, paste the `.conf` the
+  tunnel's admin gave you and tap **Import and turn on**. Or on the Pi:
+  `sudo palm-gw setup --wg-import FILE` then `sudo palm-gw setup --apply`, or
+  `palm-gwctl wg import FILE`. palm-gwd restarts, so Palms reconnect.
+- **No .conf?** **Make a key pair** (or `palm-gwctl wg generate`), give the public key to the
+  tunnel's admin, then fill in the tunnel address, the peer and its key, and turn it on.
+- **Settings:** all Palm traffic or only some networks (`palm-gwctl wg mode full|split`,
+  `wg networks`), and, for all traffic, whether Palm traffic stops or uses the normal
+  connection when the tunnel is down (`palm-gwctl wg on-down fail_closed|fallback`).
+- **Now:** `palm-gwctl wg` shows it; `wg up` and `wg down` change it until the next boot.
+  The Palm app has the same on its Internet screen, in the WireGuard menu.
+- **Guards:** a Palm reaches a private host behind the tunnel only through a rule on the
+  Firewall page, as on your LAN; nothing on the far side can connect to a Palm or to the Pi.
 
 ## Goal
 
