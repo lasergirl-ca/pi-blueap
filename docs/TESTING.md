@@ -3017,7 +3017,24 @@ http: 12 ok
   - Done going to Status from a screen opened elsewhere;
   - PAN sessions shown with 0 bytes;
   - byte counts past 2^31.
-- Not yet run on the T|X.
+- **First try on the T|X (19:40):** Settings, Logs, Diagnostics and Internet said "no such
+  API call": the test Pi still ran test34, from before the API parity commit (902c150).
+  Sessions, an M1 call, showed the T|X's link and byte counts. The app showed the gateway's
+  error on each screen and did not crash.
+- **test35 (fca3b22) on the test Pi, 19:50,** installed with no session open:
+
+  ```
+  $ make deb DEB_VERSION=0.6.0~test35
+  $ scp dist/palm-gw_0.6.0~test35_arm64.deb sysadmin@10.4.1.118:/var/tmp/
+  $ ssh sysadmin@10.4.1.118 'sudo apt-get install -y /var/tmp/palm-gw_0.6.0~test35_arm64.deb'
+  palm-gwd fca3b22, up 6s (phase 6)
+  $ curl -sk https://10.4.1.118:8042/api/v1/<call>?format=text      # no token
+  ```
+
+  Every call the app uses answers `error=login_required` (status, settings, logs, check,
+  diagnostics, internet, wifi/scan, nat, firewall/counters, devkeys, about, sessions,
+  devices, firewall, events; POST firewall/test, pair, capture, bundle, password), and an
+  unknown call still answers `error=not_found`.
 
 ### The T|X's "Serial: timeout (0x0305)" drops, 2026-11-12 (D-050, open)
 
