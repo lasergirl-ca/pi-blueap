@@ -858,8 +858,20 @@ func (c *cli) printReload(r ReloadReply) {
 	if len(r.Applied) > 0 {
 		fmt.Fprintf(c.stdout, "applied now: %s\n", strings.Join(r.Applied, ", "))
 	}
-	if len(r.NeedsRestart) > 0 {
-		fmt.Fprintf(c.stdout, "takes effect when palm-gwd restarts: %s (palm-gwctl restart)\n", strings.Join(r.NeedsRestart, ", "))
+	// [wireguard] is built by setup, not by a restart (D-072).
+	var restart, apply []string
+	for _, k := range r.NeedsRestart {
+		if strings.HasPrefix(k, "wireguard.") {
+			apply = append(apply, k)
+		} else {
+			restart = append(restart, k)
+		}
+	}
+	if len(restart) > 0 {
+		fmt.Fprintf(c.stdout, "takes effect when palm-gwd restarts: %s (palm-gwctl restart)\n", strings.Join(restart, ", "))
+	}
+	if len(apply) > 0 {
+		fmt.Fprintf(c.stdout, "takes effect after sudo palm-gw setup --apply: %s (palm-gwctl wg on, mode, on-down and networks apply by themselves)\n", strings.Join(apply, ", "))
 	}
 	for _, e := range r.Errors {
 		fmt.Fprintln(c.stdout, "error:", e)

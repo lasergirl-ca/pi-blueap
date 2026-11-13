@@ -333,7 +333,17 @@ func (d *Daemon) handleWGUpDown(up bool) func(context.Context, ctl.Request, *ctl
 		if err != nil {
 			return err
 		}
-		d.log.Info("WireGuard tunnel "+map[bool]string{true: "up", false: "down"}[up], "event", map[bool]string{true: "wg_up", false: "wg_down"}[up])
+		// NetworkManager answers before the change is done: wait up to 5 s for it, so
+		// the reply says how the tunnel is now.
+		want := map[bool]string{true: "up", false: "down"}[up]
+		for i := 0; i < 25 && d.wgState() != want; i++ {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+		d.log.Info("WireGuard tunnel "+want, "event", "wg_"+want)
 		return w.Send(d.wgStatus(ctx))
 	}
 }

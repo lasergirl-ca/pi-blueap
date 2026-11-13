@@ -148,8 +148,14 @@ func TestWGUpDownAndStatus(t *testing.T) {
 	if _, err := wgCall[ctl.WGStatus](t, f, ctl.Request{Cmd: "wg.down"}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(fake.wgCalls, ",") != "down" {
+	if strings.Join(fake.wgCalls, ",") != "down" { // checked before wg.up below
 		t.Fatalf("calls %v", fake.wgCalls)
+	}
+	if st, _ := wgCall[ctl.WGStatus](t, f, ctl.Request{Cmd: "wg"}); st.State != "down" {
+		t.Fatalf("after wg.down: %+v", st)
+	}
+	if st, err := wgCall[ctl.WGStatus](t, f, ctl.Request{Cmd: "wg.up"}); err != nil || st.State != "up" {
+		t.Fatalf("wg.up: %v %+v", err, st)
 	}
 	f.d.wg().observe("wg0", true)
 	st, err := wgCall[ctl.WGStatus](t, f, ctl.Request{Cmd: "wg"})

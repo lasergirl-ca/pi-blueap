@@ -38,6 +38,9 @@ func (f *fakeNM) ConnectionUp(string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.wgCalls = append(f.wgCalls, "up")
+	if f.wgUp != nil {
+		*f.wgUp = true
+	}
 	return nil
 }
 
@@ -45,6 +48,9 @@ func (f *fakeNM) ConnectionDown(string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.wgCalls = append(f.wgCalls, "down")
+	if f.wgUp != nil {
+		*f.wgUp = false
+	}
 	return nil
 }
 
