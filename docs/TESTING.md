@@ -2971,3 +2971,13 @@ does.
 and reached the allowed hosts from a Palm straight away, several times ("Firewall works I have
 done it a few times"). Phase 7's "add a firewall allow entry and verify a Palm can reach it
 immediately" is done.
+
+### Part 7: the Palm app, milestone 1 (D-062), 2026-11-12
+
+`docs/PALM-M1.md` has the build, the checklist and the device result. In short:
+- On the Mac: `make -C palm-app/tls host-test` passes; `make -C palm-app/app test` passes 40
+  checks.
+- Against the test gateway, the host client completed TLS 1.3 (heap peak 16,240 bytes) and
+  saw the fingerprint the login page shows.
+- On Zoe's T|X, over Bluetooth, the app logged in through `/api/v1/login` on the Bluetooth
+  side (`web_login side=bluetooth ip=10.42.0.10 api=true`, 17:09:38) and showed Status.

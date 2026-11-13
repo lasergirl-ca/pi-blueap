@@ -65,4 +65,23 @@ fixed before the first device build:
 
 ## Device result
 
-(to come)
+**2026-11-12, Zoe's T|X ("It works"),** with `PalmGW-m1-show.prc`, over Bluetooth to the test
+gateway (test32). The gateway's log:
+
+```
+17:02:49  session_up        Zoë's Palm TX  ppp0  10.42.0.10
+17:04:13  web_login_failed  side=bluetooth ip=10.42.0.10 api=true   (the first build: the
+17:05:50  web_login_failed  side=bluetooth ip=10.42.0.10 api=true    password written blind)
+17:09:31  session_up        Zoë's Palm TX  ppp0  10.42.0.10
+17:09:38  web_login         side=bluetooth ip=10.42.0.10 user=sysadmin role=admin api=true
+```
+
+- The ARM TLS module loaded and completed TLS 1.3 to `10.42.0.1:8042` from the T|X.
+- First-use trust and the login worked, then Status.
+- The login came 7 s after the PPP link came up, including the handshake, the Trust screen
+  and the login's own connection.
+- The two failures came from writing the password blind with Graffiti. That is why Show was
+  added (`1f64ab4`).
+
+Still to note from the device: the handshake time Status shows ("Last call"), and the
+heap in About.
