@@ -1221,6 +1221,22 @@ half of Phases 5 and 6 is run (D-041), and Zoe approves the release. The final t
 installing the release artefact on a clean image of each board, runs on the Pi 5 first and on
 the Pi 4 when it arrives.
 
+### D-066: PLAN.md section 3 gains a power supply row
+
+The Hardware observations below found that a Pi 5 on a charger offering only 5 V 3 A sags
+under load: under-voltage, stalled transfers and a watchdog reboot, all gone on a 5 V 5 A USB
+PD supply. Section 3 mentioned the 5 A supply only for USB current. It now has a "Power
+supply" row saying plainly what each board needs, so the README and the setup guide can point
+at it.
+
+### D-067: `make support-bundle` calls `palm-gwctl bundle`; no `scripts/support-bundle.sh`
+
+PLAN.md section 8 lists `scripts/support-bundle.sh` behind `make support-bundle`. The bundle
+was written in Go instead (D-057: the ctl `bundle` command behind the web UI's Diagnostics
+page and `palm-gwctl bundle [--with-capture]`), so one implementation redacts the password
+hash everywhere. `make support-bundle`, run on the Pi, calls `palm-gwctl bundle
+--with-capture`; there is no shell script.
+
 ## Hardware observations
 
 ### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)

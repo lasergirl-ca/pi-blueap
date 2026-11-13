@@ -110,6 +110,7 @@ Both boards use the same Wi-Fi/Bluetooth combo chip family (Cypress/Infineon **C
 | Disable onboard Wi-Fi | `dtoverlay=disable-wifi` | same |
 | Serial console vs BT | BT and the console UART can conflict on Pi 4 if `dtoverlay=miniuart-bt` or `enable_uart=1` with console on `ttyAMA0`. Installer must warn if `console=serial0` or `ttyAMA0` appears in `/boot/firmware/cmdline.txt`. | Debug UART is a separate 3-pin connector; no conflict. |
 | Ethernet | 1 GbE (BCM54213PE) | 1 GbE via RP1 |
+| Power supply | 5.1 V 3 A USB-C (the official Pi 4 supply) | **5 V 5 A USB-C PD** (the official 27 W supply). A charger that offers only 5 V 3 A is not enough: the test Pi 5 on one logged 69 under-voltage events in a day, stalled heavy Palm transfers and was once rebooted by its watchdog (DECISIONS.md, Hardware observations). `palm-gw setup --check` warns. |
 | USB for a dongle | USB 3.0 via VL805 (xHCI); any port | USB 3.0 via RP1; any port. **Pi 5 limits total USB current to 600 mA unless powered by a 5 A PSU** (or `usb_max_current_enable=1` in `config.txt`). A CSR8510 dongle draws about 50 mA, so this is fine. The wizard prints `vcgencmd get_throttled` (bit 0 = under-voltage now, bit 16 = has occurred) and, on Pi 5, `vcgencmd pmic_read_adc` for the supply voltage; it warns, never blocks. |
 | Boot config path | `/boot/firmware/config.txt` (Bookworm and later) | same |
 | 64-bit OS | Supported; 32-bit also exists but is out of scope | 64-bit only |

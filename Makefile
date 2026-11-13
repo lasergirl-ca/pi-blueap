@@ -113,8 +113,11 @@ publish: release
 		$(if $(findstring -,$(RELEASE_TAG)),--prerelease) \
 		$(REL)/$(REL_DEB) $(REL)/install.sh $(REL)/SHA256SUMS
 
+# On the Pi: a support bundle (journals, configs with the password hash redacted, install
+# info, and the newest capture) in /var/lib/palm-gw/bundles/, the same as the web UI's
+# Diagnostics page. It replaces PLAN.md's scripts/support-bundle.sh (D-067).
 support-bundle:
-	@echo "make support-bundle: arrives in Phase 8" >&2; exit 2
+	palm-gwctl bundle --with-capture
 
 clean:
 	rm -rf $(BIN) $(DIST)

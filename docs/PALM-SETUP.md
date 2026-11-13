@@ -147,7 +147,7 @@ folder. It shows in the Launcher as **palm-gw**.
 **First connection.**
 1. Connect the Palm to the gateway (step 4 above).
 2. Open palm-gw. The **Gateways** screen lists none yet. Tap **New**.
-3. **Log in** has the address `10.42.0.1` filled in. Type the gateway's user (`sysadmin`
+3. **Log in** has the address `10.42.0.1` filled in. Type the gateway's web user (`admin`
    unless you chose another) and its web password. The password shows as stars; tick
    **Show** to see what you are writing. With the stars showing, the on-screen keyboard stays
    closed (it would show the password): use Graffiti, or tick Show first.

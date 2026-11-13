@@ -315,7 +315,7 @@ func (w *wizard) web() error {
 		enabled = false
 	case "":
 		if !w.pre.Yes {
-			v, err := w.p.Confirm("Enable the web UI?", "Pairing, devices, firewall and settings from a browser on your LAN, and the Palm app (Phase 7).", enabled)
+			v, err := w.p.Confirm("Enable the web UI?", "Pairing, devices, firewall and settings from a browser on your LAN, and the Palm app.", enabled)
 			if err != nil {
 				return err
 			}

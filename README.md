@@ -6,21 +6,42 @@ and gets routed, NAT'd internet over Bluetooth (Serial Port, LAN Access or Dial-
 profile, all PPP over RFCOMM). Pocket PCs, Android phones and laptops get the same through
 Bluetooth PAN. Palms are firewalled away from the home LAN unless you allow a host.
 
-**Status: Phase 6 of 8 (setup wizard and packaging) accepted on a Pi 5.** Pairing, PPP, PAN,
-the firewall, the setup wizard, the .deb, the one-line installer and the image work on a Pi 5; the web UI and the Palm admin app come in Phase 7. See
-[PLAN.md](PLAN.md) for the full specification and build phases, and
-[docs/TESTING.md](docs/TESTING.md) for what has been verified so far.
+**Status: Phase 8 of 8 (documentation and release) under way; no release published yet.**
+Pairing, PPP, PAN, the firewall, the setup wizard, the .deb, the one-line installer, the image,
+the web UI and the Palm app work on a Pi 5 with a real Palm T|X. The Pi 4 runs, and the Palm
+app's last checks on the T|X, come before the first release (D-041, D-065). See
+[PLAN.md](PLAN.md) for the specification and [docs/TESTING.md](docs/TESTING.md) for what has
+been verified.
+
+## What you need
+
+- A Raspberry Pi 4 or Pi 5 with Raspberry Pi OS Lite (64-bit), on Ethernet (recommended) or
+  5 GHz Wi-Fi.
+- **The right power supply.** A Pi 5 needs a 5 V 5 A USB-C PD supply (the official 27 W one);
+  a 5 V 3 A charger makes it brown out under load and drop the Palm. A Pi 4 needs 5.1 V 3 A.
+- Optionally a USB Bluetooth dongle, used instead of the Pi's own radio.
+- A Palm with Bluetooth (T|X, LifeDrive, Tungsten T3/T5/E2, Zire 72, Treo 650 and later), or
+  any Bluetooth PAN device.
 
 ## Quick start
 
-On a Raspberry Pi 4 or 5 running Raspberry Pi OS Lite (64-bit), once a release is published:
+Once a release is published, on the Pi:
 
 ```sh
 curl -fsSL https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/install.sh | sudo bash
 ```
 
-It installs the package and runs the setup wizard (`sudo palm-gw setup`, which you can run
-again any time). `sudo palm-gw upgrade` installs a newer release later.
+1. That installs the package and starts the setup wizard (`sudo palm-gw setup`, which you can
+   run again any time). It asks for the gateway's name, the Bluetooth adapter and the
+   uplink, and sets up the web UI's user and password.
+2. Open the web address the wizard prints at the end (`https://<the Pi's address>:8042/`) in
+   a browser on your home network, and log in with the user (`admin` unless you chose
+   another) and password from the wizard. The browser warns about the certificate the first
+   time: it is the gateway's own, and the login page shows its fingerprint.
+3. On **Pair**, open a pairing window and pair the Palm with the PIN it shows. Then follow
+   [docs/PALM-SETUP.md](docs/PALM-SETUP.md) to create the Palm's connection and tap Connect.
+
+`sudo palm-gw upgrade` installs a newer release later.
 
 Or flash the ready-made image (`palm-gw-<ver>-rpi-arm64.img.xz`, Raspberry Pi OS Lite with
 palm-gw installed) with Raspberry Pi Imager, set the user, SSH and Wi-Fi in Imager as usual,
@@ -37,6 +58,18 @@ scp dist/palm-gw_*_arm64.deb pi:
 ssh pi 'sudo apt install ./palm-gw_*_arm64.deb && sudo palm-gw setup'
 ```
 
+## Documentation
+
+| Document | For |
+|---|---|
+| [docs/PALM-SETUP.md](docs/PALM-SETUP.md) | Connecting a Palm, and the palm-gw app on the Palm |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | When something goes wrong, with real log excerpts |
+| [docs/WEB-UI.md](docs/WEB-UI.md) | The web UI, its listeners and the `/api/v1` API |
+| [docs/WIREGUARD.md](docs/WIREGUARD.md) | Reaching the gateway from outside over WireGuard |
+| [docs/PALM-APP.md](docs/PALM-APP.md), [docs/PALM-DEV.md](docs/PALM-DEV.md) | The Palm app's design, and building Palm OS code |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Every deviation from the plan, with its reason |
+| [docs/TESTING.md](docs/TESTING.md) | The acceptance evidence, phase by phase |
+
 ## Layout
 
 | Path | What |
@@ -52,7 +85,8 @@ ssh pi 'sudo apt install ./palm-gw_*_arm64.deb && sudo palm-gw setup'
 | `deploy/` | systemd units, dnsmasq and nftables templates, sysctl, modules, pppd options, the bridge helper |
 | `packaging/` | nfpm config, maintainer scripts, the bootstrap installer |
 | `scripts/` | `install.sh` and `uninstall.sh` (from source), `detect-board.sh`, acceptance test scripts |
-| `docs/` | `DECISIONS.md` (every deviation from the plan), `TESTING.md` (acceptance evidence) |
+| `palm-app/` | the Palm OS app: the 68K UI (`app/`), the ARM TLS module (`tls/`), the loader |
+| `docs/` | the documents above |
 
 ## Licence
 

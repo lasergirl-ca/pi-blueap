@@ -281,7 +281,7 @@ func summary(w io.Writer, cfg *config.Config, fingerprint, paired, groupAdded st
 		if cfg.Web.TLS == "off" {
 			scheme = "http"
 		}
-		fmt.Fprintf(w, "  Web UI:    %s://%s:8042   (user: %s; the web UI itself arrives in Phase 7)\n", scheme, host, cfg.Web.Username)
+		fmt.Fprintf(w, "  Web UI:    %s://%s:8042   (user: %s)\n", scheme, host, cfg.Web.Username)
 		if fingerprint != "" {
 			fmt.Fprintf(w, "  Cert:      SHA-256 %s\n", fingerprint)
 		}
