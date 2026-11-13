@@ -234,6 +234,13 @@ BEGIN
 		MENUITEM "Turn Wi-Fi on" ID MenuWifiOn "O"
 		MENUITEM "Turn Wi-Fi off" ID MenuWifiOff "X"
 	END
+	PULLDOWN "WireGuard"
+	BEGIN
+		MENUITEM "Tunnel up/down now" ID MenuWgUpDown "U"
+		MENUITEM "Tunnel settings..." ID MenuWgSettings "S"
+		MENUITEM "Turn WireGuard on/off" ID MenuWgOnOff "W"
+		MENUITEM "New key pair..." ID MenuWgKey "K"
+	END
 END
 
 MENU ID MenuKeys

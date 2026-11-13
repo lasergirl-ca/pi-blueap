@@ -29,11 +29,16 @@ static Boolean ruleEdit(Int16 sel) MODE_SEC;
 static Boolean wifiJoin(const Char *ssid, Boolean hidden) MODE_SEC;
 static Boolean wifiUse(void) MODE_SEC;
 static void bytes(UInt32 n, Char *out) MODE_SEC;
+static void loadWG(void) MODE_SEC;
+static Boolean wgMenu(UInt16 item) MODE_SEC;
 
 #define lineMax 160 /* a row is built here, then cut to rowLen */
 
 static Boolean gWifiInUse;    /* the uplink is the Wi-Fi interface */
 static Boolean gWifiOn;
+/* the WireGuard tunnel (D-069), from GET wireguard */
+static Boolean gWgOn, gWgUp, gWgClosed;
+static Char gWgNets[64];     /* a split tunnel's networks; "" for all traffic */
 static Char gLogEvent[24], gLogText[40];
 
 static void setLabels(const Char *a, const Char *b, const Char *c)
@@ -253,6 +258,7 @@ static Boolean loadWifi(void)
 	if (!any) {
 		StrNCat(gInfo, "This Pi has no Wi-Fi.", sizeof gInfo);
 	}
+	loadWG();
 	if (!any || !gWifiOn) {
 		return true;
 	}
@@ -600,12 +606,108 @@ Boolean modeMenuItem(UInt16 mode, UInt16 item, Int16 sel)
 		formAdd("ssid", ssid);
 		return post("wifi/forget", "The network was not forgotten.");
 	}
+	if (item >= MenuWgUpDown && item <= MenuWgKey) {
+		return wgMenu(item);
+	}
 	if (item == MenuWifiOn || item == MenuWifiOff) {
 		formAdd("on", on ? "1" : "0");
 		return post("wifi/radio", "The Wi-Fi radio was not switched.");
 	}
 	(void)mode;
 	return false;
+}
+
+/* loadWG reads the tunnel's state and adds a line about it to gInfo. */
+static void loadWG(void)
+{
+	KvRecord r;
+	Char st[12], mode[8], down[14], line[80];
+
+	gWgOn = gWgUp = gWgClosed = false;
+	gWgNets[0] = 0;
+	if (!api("GET", apiPath("wireguard"), NULL) || !apiHead(&r)) {
+		return; /* an older gateway: no tunnel line */
+	}
+	gWgOn = flag(&r, "enabled");
+	if (!gWgOn) {
+		return;
+	}
+	kvGet(&r, "state", st, sizeof st);
+	kvGet(&r, "mode", mode, sizeof mode);
+	kvGet(&r, "on_down", down, sizeof down);
+	gWgUp = StrCompare(st, "up") == 0;
+	gWgClosed = StrCompare(down, "fail_closed") == 0;
+	if (StrCompare(mode, "split") == 0) {
+		kvGet(&r, "allowed_ips", gWgNets, sizeof gWgNets);
+	}
+	StrPrintF(line, " Tunnel %s, %s%s.", st, gWgNets[0] ? "some networks" : "all traffic",
+		gWgNets[0] ? "" : gWgClosed ? ", stops when down" : ", falls back when down");
+	StrNCat(gInfo, line, sizeof gInfo);
+}
+
+/* wgMenu is the WireGuard menu. Settings, on and off rebuild the tunnel:
+ * palm-gwd restarts, so the session ends. */
+static Boolean wgMenu(UInt16 item)
+{
+	KvRecord r;
+	Char nets[64], key[48];
+	Boolean closed = gWgClosed, on;
+
+	formReset();
+	if (item == MenuWgKey) {
+		if (!confirm("Make the gateway a new WireGuard key pair? The tunnel's peer must be given the new public key, ",
+				gWgOn ? "and palm-gwd restarts to use it." : "before the tunnel is turned on.")) {
+			return false;
+		}
+		if (post("wireguard/generate", "No key pair was made.") && apiHead(&r)) {
+			kvGet(&r, "public_key", key, sizeof key);
+			if (flag(&r, "applying")) {
+				apiLeft("New key pair applied: palm-gwd is restarting. Connect again in about 20 seconds.");
+				return false;
+			}
+			info("The gateway's public key, for the peer's admin: ", key);
+		}
+		return false;
+	}
+	if (item == MenuWgOnOff) {
+		on = !gWgOn;
+		if (!confirm(on ? "Turn WireGuard on? It needs a tunnel set up from the web UI first. " : "Turn WireGuard off? Palm traffic goes out the normal connection. ",
+				"palm-gwd restarts, and this Palm's connection drops for about 20 seconds.")) {
+			return false;
+		}
+		formAdd("enabled", on ? "1" : "0");
+	} else if (!gWgOn) {
+		info("WireGuard is off. Set it up on the web UI's Internet page, or turn it on here.", NULL);
+		return false;
+	} else if (item == MenuWgUpDown) {
+		if (gWgUp && !confirm("Bring the tunnel down now? ", gWgClosed && !gWgNets[0] ? "Palms lose the internet until it is up again." : "Palm traffic uses the normal connection meanwhile.")) {
+			return false;
+		}
+		return post(gWgUp ? "wireguard/down" : "wireguard/up", "The tunnel did not change.");
+	} else { /* MenuWgSettings */
+		StrCopy(nets, gWgNets);
+		if (!inputDialog("Tunnel settings", "Networks (empty = all):", nets, sizeof nets, NULL, NULL, 0, NULL, NULL, 0,
+				"Stop traffic when down", &closed, NULL, NULL)) {
+			return false;
+		}
+		if (!confirm("Apply the tunnel settings? ", "palm-gwd restarts, and this Palm's connection drops for about 20 seconds.")) {
+			return false;
+		}
+		formAdd("mode", nets[0] ? "split" : "full");
+		if (nets[0]) {
+			formAdd("networks", nets);
+		}
+		formAdd("on_down", closed ? "fail_closed" : "fallback");
+	}
+	if (!post("wireguard/set", "The tunnel was not changed.") || !apiHead(&r)) {
+		return false;
+	}
+	if (flag(&r, "applying")) {
+		apiLeft("Applying the tunnel settings: palm-gwd restarts. Connect again in about 20 seconds.");
+		return false;
+	}
+	info("Nothing changed.", NULL);
+	return true;
 }
 
 /* ---- the texts ---- */

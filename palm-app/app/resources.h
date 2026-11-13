@@ -100,6 +100,10 @@
 #define MenuWifiForget    2272
 #define MenuWifiOn        2273
 #define MenuWifiOff       2274
+#define MenuWgUpDown      2275
+#define MenuWgSettings    2276
+#define MenuWgOnOff       2277
+#define MenuWgKey         2278
 
 #define TextForm          2300
 #define TextText          2301

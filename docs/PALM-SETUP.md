@@ -163,7 +163,10 @@ from.
 **Status** then shows the gateway: name, version, connections, internet and the pairing
 window. **Pair** opens a pairing window for another Palm, with its PIN and a countdown. The
 **Gateway** menu has the rest: Devices, Sessions, Internet (Wi-Fi), Firewall, Settings, Logs,
-Diagnostics, About palm-gw and Log out. Anything that drops the Palm's own connection
+Diagnostics, About palm-gw and Log out. On Internet, a second menu, **WireGuard**, brings
+the tunnel up or down, sets all traffic or some networks and whether Palm traffic stops when
+it is down, turns it on or off, and makes a new key pair; importing a `.conf` is done on the
+web page. Anything that drops the Palm's own connection
 (restarting palm-gwd, network settings, switching between Ethernet and Wi-Fi) asks first,
 then goes back to Gateways with a note to connect again in about 20 seconds.
 
