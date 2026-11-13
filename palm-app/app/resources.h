@@ -19,6 +19,7 @@
 #define LoginCancel       1105
 #define LoginWhich        1106
 #define LoginProgress     1107
+#define LoginShow         1108
 
 #define TrustForm         1200
 #define TrustText         1201

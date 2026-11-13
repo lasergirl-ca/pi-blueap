@@ -604,6 +604,7 @@ static Boolean gCurKnown;      /* gCur is a saved, trusted gateway */
 static Char gToken[80];        /* the API token; in memory only */
 static Char gPass[65];         /* the password as typed; wiped after the login */
 static UInt16 gPassLen;
+static Boolean gShowPass;      /* Show is ticked: the field holds the password as typed */
 static Char gWhy[120];         /* the last call's failure, in words */
 
 static void describe(UInt16 r)
@@ -893,7 +894,7 @@ static Boolean passKey(EventType *e)
 	FieldType *fld = getObject(f, LoginPass);
 	WChar c = e->data.keyDown.chr;
 
-	if (FrmGetFocus(f) != FrmGetObjectIndex(f, LoginPass) || (e->data.keyDown.modifiers & virtualKeyMask)) {
+	if (gShowPass || FrmGetFocus(f) != FrmGetObjectIndex(f, LoginPass) || (e->data.keyDown.modifiers & virtualKeyMask)) {
 		return false;
 	}
 	if (c == chrBackspace) {
@@ -931,7 +932,7 @@ static Boolean passKeyboard(EventType *e)
 	FormType *f;
 	WChar c;
 
-	if (e->eType != keyDownEvent || !(e->data.keyDown.modifiers & virtualKeyMask) ||
+	if (gShowPass || e->eType != keyDownEvent || !(e->data.keyDown.modifiers & virtualKeyMask) ||
 		FrmGetActiveFormID() != LoginForm) {
 		return false;
 	}
@@ -943,8 +944,41 @@ static Boolean passKeyboard(EventType *e)
 	if (FrmGetFocus(f) != FrmGetObjectIndex(f, LoginPass)) {
 		return false;
 	}
-	progress("The keyboard would show the password: use Graffiti for it.");
+	progress("The keyboard would show the password: tick Show first, or use Graffiti.");
 	return true;
+}
+
+/* passFromField takes the password from the field while Show is ticked. */
+static void passFromField(FormType *f)
+{
+	getEditable(f, LoginPass, gPass, sizeof gPass);
+	gPassLen = StrLen(gPass);
+}
+
+/* showPass switches the field between the password and a star per
+ * character. */
+static void showPass(FormType *f, Boolean show)
+{
+	static Char stars[sizeof gPass];
+	FieldType *fld = getObject(f, LoginPass);
+	UInt16 i;
+
+	if (gShowPass && !show) {
+		passFromField(f);
+	}
+	gShowPass = show;
+	if (show) {
+		setEditable(f, LoginPass, gPass);
+	} else {
+		for (i = 0; i < gPassLen; i++) {
+			stars[i] = '*';
+		}
+		stars[gPassLen] = 0;
+		setEditable(f, LoginPass, stars);
+	}
+	FldDrawField(fld);
+	FrmSetFocus(f, FrmGetObjectIndex(f, LoginPass));
+	FldSetInsPtPosition(fld, FldGetTextLength(fld));
 }
 
 /* doLogin: the handshake (which says which gateway this is), trust if it
@@ -963,19 +997,22 @@ static void doLogin(void)
 
 	getEditable(f, LoginAddr, addr, sizeof addr);
 	getEditable(f, LoginUser, user, sizeof user);
+	if (gShowPass) {
+		passFromField(f);
+	}
 	if (addr[0] == 0 || user[0] == 0 || gPassLen == 0) {
 		gWhy[0] = 0;
 		fail("Fill in the address, user and password.");
 		return;
 	}
-	if (FldGetTextLength(getObject(f, LoginPass)) != gPassLen) {
+	if (!gShowPass && FldGetTextLength(getObject(f, LoginPass)) != gPassLen) {
 		/* something edited the field around passKey (a paste, the keyboard
 		 * dialog): what it holds is not the password */
 		wipePass();
 		setEditable(f, LoginPass, "");
 		FldDrawField(getObject(f, LoginPass));
 		gWhy[0] = 0;
-		fail("Type the password again, with Graffiti.");
+		fail("Type the password again (tick Show to see it).");
 		return;
 	}
 	if (!gCurKnown || StrCompare(addr, gCur.addr) != 0) {
@@ -1036,6 +1073,7 @@ static void doLogin(void)
 		return;
 	}
 	wipePass();
+	setEditable(f, LoginPass, ""); /* not even on a form that is closing */
 	MemSet(gReply, sizeof gReply, 0); /* the token was in it */
 	gCur.lastUsed = TimGetSeconds();
 	if (MemCmp(gCur.pin, zero, 32) != 0) {
@@ -1054,6 +1092,7 @@ static Boolean loginHandle(EventType *e)
 	switch (e->eType) {
 	case frmOpenEvent:
 		wipePass();
+		gShowPass = false;
 		gProgress[0] = 0;
 		StrCopy(gWhich, gCurKnown ? gwLabel(&gCur) : "new");
 		setField(f, LoginWhich, gWhich, false);
@@ -1075,7 +1114,11 @@ static Boolean loginHandle(EventType *e)
 			return true;
 		case LoginCancel:
 			wipePass();
+			setEditable(f, LoginPass, "");
 			FrmGotoForm(MainForm);
+			return true;
+		case LoginShow:
+			showPass(f, e->data.ctlSelect.on);
 			return true;
 		}
 		break;

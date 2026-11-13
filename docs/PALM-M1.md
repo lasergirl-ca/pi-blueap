@@ -28,8 +28,9 @@ Part of Phase 7 part 7 (`docs/PALM-APP.md`, D-062).
 2. Connect the T|X to the gateway over Bluetooth, as you do for Blazer.
 3. Open palm-gw. The Gateways screen says there are none yet. Tap **New**.
 4. Log in is filled with `10.42.0.1`. Type the user (`sysadmin`) and your web password: the
-   password shows as stars. Write the password with Graffiti: tapping abc or 123 while the
-   password has the focus says the keyboard would show it, and opens nothing. Tap **Log in**.
+   password shows as stars. Tick **Show** to see what you are writing (the on-screen keyboard
+   works then too); untick it and it goes back to stars. With the stars showing, tapping abc
+   or 123 says to tick Show first, and opens nothing. Tap **Log in**.
 5. "Trust this gateway?" shows the fingerprint in four lines. Compare it with the web login
    page (it starts `26:AA:9F:DB:90:CC:DE:0E`). Tap **Trust**.
 6. Status shows "Palm Gateway - Lyman" and the gateway's details, including your own

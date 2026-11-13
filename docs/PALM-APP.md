@@ -69,9 +69,10 @@ The password is never stored (WEB-UI section 7). The token lives in memory for t
 1. **Gateways:** the list (name, last address, last used), Connect, New, Forget, and Details
    (the full fingerprint).
 2. **Log in:** address (default `10.42.0.1`), username, password; shows which gateway it is
-   once the handshake knows. The password field shows stars. The on-screen keyboard is
-   refused while it has the focus, since its dialog would show the password in plain text:
-   the password is written with Graffiti.
+   once the handshake knows. The password field shows stars; **Show** beside it shows what is
+   typed (Zoe: writing Graffiti blind is hard). While the stars show, the on-screen keyboard
+   is refused for the password, since its dialog would show it and edit around the masking;
+   with Show ticked it works as for any field.
 3. **Trust:** "New gateway at 10.42.0.1", the fingerprint in four lines of eight groups, Trust
    or Cancel.
 4. **Status:** the gateway's name and version, adapter, sessions, pool, uplink, pairing window.
