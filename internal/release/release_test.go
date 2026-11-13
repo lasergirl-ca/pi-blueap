@@ -31,7 +31,7 @@ func TestDebVersion(t *testing.T) {
 
 func TestParseSums(t *testing.T) {
 	sum := strings.Repeat("ab", 32)
-	a, err := ParseSums(strings.NewReader(sum + "  install.sh\n" + sum + " *palm-gw_1.2.3_arm64.deb\n"))
+	a, err := ParseSums(strings.NewReader(sum + "  install.sh\n" + sum + "  PalmGW.prc\n" + sum + " *palm-gw_1.2.3_arm64.deb\n"))
 	if err != nil || a.Name != "palm-gw_1.2.3_arm64.deb" || a.SHA256 != sum {
 		t.Fatalf("got %+v, %v", a, err)
 	}

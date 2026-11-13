@@ -1237,6 +1237,17 @@ page and `palm-gwctl bundle [--with-capture]`), so one implementation redacts th
 hash everywhere. `make support-bundle`, run on the Pi, calls `palm-gwctl bundle
 --with-capture`; there is no shell script.
 
+### D-068: The Palm app is a release download
+
+Nothing shipped `PalmGW.prc`. Zoe chose (2026-11-12) to offer it only as a file on each GitHub
+release, not inside the `.deb` or from the gateway's pages. `make release` builds it from
+`palm-app/` with the tag as its build stamp (About shows it) and lists it in `SHA256SUMS`;
+`make publish` uploads it beside the `.deb` and `install.sh`, so
+`https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/PalmGW.prc` always names
+the newest. `palm-gw upgrade` and the bootstrap installer pick the `.deb` out of
+`SHA256SUMS` by name and pass over the `.prc`. Building a release therefore needs the Palm
+toolchain on the release machine (`docs/PALM-DEV.md`).
+
 ## Hardware observations
 
 ### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)

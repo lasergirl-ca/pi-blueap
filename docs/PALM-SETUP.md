@@ -141,8 +141,11 @@ downloading captures and support bundles. It needs Palm OS 5 on an ARM Palm (T|X
 Tungsten T3/T5/E2, Zire 72, Treo 650 and later) and the gateway's web access over Bluetooth,
 which is on unless someone turned it off (`[web] bluetooth_side`).
 
-**Install it.** HotSync `PalmGW.prc` to the Palm, or copy it to the card's `/PALM/Launcher/`
-folder. It shows in the Launcher as **palm-gw**.
+**Install it.** Download `PalmGW.prc` from the
+[latest release](https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/PalmGW.prc)
+on a computer, then HotSync it to the Palm, or copy it to the card's `/PALM/Launcher/`
+folder. It shows in the Launcher as **palm-gw**, and About palm-gw shows the release it came
+from.
 
 **First connection.**
 1. Connect the Palm to the gateway (step 4 above).

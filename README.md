@@ -40,6 +40,8 @@ curl -fsSL https://github.com/lasergirl-ca/pi-blueap/releases/latest/download/in
    time: it is the gateway's own, and the login page shows its fingerprint.
 3. On **Pair**, open a pairing window and pair the Palm with the PIN it shows. Then follow
    [docs/PALM-SETUP.md](docs/PALM-SETUP.md) to create the Palm's connection and tap Connect.
+4. Optionally, install the palm-gw app on the Palm (`PalmGW.prc`, on each release) to run the
+   gateway from the Palm itself.
 
 `sudo palm-gw upgrade` installs a newer release later.
 

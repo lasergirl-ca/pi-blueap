@@ -62,7 +62,9 @@ deb: build-arm64
 # Release artefacts (D-044), from a clean tree at a v* tag only, into dist/release/:
 #   palm-gw_<tag>_arm64.deb   the package (named after the tag: no ~ in a download URL)
 #   install.sh                the bootstrap installer with the tag baked in
-#   SHA256SUMS                for both
+#   PalmGW.prc                the Palm app, its build stamp the tag (D-068; needs the Palm
+#                             toolchain at PALM_PREFIX, docs/PALM-DEV.md)
+#   SHA256SUMS                for all three
 # `make publish` uploads them; `make release` never touches GitHub.
 REL      := $(DIST)/release
 REL_DEB  := palm-gw_$(patsubst v%,%,$(RELEASE_TAG))_arm64.deb
@@ -76,7 +78,10 @@ release:
 	cp $(DIST)/palm-gw_$(DEB_VERSION)_arm64.deb $(REL)/$(REL_DEB)
 	sed 's/@RELEASE_TAG@/$(RELEASE_TAG)/' packaging/bootstrap-install.sh > $(REL)/install.sh
 	chmod 0755 $(REL)/install.sh
-	cd $(REL) && $(SHA256) $(REL_DEB) install.sh > SHA256SUMS
+	$(MAKE) -C palm-app/app clean
+	$(MAKE) -C palm-app/app STAMP=$(RELEASE_TAG)
+	cp palm-app/app/build/PalmGW.prc $(REL)/PalmGW.prc
+	cd $(REL) && $(SHA256) $(REL_DEB) install.sh PalmGW.prc > SHA256SUMS
 	@cat $(REL)/SHA256SUMS
 
 # The ready-to-flash image (D-002, D-045): the pinned Raspberry Pi OS Lite (64-bit) image with
@@ -111,7 +116,7 @@ publish: release
 	git push origin $(RELEASE_TAG)
 	gh release create $(RELEASE_TAG) --verify-tag --title "palm-gw $(RELEASE_TAG)" --generate-notes \
 		$(if $(findstring -,$(RELEASE_TAG)),--prerelease) \
-		$(REL)/$(REL_DEB) $(REL)/install.sh $(REL)/SHA256SUMS
+		$(REL)/$(REL_DEB) $(REL)/install.sh $(REL)/PalmGW.prc $(REL)/SHA256SUMS
 
 # On the Pi: a support bundle (journals, configs with the password hash redacted, install
 # info, and the newest capture) in /var/lib/palm-gw/bundles/, the same as the web UI's
