@@ -1262,8 +1262,8 @@ Zoe answered docs/WIREGUARD.md's open questions on 2026-11-12 (D-018's added sco
 - **Not asked, so the sketch's defaults stand:** the Pi's own traffic stays on the normal
   uplink; DNS goes through the tunnel in full mode.
 
-The build is six parts, listed in WIREGUARD.md. It is added scope in Phase 8 and is not
-needed for the first release unless Zoe says so.
+The build is six parts, listed in WIREGUARD.md. Zoe chose (2026-11-12) to build it after the
+first release, so the release goes out without WireGuard and it follows in a later version.
 
 ## Hardware observations
 

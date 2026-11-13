@@ -1,6 +1,6 @@
 # WireGuard uplink: design
 
-**Status:** design agreed 2026-11-12 (D-018, D-069); nothing is built yet. Zoe's answers to the
+**Status:** design agreed 2026-11-12 (D-018, D-069); to be built after the first release. Zoe's answers to the
 open questions are at the end. In short: full or split tunnel and fail-closed or fall-back are
 both settings, keys are imported from a `.conf` or generated on the Pi, the peer is plain
 WireGuard, and **everything behind the tunnel gets the same firewall guards as the home LAN**.
