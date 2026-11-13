@@ -104,3 +104,7 @@ What to check on the T|X with `PalmGW-m1-remember.prc`:
 4. Revoke the key on the web page, then Connect on the Palm. It says the gateway no longer
    takes its key and asks for the password.
 5. The Launcher shows the logo.
+
+**Device result (2026-11-12):** Zoe: "revoke works". The gateway logged the T|X's next Connect
+as `api login by device key` (17:36:34, side bluetooth), so Remember, the key login and Revoke
+all work on the T|X.

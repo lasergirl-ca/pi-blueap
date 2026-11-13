@@ -2981,3 +2981,27 @@ immediately" is done.
   saw the fingerprint the login page shows.
 - On Zoe's T|X, over Bluetooth, the app logged in through `/api/v1/login` on the Bluetooth
   side (`web_login side=bluetooth ip=10.42.0.10 api=true`, 17:09:38) and showed Status.
+
+### The T|X's "Serial: timeout (0x0305)" drops, 2026-11-12 (D-050, open)
+
+Zoe saw the Palm's "Error: Serial: timeout ... (0x0305)" more often, while CradleSync synced
+over the gateway. From the gateway's log:
+- **The heavy session ended in under-voltage.** At 17:23:08 the T|X's PPP came up at once
+  (`handshake: none`). pppd carried 276,539 bytes down and 19,478 up in 1.9 minutes. The kernel
+  logged under-voltage at 17:24:04, 17:24:56 and 17:25:00, and the Palm ended PPP cleanly at
+  17:24:59 ("IPCP/LCP terminated by peer"). The Pi had 69 under-voltage events that day. Its
+  supply negotiated 3,000 mA (`/proc/device-tree/chosen/power/max_current`); a Pi 5 wants 5 A.
+  The Bluetooth dongle is on a USB 2 port (bus 3, 480M).
+- **The short drops carried nothing.** At 17:01 (38 s) and 17:13 (35 s), PPP came up, pppd
+  sent 0 bytes and received 4, and the Palm ended it. No under-voltage was near either. Zoe:
+  a second try straight after usually works.
+- **D-060 is not involved.** Every T|X connection that day started PPP within 50 ms
+  (`handshake: none`), so the longer wait for CLIENT never applied.
+- **The Pi rebooted at about 17:31.** At 17:30:09 a 10-minute btmon capture was started and
+  `ppp.debug` turned on, to catch a failing first connect. The capture file stops at 1,151
+  bytes. The Pi rebooted around 17:31; it has a 1-minute hardware watchdog, and its clock
+  restarted at the saved 17:27. The journal is volatile, so the cause is lost:
+  `power_reset` was 0, and `get_throttled` was 0x0 after the boot.
+- **After the reboot,** at 17:36:23, the T|X connected and PPP negotiated in 80 ms (LCP, then
+  IPCP with address and DNS, all acknowledged both ways). The session stayed up past the
+  35-40 s mark.
