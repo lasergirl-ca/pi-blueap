@@ -1202,6 +1202,13 @@ FuelLog lessons, is `docs/PALM-DEV.md`):
 - **The app grows past one 68K code resource,** so its forms move into further code sections
   (`palmgw.def`'s `multiple code`), with the section attribute on every prototype and a link
   check, as PALM-DEV.md section 3 describes.
+- **Milestones 2 and 3 of `PALM-APP.md` became one,** since parity covers both; M4 (finish)
+  stays. `docs/PALM-M2.md` has the checklist.
+- **The forms share one request buffer** (`gForm`, 512 bytes). A value that does not fit is
+  left out whole, and the call is refused rather than sent with a cut password or rule.
+- **Password fields in the app's dialogs show stars**, with a Show box, as Log in does, and
+  field memory is zeroed before it is freed. A wrong current password (401 from
+  `/api/v1/password`) is reported as such and does not end the session.
 
 ## Hardware observations
 

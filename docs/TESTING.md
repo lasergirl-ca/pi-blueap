@@ -2982,6 +2982,43 @@ immediately" is done.
 - On Zoe's T|X, over Bluetooth, the app logged in through `/api/v1/login` on the Bluetooth
   side (`web_login side=bluetooth ip=10.42.0.10 api=true`, 17:09:38) and showed Status.
 
+### Part 7: the Palm app, milestone 2: parity (D-064), 2026-11-12
+
+`docs/PALM-M2.md` has the screens and the T|X checklist. On the Mac:
+
+```
+$ make -C palm-app/app
+  pairf: 7032 bytes
+  .text: 18328 bytes
+  .data: 168 bytes
+  .bss: 29858 bytes
+  listf: 4172 bytes
+  modef: 13160 bytes
+check-sections: ok (102 sectioned function(s))
+-rw-r--r--  1 zoe  staff  280222 Nov 12 18:55 build/PalmGW.prc
+$ make -C palm-app/app test
+gw: 18 ok
+kv: 18 ok
+http: 12 ok
+```
+
+- Every code resource is under 32 KB, and globals are under the 32 KB A5 limit.
+- The build found two compiler limits, both now noted in the source. A `static const` table in
+  a sectioned function is caught by `check-sections.sh`. m68k-palmos-gcc 2.95 at `-O2` fails
+  ("unrecognizable insn") on a `c ? "text" : NULL` argument.
+- A review agent checked every key and form field the app uses against `api.go` and `api2.go`
+  and found no mismatch. Its Palm-side findings were all fixed before the commit:
+  - label and line buffers that could overflow;
+  - form values cut part-way, including passwords;
+  - `apiLeft` running twice;
+  - a wrong current password logging the user out;
+  - password fields shown and left in memory;
+  - one lost poll ending a Wi-Fi join;
+  - Done going to Status from a screen opened elsewhere;
+  - PAN sessions shown with 0 bytes;
+  - byte counts past 2^31.
+- Not yet run on the T|X.
+
 ### The T|X's "Serial: timeout (0x0305)" drops, 2026-11-12 (D-050, open)
 
 Zoe saw the Palm's "Error: Serial: timeout ... (0x0305)" more often, while CradleSync synced

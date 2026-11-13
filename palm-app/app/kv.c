@@ -95,3 +95,24 @@ Int32 kvInt(const KvRecord *r, const Char *key, Int32 def)
 	}
 	return neg ? -n : n;
 }
+
+UInt32 kvU32(const KvRecord *r, const Char *key, UInt32 def)
+{
+	Char v[24];
+	UInt32 n = 0;
+	UInt16 i;
+
+	if (!kvGet(r, key, v, sizeof v) || v[0] == 0) {
+		return def;
+	}
+	for (i = 0; v[i] != 0; i++) {
+		if (v[i] < '0' || v[i] > '9') {
+			return def;
+		}
+		if (n > (0xFFFFFFFFUL - (UInt32)(v[i] - '0')) / 10) {
+			return 0xFFFFFFFFUL;
+		}
+		n = n * 10 + (UInt32)(v[i] - '0');
+	}
+	return n;
+}

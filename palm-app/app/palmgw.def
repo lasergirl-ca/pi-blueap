@@ -1,1 +1,2 @@
 application { "palm-gw" PlGw stack=16384 }
+multiple code { pairf listf modef }

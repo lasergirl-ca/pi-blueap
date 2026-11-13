@@ -24,4 +24,9 @@ Boolean kvGet(const KvRecord *r, const Char *key, Char *out, UInt16 cap);
  * when the key is missing or not a number. */
 Int32 kvInt(const KvRecord *r, const Char *key, Int32 def);
 
+/* kvU32 reads a count (digits only): byte counters pass 2^31 on a busy
+ * gateway. A larger value reads as 0xFFFFFFFF; def when missing or not a
+ * number. */
+UInt32 kvU32(const KvRecord *r, const Char *key, UInt32 def);
+
 #endif

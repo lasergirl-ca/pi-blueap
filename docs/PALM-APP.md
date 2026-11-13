@@ -98,12 +98,12 @@ Nothing is marked done before Zoe has seen it on the device.
   - The build: 68K app and TLS module into `PalmGW.prc`, `make -C palm-app`.
   - The Gateways list with first-use trust, then Log in, Status and Log out.
   - Measure the handshake time and heap on the T|X.
-- **M2: pairing and devices.**
+- **M2: everything the web UI does (D-064; it took in the planned M3).**
   - Pair: open a window, show the PIN, close it.
   - Devices: Disconnect, Forget, Rename. The Phase 7 accept: pair a second device with the
     PIN shown on the T|X, then disconnect and forget it.
-- **M3: firewall, sessions and settings.**
-  - Add and remove an allow rule and check its effect.
-  - Sessions and Settings; the warning before anything that restarts Bluetooth.
+  - Firewall: add and remove an allow rule and check its effect; the test, the counters, NAT.
+  - Sessions, Internet (Wi-Fi), Settings, Palm devices, Logs, Diagnostics, About; the warning
+    before anything that drops the Palm's link.
 - **M4: finish.** Icons, About with the build stamp, error texts, and `docs/PALM-SETUP.md`'s
   app section.

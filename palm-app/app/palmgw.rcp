@@ -78,16 +78,25 @@ BEGIN
 	FIELD ID StatusText AT (2 16 148 126) NONEDITABLE MULTIPLELINES MAXCHARS 1024
 	SCROLLBAR ID StatusScroll AT (152 16 7 126) VALUE 0 MIN 0 MAX 0 PAGESIZE 11
 	BUTTON "Refresh" ID StatusRefresh AT (2 146 44 12)
-	BUTTON "Log out" ID StatusLogout AT (52 146 44 12)
+	BUTTON "Pair" ID StatusPair AT (52 146 36 12)
+	BUTTON "Log out" ID StatusLogout AT (94 146 44 12)
 END
 
 MENU ID StatusMenu
 BEGIN
 	PULLDOWN "Gateway"
 	BEGIN
-		MENUITEM "Log out" ID StatusMenuLogout "L"
+		MENUITEM "Pair a device" ID StatusMenuPair "P"
+		MENUITEM "Devices" ID StatusMenuDevices "D"
+		MENUITEM "Sessions" ID StatusMenuSess "S"
+		MENUITEM "Internet" ID StatusMenuNet "I"
+		MENUITEM "Firewall" ID StatusMenuFw "F"
+		MENUITEM "Settings" ID StatusMenuSet "T"
+		MENUITEM "Logs" ID StatusMenuLogs "G"
+		MENUITEM "Diagnostics" ID StatusMenuDiag "N"
 		MENUITEM SEPARATOR
 		MENUITEM "About palm-gw" ID StatusMenuAbout "A"
+		MENUITEM "Log out" ID StatusMenuLogout "L"
 	END
 END
 
@@ -120,5 +129,162 @@ INFORMATION
 BEGIN
 	TITLE "Gateway"
 	MESSAGE "^1\n^2\nCertificate:\n^3"
+	BUTTONS "OK"
+END
+
+FORM ID PairForm AT (0 0 160 160)
+NOFRAME
+MENUID PairMenu
+BEGIN
+	TITLE "Pair a device"
+	LABEL "Open for:" AUTOID AT (2 18)
+	POPUPTRIGGER "5 min" ID PairMinTrig AT (46 18 50 12) LEFTANCHOR
+	LIST "1 min" "2 min" "5 min" "10 min" "15 min" "30 min" ID PairMinList AT (46 18 50 66) VISIBLEITEMS 6 NONUSABLE
+	POPUPLIST ID PairMinTrig PairMinList
+	CHECKBOX "Close after one device" ID PairOne AT (2 32 150 12)
+	FIELD ID PairPin AT (2 48 156 18) NONEDITABLE MAXCHARS 24 FONT 7
+	FIELD ID PairText AT (2 68 156 74) NONEDITABLE MULTIPLELINES MAXCHARS 400
+	BUTTON "Open" ID PairOpen AT (2 146 36 12)
+	BUTTON "Close" ID PairClose AT (44 146 36 12)
+	BUTTON "Done" ID PairDone AT (86 146 36 12)
+END
+
+MENU ID PairMenu
+BEGIN
+	PULLDOWN "Pair"
+	BEGIN
+		MENUITEM "Palm can't see the gateway?" ID PairMenuClass "C"
+	END
+END
+
+FORM ID SetForm AT (0 0 160 160)
+NOFRAME
+MENUID SetMenu
+BEGIN
+	TITLE "Settings"
+	LABEL "Name:" AUTOID AT (2 18)
+	FIELD ID SetName AT (44 18 114 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 47
+	LABEL "Adapter:" AUTOID AT (2 32)
+	POPUPTRIGGER "auto" ID SetAdTrig AT (44 32 114 12) LEFTANCHOR
+	LIST "auto" ID SetAdList AT (2 32 156 44) VISIBLEITEMS 4 NONUSABLE
+	POPUPLIST ID SetAdTrig SetAdList
+	LABEL "Hang up:" AUTOID AT (2 46)
+	POPUPTRIGGER "Never" ID SetIdleTrig AT (44 46 80 12) LEFTANCHOR
+	LIST "Never" "After 5 min" "After 10 min" "After 15 min" "After 30 min" "After an hour" ID SetIdleList AT (44 46 80 66) VISIBLEITEMS 6 NONUSABLE
+	POPUPLIST ID SetIdleTrig SetIdleList
+	CHECKBOX "Log connection details" ID SetDebug AT (2 60 150 12)
+	FIELD ID SetInfo AT (2 76 156 66) NONEDITABLE MULTIPLELINES MAXCHARS 400
+	BUTTON "Save" ID SetSave AT (2 146 36 12)
+	BUTTON "Done" ID SetDone AT (44 146 36 12)
+	GRAFFITISTATEINDICATOR AT (148 148)
+END
+
+MENU ID SetMenu
+BEGIN
+	PULLDOWN "Settings"
+	BEGIN
+		MENUITEM "Network and web access..." ID SetMenuNetwork "N"
+		MENUITEM "Change password..." ID SetMenuPassword "W"
+		MENUITEM "Palm devices" ID SetMenuKeys "K"
+		MENUITEM SEPARATOR
+		MENUITEM "Restart palm-gwd" ID SetMenuRestart "R"
+	END
+END
+
+FORM ID ListForm AT (0 0 160 160)
+NOFRAME
+BEGIN
+	TITLE "List                          "
+	FIELD ID ListInfo AT (2 16 156 22) NONEDITABLE MULTIPLELINES MAXCHARS 200
+	LIST "" ID ListList AT (2 40 156 99) VISIBLEITEMS 9
+	BUTTON "Button 1  " ID ListB1 AT (2 146 37 12)
+	BUTTON "Button 2  " ID ListB2 AT (42 146 37 12)
+	BUTTON "Button 3  " ID ListB3 AT (82 146 37 12)
+	BUTTON "Done" ID ListB4 AT (122 146 36 12)
+END
+
+MENU ID MenuDevices
+BEGIN
+	PULLDOWN "Devices"
+	BEGIN
+		MENUITEM "Refresh" ID MenuRefresh "R"
+		MENUITEM "Add by address..." ID MenuDevAdd "A"
+	END
+END
+
+MENU ID MenuRules
+BEGIN
+	PULLDOWN "Firewall"
+	BEGIN
+		MENUITEM "Refresh" ID MenuRefresh "R"
+		MENUITEM "Test reachability..." ID MenuRuleTest "T"
+		MENUITEM "Drop counters" ID MenuRuleCount "C"
+		MENUITEM "NAT table" ID MenuRuleNat "N"
+	END
+END
+
+MENU ID MenuWifi
+BEGIN
+	PULLDOWN "Internet"
+	BEGIN
+		MENUITEM "Refresh" ID MenuRefresh "R"
+		MENUITEM "Join a hidden network..." ID MenuWifiHidden "H"
+		MENUITEM "Forget this network" ID MenuWifiForget "F"
+		MENUITEM SEPARATOR
+		MENUITEM "Turn Wi-Fi on" ID MenuWifiOn "O"
+		MENUITEM "Turn Wi-Fi off" ID MenuWifiOff "X"
+	END
+END
+
+MENU ID MenuKeys
+BEGIN
+	PULLDOWN "Palm devices"
+	BEGIN
+		MENUITEM "Refresh" ID MenuRefresh "R"
+	END
+END
+
+FORM ID TextForm AT (0 0 160 160)
+NOFRAME
+BEGIN
+	TITLE "Text                          "
+	FIELD ID TextText AT (2 16 148 126) NONEDITABLE MULTIPLELINES MAXCHARS 4000
+	SCROLLBAR ID TextScroll AT (152 16 7 126) VALUE 0 MIN 0 MAX 0 PAGESIZE 11
+	BUTTON "Button 1  " ID TextB1 AT (2 146 37 12)
+	BUTTON "Button 2  " ID TextB2 AT (42 146 37 12)
+	BUTTON "Button 3  " ID TextB3 AT (82 146 37 12)
+	BUTTON "Done" ID TextDone AT (122 146 36 12)
+END
+
+FORM ID InForm AT (2 8 156 150)
+MODAL
+BEGIN
+	TITLE "Input                         "
+	LABEL "                                    " ID InL1 AT (4 16)
+	FIELD ID InF1 AT (4 27 148 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
+	LABEL "                                    " ID InL2 AT (4 42)
+	FIELD ID InF2 AT (4 53 148 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
+	LABEL "                                    " ID InL3 AT (4 68)
+	FIELD ID InF3 AT (4 79 148 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
+	CHECKBOX "                              " ID InC1 AT (4 96 148 12)
+	CHECKBOX "                              " ID InC2 AT (4 110 148 12)
+	BUTTON "OK" ID InOK AT (4 134 36 12)
+	BUTTON "Cancel" ID InCancel AT (46 134 40 12)
+	GRAFFITISTATEINDICATOR AT (140 136)
+END
+
+ALERT ID ConfirmAlert
+CONFIRMATION
+BEGIN
+	TITLE "palm-gw"
+	MESSAGE "^1^2^3"
+	BUTTONS "OK" "Cancel"
+END
+
+ALERT ID InfoAlert
+INFORMATION
+BEGIN
+	TITLE "palm-gw"
+	MESSAGE "^1^2^3"
 	BUTTONS "OK"
 END

@@ -17,6 +17,7 @@
 #include "gw.h"
 #include "kv.h"
 #include "http.h"
+#include "ui.h"
 
 #ifndef APP_BUILD
 #define APP_BUILD "dev"
@@ -56,8 +57,8 @@ static NetSocketRef gSock = -1;
 
 /* What the last call learnt and how long it took. */
 static UInt8 gPeerSpki[32], gPeerCert[32];
-static UInt32 gHandshakeTicks;
-static UInt32 gHeapPeak;
+UInt32 gHandshakeTicks;
+UInt32 gHeapPeak;
 
 static UInt16 get16(const UInt8 *p) { return (UInt16)((UInt16)p[0] << 8 | p[1]); }
 static UInt32 get32(const UInt8 *p) { return (UInt32)p[0] << 24 | (UInt32)p[1] << 16 | (UInt32)p[2] << 8 | p[3]; }
@@ -279,19 +280,14 @@ static Int16 tlsFill(void)
 
 /* ---- calls to the gateway ---- */
 
-/* The outcome of a call, for the forms to explain. */
-enum {
-	callOK = 0,
-	callNoNet,      /* the network did not come up, or no connection */
-	callNoModule,   /* the TLS module would not load */
-	callTLS,        /* the TLS handshake failed */
-	callTimeout,
-	callBadReply,
-	callPin         /* connected, but the key is not the expected one */
-};
+/* The outcome of a call (callOK ... callPin, ui.h), for the forms to
+ * explain: callNoNet when the network did not come up or no connection,
+ * callNoModule when the TLS module would not load, callTLS when the
+ * handshake failed, callPin when the key is not the expected one. */
 
-static Char gReply[replyMax];
-static UInt16 gReplyLen, gStatus, gBodyOff, gBodyLen;
+Char gReply[replyMax];
+static UInt16 gReplyLen;
+UInt16 gStatus, gBodyOff, gBodyLen;
 static Err gNetErr;
 
 /* readAll reads the reply until the server closes, or the deadline. */
@@ -600,13 +596,13 @@ static void gwForget(const GatewayType *g)
 
 /* ---- the session ---- */
 
-static GatewayType gCur;       /* the gateway being logged in to, or logged in */
+GatewayType gCur;              /* the gateway being logged in to, or logged in */
 static Boolean gCurKnown;      /* gCur is a saved, trusted gateway */
-static Char gToken[80];        /* the API token; in memory only */
+Char gToken[80];               /* the API token; in memory only */
 static Char gPass[65];         /* the password as typed; wiped after the login */
 static UInt16 gPassLen;
 static Boolean gShowPass;      /* Show is ticked: the field holds the password as typed */
-static Char gWhy[120];         /* the last call's failure, in words */
+Char gWhy[120];                /* the last call's failure, in words */
 
 static void describe(UInt16 r)
 {
@@ -638,7 +634,7 @@ static void describe(UInt16 r)
  * known gateway the key must be its pin; for a new one (pin all zero) the
  * key is taken as is, and the caller decides about trust. The reply's
  * body is at gReply + gBodyOff. */
-static UInt16 apiCall(const Char *method, const Char *path, const Char *body, Boolean auth)
+UInt16 apiCall(const Char *method, const Char *path, const Char *body, Boolean auth)
 {
 	static Char req[768];
 	static const UInt8 zero[32];
@@ -667,7 +663,7 @@ static UInt16 apiCall(const Char *method, const Char *path, const Char *body, Bo
 }
 
 /* replyError puts the gateway's error message, or the HTTP status, in gWhy. */
-static void replyError(void)
+void replyError(void)
 {
 	KvRecord rec;
 	UInt16 pos = 0;
@@ -680,16 +676,92 @@ static void replyError(void)
 	}
 }
 
+/* api runs a call that must answer 200 (ui.h). */
+Boolean gKeep401;
+
+Boolean api(const Char *method, const Char *path, const Char *body)
+{
+	UInt16 r;
+	Boolean keep = gKeep401;
+
+	gKeep401 = false;
+	if (apiGone()) {
+		StrCopy(gWhy, "Not logged in.");
+		return false;
+	}
+	r = apiCall(method, path, body, true);
+	if (r != callOK) {
+		return false;
+	}
+	if (gStatus != 200) {
+		replyError();
+		if (gStatus == 401 && !keep) {
+			apiLeft("The gateway ended this session: log in again.");
+		}
+		return false;
+	}
+	return true;
+}
+
+Boolean apiHead(KvRecord *r)
+{
+	UInt16 pos = 0;
+	return kvNext(gReply + gBodyOff, gBodyLen, &pos, r);
+}
+
+/* apiItem steps through the records after the head: *pos starts at 0. */
+Boolean apiItem(UInt16 *pos, KvRecord *r)
+{
+	if (*pos == 0 && !kvNext(gReply + gBodyOff, gBodyLen, pos, r)) {
+		return false; /* no head */
+	}
+	return kvNext(gReply + gBodyOff, gBodyLen, pos, r);
+}
+
+Char *apiPath(const Char *what)
+{
+	static Char path[300];
+	if (StrLen(what) + 22 > sizeof path) {
+		what = "too-long"; /* answers 404, said as such */
+	}
+	StrPrintF(path, "/api/v1/%s%sformat=text", what, StrChr(what, '?') != NULL ? "&" : "?");
+	return path;
+}
+
+static Char gLeft[160];
+
+/* apiLeft ends the session here: the token is gone (a restart, a network
+ * apply, an expired token), so back to the Gateways list. */
+void apiLeft(const Char *why)
+{
+	if (apiGone()) {
+		return; /* already leaving: one FrmGotoForm only */
+	}
+	MemSet(gToken, sizeof gToken, 0);
+	StrNCopy(gLeft, why, sizeof gLeft - 1);
+	FrmGotoForm(MainForm);
+}
+
+void showObject(FormType *f, UInt16 id, Boolean show)
+{
+	UInt16 i = FrmGetObjectIndex(f, id);
+	if (show) {
+		FrmShowObject(f, i);
+	} else {
+		FrmHideObject(f, i);
+	}
+}
+
 /* ---- forms ---- */
 
-static void *getObject(FormType *f, UInt16 id)
+void *getObject(FormType *f, UInt16 id)
 {
 	return FrmGetObjectPtr(f, FrmGetObjectIndex(f, id));
 }
 
 /* setField shows text in a field from a buffer that stays alive (the
  * field keeps the pointer: docs/PALM-DEV.md section 7). */
-static void setField(FormType *f, UInt16 id, Char *text, Boolean draw)
+void setField(FormType *f, UInt16 id, Char *text, Boolean draw)
 {
 	FieldType *fld = getObject(f, id);
 	FldSetTextPtr(fld, text);
@@ -700,7 +772,7 @@ static void setField(FormType *f, UInt16 id, Char *text, Boolean draw)
 }
 
 /* setEditable puts a copy of text in an editable field (its own handle). */
-static void setEditable(FormType *f, UInt16 id, const Char *text)
+void setEditable(FormType *f, UInt16 id, const Char *text)
 {
 	FieldType *fld = getObject(f, id);
 	MemHandle h = MemHandleNew(StrLen(text) + 1), old = FldGetTextHandle(fld);
@@ -711,18 +783,20 @@ static void setEditable(FormType *f, UInt16 id, const Char *text)
 	MemHandleUnlock(h);
 	FldSetTextHandle(fld, h);
 	if (old != NULL) {
+		MemSet(MemHandleLock(old), MemHandleSize(old), 0); /* it may have held a password */
+		MemHandleUnlock(old);
 		MemHandleFree(old);
 	}
 }
 
-static void getEditable(FormType *f, UInt16 id, Char *out, UInt16 cap)
+void getEditable(FormType *f, UInt16 id, Char *out, UInt16 cap)
 {
 	Char *p = FldGetTextPtr(getObject(f, id));
 	StrNCopy(out, p != NULL ? p : "", (Int16)(cap - 1));
 	out[cap - 1] = 0;
 }
 
-static void fail(const Char *what)
+void fail(const Char *what)
 {
 	FrmCustomAlert(ErrorAlert, what, gWhy[0] ? "\n" : " ", gWhy[0] ? gWhy : " ");
 }
@@ -809,6 +883,11 @@ static Boolean mainHandle(EventType *e)
 	switch (e->eType) {
 	case frmOpenEvent:
 		mainFill(f, true);
+		if (gLeft[0] != 0) {
+			gWhy[0] = 0;
+			fail(gLeft);
+			gLeft[0] = 0;
+		}
 		return true;
 	case ctlSelectEvent:
 		switch (e->data.ctlSelect.controlID) {
@@ -1310,6 +1389,9 @@ static Boolean statusHandle(EventType *e)
 		case StatusLogout:
 			logout();
 			return true;
+		case StatusPair:
+			FrmGotoForm(PairForm);
+			return true;
 		}
 		break;
 	case sclRepeatEvent:
@@ -1324,7 +1406,31 @@ static Boolean statusHandle(EventType *e)
 			logout();
 			return true;
 		case StatusMenuAbout:
-			about();
+			openText(tmAbout);
+			return true;
+		case StatusMenuPair:
+			FrmGotoForm(PairForm);
+			return true;
+		case StatusMenuDevices:
+			openList(lmDevices);
+			return true;
+		case StatusMenuSess:
+			openText(tmSessions);
+			return true;
+		case StatusMenuNet:
+			openList(lmWifi);
+			return true;
+		case StatusMenuFw:
+			openList(lmRules);
+			return true;
+		case StatusMenuSet:
+			FrmGotoForm(SetForm);
+			return true;
+		case StatusMenuLogs:
+			openText(tmLogs);
+			return true;
+		case StatusMenuDiag:
+			openText(tmDiag);
 			return true;
 		}
 		break;
@@ -1353,6 +1459,18 @@ static Boolean appHandle(EventType *e)
 		break;
 	case StatusForm:
 		FrmSetEventHandler(f, statusHandle);
+		break;
+	case PairForm:
+		FrmSetEventHandler(f, pairHandle);
+		break;
+	case SetForm:
+		FrmSetEventHandler(f, setHandle);
+		break;
+	case ListForm:
+		FrmSetEventHandler(f, listHandle);
+		break;
+	case TextForm:
+		FrmSetEventHandler(f, textHandle);
 		break;
 	}
 	return true;
@@ -1385,7 +1503,13 @@ UInt32 PilotMain(UInt16 cmd, MemPtr params, UInt16 flags)
 	}
 	FrmGotoForm(MainForm);
 	do {
-		EvtGetEvent(&e, evtWaitForever);
+		/* A second's tick while the Pair form counts down or a list
+		 * follows a Wi-Fi join; otherwise sleep until something happens. */
+		EvtGetEvent(&e, pairTicking() ? SysTicksPerSecond() : evtWaitForever);
+		if (e.eType == nilEvent) {
+			pairTick();
+			continue;
+		}
 		if (passKeyboard(&e)) {
 			continue;
 		}
