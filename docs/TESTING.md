@@ -3280,5 +3280,70 @@ way past it.
   nft-split.nft              ok
   ```
 
-Not yet run on a Pi: the NetworkManager import and the routing rules, with the test peer (Part 6).
+### WireGuard parts 3 to 5 (D-069, D-072), 2026-11-12
+
+- Part 3, the daemon: `wg`, `wg.set`, `wg.import`, `wg.generate`, `wg.up`, `wg.down`; a
+  `wireguard:` line in `palm-gwctl status`; `wg_stale` after 3 minutes without receiving while
+  Palms are connected; `palm-gwctl wg`. `wg_test.go` checks an import (config, the 0600 key, the
+  apply), refusals (turned on without a peer, a bad mode, during an apply), a key pair while
+  off (no apply), up and down through a fake NetworkManager, and the stale watch.
+- Part 4, the web UI: a WireGuard card on the Internet page and `/api/v1/wireguard`. Tests
+  render it off and up, check `wg.set` from the form (split networks, fall back), a bad
+  `.conf` shown as an error, a viewer seeing no forms, and six rows in `TestAPIParity`.
+- Part 5, the Palm app: a tunnel line on the Internet screen and a WireGuard menu (up or down,
+  settings, on or off, new key pair). `modef` is 15,504 bytes; `check-sections` passes.
+
+### WireGuard part 6: on Lyman with the test peer, 2026-11-12
+
+Package `0.6.1~wg1` (branch `wireguard`) on Lyman, no session open. The test peer's `.conf`
+went over SSH straight into the importer, never to a file on the Pi:
+
+```
+$ ssh sysadmin@10.4.1.118 'sudo palm-gw setup --wg-import -' < <the test .conf>
+Imported into [wireguard] (full tunnel). The gateway's public key: …
+-rw------- 1 root root 45 … /var/lib/palm-gw/wg-pending.key
+$ ssh sysadmin@10.4.1.118 sudo palm-gw setup --apply
+==> WireGuard
+    WireGuard: palm-gw-wg up (full mode, fail closed)
+```
+
+The `.conf` had no `PersistentKeepalive`, and the import wrote 0; it now keeps the gateway's
+25 s (fixed, with a test). After the apply the pending key and the import file were gone, and:
+
+```
+palm-gw-wg:wireguard:wg0:activated        never-default yes, peer-routes no
+4241:  from 10.42.0.0/24 lookup main suppress_prefixlength 0 proto static
+4242:  from 10.42.0.0/24 lookup 4242 proto static
+table 4242: default dev wg0 metric 50; unreachable default metric 4096
+main: default via 10.4.0.1 dev eth0 (the Pi's own traffic); 10.17.200.1 dev wg0 (tunnel DNS)
+wg0: rx 364 -> 904 bytes in 30 s (keepalives answered)
+wireguard: up on wg0 10.17.200.5/32, full tunnel, fail closed when down, last heard 8s ago
+nft: wg->palm, wg->pi, masquerade and exit on wg0; no eth0 exit for Palm traffic
+```
+
+A stand-in Palm, a network namespace on a veth in `br-palm` at 10.42.0.250, then showed:
+
+| Test | Result |
+|---|---|
+| Internet by name (dnsmasq, resolver through the tunnel) | `httpforever.com` 11.5 KB in 0.19 s, `example.com`, `info.cern.ch`: 200 |
+| Allowed LAN host 10.4.0.7:14238 (firewall rule) | connected in 0.8 ms (direct, rule 4241) |
+| LAN router 10.4.0.1:80, no rule | dropped |
+| A private host behind the tunnel, 10.17.200.1:80, no rule | dropped; `palm->rfc1918` 0 -> 10 packets |
+| Tunnel down, fail closed | unreachable (curl exit 7); the allowed LAN host still connects; the Pi stays online |
+| Tunnel down, fall back | 1.1.1.1 answers through the uplink |
+| Back to fail closed, tunnel up | through the tunnel again |
+
+Notes:
+- `neverssl.com` was slow that night everywhere, over `eth0` too (its one address took about
+  2 s to accept a connection), so it is not the test page for a tunnel. Full-size DF pings of
+  1420 bytes pass through `wg0`.
+- An apply re-activates the bridge's profile, which drops ports NetworkManager does not own:
+  the stand-in's veth had to be put back after each apply. Palms are unaffected (PPP is not a
+  bridge port, and PAN clients reconnect).
+- `palm-gwctl wg down` replied before NetworkManager had finished; it now waits for the
+  change. `palm-gwctl set wireguard.*` said "when palm-gwd restarts"; it now says
+  `palm-gw setup --apply`.
+
+Lyman stays on the tunnel, full and fail closed. Surrey stays without one (AS393941 directly).
+Still to do: a session from the T|X through Lyman's tunnel.
 
