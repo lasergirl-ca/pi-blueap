@@ -3344,6 +3344,18 @@ Notes:
   change. `palm-gwctl set wireguard.*` said "when palm-gwd restarts"; it now says
   `palm-gw setup --apply`.
 
+**The T|X through Lyman's tunnel (23:48-23:50).** Zoe connected the T|X to Lyman and browsed
+in Blazer. An address-echo page showed the tunnel's exit address (the peer's network), not the
+home connection. On the gateway:
+
+```
+23:48:16  session_up  lap ppp0 10.42.0.10
+          wg0 received 89 KB -> 313 KB during the minute watched; sent 25 KB
+          drops: palm->rfc1918 0, palm->other 0, wg->palm 0, wg->pi 0
+23:50:07  IPCP terminated by peer; LCP terminated by peer (the T|X hung up)
+          Sent 233721 bytes, received 29795 bytes; session_end 1m51s
+```
+
+With `palm->other` at 0 in fail-closed mode, nothing from the T|X tried to leave by the uplink.
 Lyman stays on the tunnel, full and fail closed. Surrey stays without one (AS393941 directly).
-Still to do: a session from the T|X through Lyman's tunnel.
 
