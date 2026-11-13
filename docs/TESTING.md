@@ -3094,3 +3094,39 @@ until one does.
 The invalid-packet drop in `palm_forward` had no counter, which is why it took temporary rules
 to rule it out. It now counts as `palm->invalid` (test34), so the firewall page and
 `palm-gwctl firewall counters` show it like the other drops.
+
+**Another kind of 0x0305: the T|X's radio goes silent after a CradleSync (19:31-19:41).**
+Zoe saw the error again, on the 5 A supply (`get_throttled` 0x0). A 10-minute btmon capture
+plus palm-gwd's log, started before her next try:
+
+```
+$ ssh sysadmin@10.4.1.118 'sudo timeout 600 btmon -T -w /var/tmp/palm-watch.btsnoop'
+$ ssh sysadmin@10.4.1.118 'sudo btmon -T -r /var/tmp/palm-watch.btsnoop' | ...
+19:31:59.128  Connect Request from 00:07:E0:3C:5E:FA, accepted as Central
+19:31:59.969  PPP link up, 10.42.0.10 (RFCOMM, handshake and PPP in 0.6 s)
+19:32:19.962  api login by device key (the palm-gw app)
+...           CradleSync, Secure, to the airlock at 10.4.0.7:14243
+19:33:02.274  T|X -> 10.4.0.7:14243 TCP FIN; airlock's FIN-ACK; T|X's last ACK at .290
+19:33:20.002  gateway -> T|X: LCP Echo-Request (no answer)
+19:33:28.337  HCI Disconnection Complete, reason Connection Timeout (0x08)
+19:33:28.338  pppd: Error reading standard input: Connection timed out; session_end 1m29s
+```
+
+- **Not the shape seen at 17:44.** Then the link stayed up and the T|X hung up itself
+  (reason 0x13). This time CradleSync closed its connection cleanly, and about 6 seconds later
+  the T|X stopped answering at the radio level. The gateway's controller kept the link for the
+  20-second supervision timeout and then dropped it. Nothing was owed either way: the last
+  packet was the T|X's final ACK.
+- The 18:54:51 drop that afternoon, also after a CradleSync (3.4 min, 875 KB), ended the
+  same way ("Connection timed out").
+- **Ruled out on the gateway:**
+  - the dongle (a TP-Link UB500, RTL8761BU) is alone on a USB 2 bus, with no USB 3 device;
+  - `hciconfig` shows 0 errors either way and no reset since boot;
+  - the Pi's own Wi-Fi is on 5 GHz (channel 48);
+  - no mode changes (no sniff) during the link.
+- **Next:** the stop comes at the end of a CradleSync session, on the T|X. CradleSync closes
+  with `NetLibSocketClose`, `restoreNetTimeouts` (it puts back the interface's inactivity
+  timeout) and `NetLibClose(ref, false)`. To compare: let a session of the palm-gw app alone
+  idle past a minute, and a CradleSync session end while watched, noting when the dialog
+  appears. The capture stays at `/var/tmp/palm-watch.btsnoop` on the test Pi.
+

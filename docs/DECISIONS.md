@@ -1223,6 +1223,10 @@ Seen during CradleSync over the gateway; TESTING.md has the capture.
   IP level, and no drops at the gateway. That is an application-level wait between the
   Palm's app and its server, not a gateway fault.
 - The invalid-packet drop now has a counter (`palm->invalid`).
+- **A second kind, 19:33 the same day:** about 6 s after CradleSync closed its connection
+  cleanly, the T|X stopped answering at the radio level, and the link ended on the
+  supervision timeout (0x08). The gateway had nothing outstanding; the cause is on the T|X,
+  at the end of a CradleSync session (TESTING.md).
 
 ### Test rig (kickoff rule 4), 2026-11-08
 
