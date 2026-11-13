@@ -3105,16 +3105,20 @@ $ ssh sysadmin@10.4.1.118 'sudo btmon -T -r /var/tmp/palm-watch.btsnoop' | ...
 19:31:59.128  Connect Request from 00:07:E0:3C:5E:FA, accepted as Central
 19:31:59.969  PPP link up, 10.42.0.10 (RFCOMM, handshake and PPP in 0.6 s)
 19:32:19.962  api login by device key (the palm-gw app)
-...           CradleSync, Secure, to the airlock at 10.4.0.7:14243
-19:33:02.274  T|X -> 10.4.0.7:14243 TCP FIN; airlock's FIN-ACK; T|X's last ACK at .290
+19:32:58.270  T|X -> 10.4.0.7:14243 SYN (CradleSync, Secure); TLS from 19:32:58.698
+19:32:58-02   about 40 TLS records from the T|X, each answered within 50 ms; no stall
+19:33:02.247  airlock -> T|X: a 24-byte TLS record, then FIN (the airlock ends the session)
+19:33:02.262  T|X FIN-ACK; its last ACK at .290, receive window 0 (socket closed)
 19:33:20.002  gateway -> T|X: LCP Echo-Request (no answer)
 19:33:28.337  HCI Disconnection Complete, reason Connection Timeout (0x08)
 19:33:28.338  pppd: Error reading standard input: Connection timed out; session_end 1m29s
 ```
 
 - **Not the shape seen at 17:44.** Then the link stayed up and the T|X hung up itself
-  (reason 0x13). This time CradleSync closed its connection cleanly, and about 6 seconds later
-  the T|X stopped answering at the radio level. The gateway's controller kept the link for the
+  (reason 0x13). This time the session ran without a pause (the link sat idle for 37 s
+  before it, after the app's login, with LCP echoes answered), the airlock closed it after
+  4 seconds, and about 6 seconds later the T|X stopped answering at the radio level. Zoe saw
+  the error "during the sync", that is, while CradleSync's progress screen was still up. The gateway's controller kept the link for the
   20-second supervision timeout and then dropped it. Nothing was owed either way: the last
   packet was the T|X's final ACK.
 - The 18:54:51 drop that afternoon, also after a CradleSync (3.4 min, 875 KB), ended the
@@ -3124,7 +3128,8 @@ $ ssh sysadmin@10.4.1.118 'sudo btmon -T -r /var/tmp/palm-watch.btsnoop' | ...
   - `hciconfig` shows 0 errors either way and no reset since boot;
   - the Pi's own Wi-Fi is on 5 GHz (channel 48);
   - no mode changes (no sniff) during the link.
-- **Next:** the stop comes at the end of a CradleSync session, on the T|X. CradleSync closes
+- **Next:** the airlock's log for 19:32:58-19:33:02 says whether it ended the session as
+  complete or on an error. The stop comes as a CradleSync session ends, on the T|X. CradleSync closes
   with `NetLibSocketClose`, `restoreNetTimeouts` (it puts back the interface's inactivity
   timeout) and `NetLibClose(ref, false)`. To compare: let a session of the palm-gw app alone
   idle past a minute, and a CradleSync session end while watched, noting when the dialog
