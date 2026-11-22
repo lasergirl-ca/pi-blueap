@@ -3385,8 +3385,6 @@ Lyman stays on the tunnel, full and fail closed. Surrey stays without one (AS393
   with rules 4241 and 4242 and table 4242 as before; `wg down` and `wg up` now answer with the
   state after the change.
 
-
-
 ### 4G parts 1 and 2 (D-074, D-075), 2026-11-22, on branch `mobile`
 
 - Part 1: `[mobile]` in the schema, defaults, `config.example.toml` and validation;

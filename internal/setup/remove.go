@@ -116,7 +116,7 @@ func RemoveSystem(o RemoveOptions) error {
 		}
 	}
 
-	_ = os.Remove(a.path(filepath.Join(o.StateDir, WGPendingKey))) // a WireGuard key never applied
+	_ = os.Remove(a.path(filepath.Join(o.StateDir, WGPendingKey)))     // a WireGuard key never applied
 	_ = os.Remove(a.path(filepath.Join(o.StateDir, MobilePendingPIN))) // a SIM PIN never applied
 
 	a.say("Restoring %s", mainConfPath)
