@@ -103,6 +103,22 @@ func TestApplyMobile(t *testing.T) {
 	if len(a.res.Warnings) != 1 || !strings.Contains(a.res.Warnings[0], "did not come up") {
 		t.Fatalf("warnings %v", a.res.Warnings)
 	}
+	// Unchanged and already up: no redial.
+	calls = nil
+	run2 := func(name string, args ...string) ([]byte, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if strings.Contains(strings.Join(args, " "), "--active") {
+			return []byte("br-palm\n" + MobileProfile + "\n"), nil
+		}
+		return nil, nil
+	}
+	a.o.Run = run2
+	if err := a.applyMobile(cfg, m); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(calls, "\n"), "connection up") {
+		t.Fatalf("redialled an unchanged, active modem: %v", calls)
+	}
 	// Off: the keyfile goes, and with it the manifest entry.
 	cfg.Mobile.Enabled = false
 	if err := a.applyMobile(cfg, m); err != nil {
@@ -118,47 +134,53 @@ func TestMobileFirewall(t *testing.T) {
 	if off := renderNft(t, cfg); strings.Contains(off, "wan->") {
 		t.Fatal("off: WAN rules present")
 	}
-	// Only: the modem is the uplink, and hostile.
+	// Only: the modem is the uplink, and hostile. Rules name any wwan*, which a reset
+	// can renumber; only replies are forwarded in, to the Palms, the LAN or anywhere.
 	cfg.Mobile.Enabled, cfg.Network.Uplink = true, "wwan0"
 	only := renderNft(t, cfg)
 	for _, want := range []string{
-		`iifname "wwan0" oifname { "br-palm", "ppp*" } ct state new counter drop comment "wan->palm"`,
-		`iifname "wwan0" counter drop comment "wan->pi"`,
-		`iifname "wwan0" udp sport 67 udp dport 68 accept`,
+		`iifname "wwan*" ct state != { established, related } counter drop comment "wan->in"`,
+		`iifname "wwan*" counter drop comment "wan->pi"`,
+		`iifname "wwan*" udp sport 67 udp dport 68 accept`,
 		`nd-router-advert`,
 		`ip saddr 10.42.0.0/24 oifname "wwan0" masquerade`,
-		`oifname "wwan0" accept`,
+		`ip saddr 10.42.0.0/24 oifname "wwan*" masquerade`,
+		`oifname "wwan*" accept`,
 	} {
 		if !strings.Contains(only, want) {
 			t.Errorf("only: missing %s", want)
 		}
 	}
-	if strings.Count(only, `oifname "wwan0" masquerade`) != 1 {
-		t.Error("only: the masquerade is doubled")
-	}
 	// Established replies come before the drop, so the Pi's own traffic works.
-	if strings.Index(only, `iifname "wwan0" ct state established,related accept`) > strings.Index(only, `"wan->pi"`) {
+	if strings.Index(only, `iifname "wwan*" ct state established,related accept`) > strings.Index(only, `"wan->pi"`) {
 		t.Error("the drop comes before the replies")
 	}
 	// Backup: both exits, after the private-address drop.
 	cfg.Mobile.Role, cfg.Network.Uplink = "backup", "eth0"
 	b := renderNft(t, cfg)
-	for _, want := range []string{`oifname "eth0" accept`, `oifname "wwan0" accept`, `ip saddr 10.42.0.0/24 oifname "wwan0" masquerade`} {
+	for _, want := range []string{`oifname "eth0" accept`, `oifname "wwan*" accept`, `ip saddr 10.42.0.0/24 oifname "wwan*" masquerade`} {
 		if !strings.Contains(b, want) {
 			t.Errorf("backup: missing %s", want)
 		}
 	}
-	if strings.Index(b, `oifname "wwan0" accept`) < strings.Index(b, "palm->rfc1918") {
+	if strings.Index(b, `oifname "wwan*" accept`) < strings.Index(b, "palm->rfc1918") {
 		t.Error("backup: the modem's exit is before the private-address drop")
 	}
+	// Router mode: the exact interface, once.
+	cfg.Mobile.Interface, cfg.Network.Uplink, cfg.Mobile.Role = "usb0", "usb0", "only"
+	r := renderNft(t, cfg)
+	if !strings.Contains(r, `iifname "usb0" counter drop comment "wan->pi"`) || strings.Count(r, `oifname "usb0" masquerade`) != 1 {
+		t.Error("router mode: rules not on usb0, or the masquerade doubled")
+	}
 	// With a full WireGuard tunnel that fails closed, neither the uplink nor the modem is a Palm exit.
+	cfg.Mobile.Interface, cfg.Mobile.Role, cfg.Network.Uplink = "wwan0", "backup", "eth0"
 	cfg.WireGuard.Enabled = true
 	wg := renderNft(t, cfg)
-	if strings.Contains(wg, `oifname "wwan0" accept`) || strings.Contains(wg, `oifname "eth0" accept`) {
+	if strings.Contains(wg, `oifname "wwan*" accept`) || strings.Contains(wg, `oifname "eth0" accept`) {
 		t.Error("WireGuard fail-closed: a non-tunnel exit is open")
 	}
-	if !strings.Contains(wg, `"wan->pi"`) {
-		t.Error("WireGuard on: the modem lost its guards")
+	if !strings.Contains(wg, `"wan->pi"`) || !strings.Contains(wg, `"wg->in"`) {
+		t.Error("WireGuard on: lost a guard")
 	}
 }
 
@@ -180,5 +202,21 @@ func TestDetectModem(t *testing.T) {
 	m := h.DetectModem()
 	if m == nil || m.USB != "1e0e:9001" || m.Maker != "SIMCom" || strings.Join(m.Interfaces, ",") != "wwan0" || !m.Managed {
 		t.Fatalf("modem %+v", m)
+	}
+}
+
+func TestDetectModemHuaweiNeedsWwan(t *testing.T) {
+	root := t.TempDir()
+	dev := filepath.Join(root, "sys/bus/usb/devices/1-2")
+	_ = os.MkdirAll(dev, 0o755)
+	_ = os.WriteFile(filepath.Join(dev, "idVendor"), []byte("12d1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dev, "idProduct"), []byte("1f01\n"), 0o644)
+	h := Host{Root: root, Run: func(string, ...string) ([]byte, error) { return []byte("No modems were found\n"), nil }}
+	if m := h.DetectModem(); m != nil {
+		t.Fatalf("a Huawei USB device with no wwan counted as a modem: %+v", m)
+	}
+	_ = os.MkdirAll(filepath.Join(root, "sys/class/net/wwan0"), 0o755)
+	if m := h.DetectModem(); m == nil || m.Maker != "Huawei" {
+		t.Fatalf("Huawei with wwan0: %+v", m)
 	}
 }

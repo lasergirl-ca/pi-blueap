@@ -142,6 +142,11 @@ func (d *Daemon) setNetwork(ctx context.Context, ch setup.NetworkChange) (ctl.Ne
 	if err != nil {
 		return no, err
 	}
+	// Choosing Ethernet or Wi-Fi while 4G is the only uplink keeps 4G as the backup
+	// rather than refusing the change (D-076).
+	if u := strings.TrimSpace(ch.Uplink); u != "" && cur.Mobile.Enabled && cur.Mobile.Role == "only" && u != cur.Mobile.Interface {
+		edits = append(edits, setup.KV{Section: "mobile", Key: "role", Value: setup.TOMLString("backup")})
+	}
 	if u := strings.TrimSpace(ch.Uplink); u != "" && u != cur.Network.Uplink && !d.host().HasIface(u) {
 		return no, fmt.Errorf("uplink: this Pi has no interface called %q", u)
 	}

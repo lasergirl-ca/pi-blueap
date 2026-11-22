@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,6 +57,17 @@ func SystemAddrs() ([]IfAddr, error) {
 
 // palmIface reports whether an interface is on the Palm side: the PAN bridge,
 // a bnep port or a PPP link (PLAN.md section 8.12, "Binding and exposure").
+// untrusted says whether iface is one the UI never listens on; "wwan*" matches
+// any wwan interface (D-076).
+func untrusted(list []string, iface string) bool {
+	for _, u := range list {
+		if p, ok := strings.CutSuffix(u, "*"); ok && strings.HasPrefix(iface, p) || u == iface {
+			return true
+		}
+	}
+	return false
+}
+
 func palmIface(name, bridge string) bool {
 	return name == bridge || strings.HasPrefix(name, "bnep") || strings.HasPrefix(name, "ppp")
 }
@@ -98,7 +108,7 @@ func wanted(o Options, addrs []IfAddr) []bindSpec {
 			btPort = port
 		}
 		for _, a := range addrs {
-			if palmIface(a.Iface, o.Bridge) || a.IP.String() == o.Gateway || slices.Contains(o.Untrusted, a.Iface) {
+			if palmIface(a.Iface, o.Bridge) || a.IP.String() == o.Gateway || untrusted(o.Untrusted, a.Iface) {
 				continue
 			}
 			if host == "" || host == "0.0.0.0" || host == a.IP.String() {

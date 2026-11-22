@@ -95,7 +95,7 @@ func New(o Options) (*Server, error) {
 		o.Untrusted = append(o.Untrusted, cfg.WireGuard.Interface)
 	}
 	if cfg.Mobile.Enabled {
-		o.Untrusted = append(o.Untrusted, cfg.Mobile.Interface)
+		o.Untrusted = append(o.Untrusted, cfg.Mobile.Match())
 	}
 	o.BluetoothSide = cfg.Web.BluetoothSide
 	o.SessionTTL = time.Duration(cfg.Web.SessionHours) * time.Hour

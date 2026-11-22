@@ -1767,12 +1767,11 @@ func (c *cli) mobile(args []string) int {
 		if !need(1, "pin   (then type the PIN and press Return)") {
 			return 2
 		}
-		fmt.Fprint(c.stderr, "SIM PIN: ")
-		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-		if err != nil && line == "" {
+		pin, err := readSecret(c.stderr, "SIM PIN: ")
+		if err != nil {
 			return c.fail(err)
 		}
-		return set("mobile.pin", MobileRequest{PIN: strings.TrimSpace(line)})
+		return set("mobile.pin", MobileRequest{PIN: strings.TrimSpace(pin)})
 	}
 	fmt.Fprintln(c.stderr, "palm-gwctl mobile [show|on|off|role|apn|roaming|pin]")
 	return 2

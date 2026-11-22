@@ -100,64 +100,106 @@ func (d *Daemon) probeUplink(ctx context.Context, iface, check string) error {
 	return last
 }
 
-// setModemMetric moves the modem's routes, for now only (NetworkManager's runtime
-// change; the profile keeps its own metric for the next boot).
-func (d *Daemon) setModemMetric(ctx context.Context, iface string, metric int) error {
-	m := strconv.Itoa(metric)
-	out, err := d.command(ctx, "nmcli", "device", "modify", iface, "ipv4.route-metric", m, "ipv6.route-metric", m)
+// modemDevice is the NetworkManager device behind the modem's connection: for a
+// modem ModemManager drives, its control port (cdc-wdm0), not wwan0; in router
+// mode, the interface itself.
+func (d *Daemon) modemDevice(ctx context.Context, m config.Mobile) string {
+	if out, err := d.command(ctx, "nmcli", "-g", "GENERAL.DEVICES", "connection", "show", setup.MobileProfile); err == nil {
+		if dev := strings.TrimSpace(string(out)); dev != "" && !strings.ContainsAny(dev, " \n") {
+			return dev
+		}
+	}
+	return m.Interface
+}
+
+// modemMetric is the metric of the modem's IPv4 default route now, and whether it
+// has one (a modem that is down has none).
+func (d *Daemon) modemMetric(ctx context.Context, m config.Mobile) (int, bool) {
+	out, err := d.command(ctx, "ip", "-j", "-4", "route", "show", "default")
 	if err != nil {
-		return fmt.Errorf("nmcli device modify %s: %w: %s", iface, err, strings.TrimSpace(string(out)))
+		return 0, false
+	}
+	var routes []struct {
+		Dev    string `json:"dev"`
+		Metric int    `json:"metric"`
+	}
+	if json.Unmarshal(out, &routes) != nil {
+		return 0, false
+	}
+	match := m.Match()
+	for _, r := range routes {
+		if r.Dev == match || (strings.HasSuffix(match, "*") && strings.HasPrefix(r.Dev, strings.TrimSuffix(match, "*"))) {
+			return r.Metric, true
+		}
+	}
+	return 0, false
+}
+
+// ensureModemMetric puts the modem's routes at metric, for now only (NetworkManager's
+// runtime change; the profile keeps its own for the next boot), when they are
+// elsewhere. Run on every check, it also puts right what a redial of the modem or a
+// restart of palm-gwd during a failover left behind.
+func (d *Daemon) ensureModemMetric(ctx context.Context, m config.Mobile, metric int) error {
+	cur, ok := d.modemMetric(ctx, m)
+	if !ok || cur == metric {
+		return nil
+	}
+	dev := d.modemDevice(ctx, m)
+	v := strconv.Itoa(metric)
+	out, err := d.command(ctx, "nmcli", "device", "modify", dev, "ipv4.route-metric", v, "ipv6.route-metric", v)
+	if err != nil {
+		return fmt.Errorf("nmcli device modify %s: %w: %s", dev, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
 // mobileStep is one check of the backup role: probe the uplink, fail over after
-// mobileFailAfter failures, hand back after mobileRestoreHold of answers.
+// mobileFailAfter failures, hand back after mobileRestoreHold of answers, and keep
+// the modem's route metric where the state says it should be.
 func (d *Daemon) mobileStep(ctx context.Context, cfg *config.Config, now time.Time) {
 	w := d.mob()
 	m := cfg.Mobile
 	if !m.Enabled || m.Role != "backup" {
 		w.mu.Lock()
-		was := w.failedOver
 		w.failedOver, w.fails, w.okSince, w.uplinkOK = false, 0, time.Time{}, false
 		w.mu.Unlock()
-		if was && m.Enabled {
-			_ = d.setModemMetric(ctx, m.Interface, setup.MobileMetric(m))
+		if m.Enabled {
+			_ = d.ensureModemMetric(ctx, m, setup.MobileMetric(m))
 		}
 		return
 	}
 	err := d.probeUplink(ctx, cfg.Network.Uplink, m.Check)
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	w.uplinkOK = err == nil
-	if err != nil {
+	switch {
+	case err != nil:
 		w.fails++
 		w.okSince = time.Time{}
 		if !w.failedOver && w.fails >= mobileFailAfter {
-			if merr := d.setModemMetric(ctx, m.Interface, mobileMetricFront); merr != nil {
-				d.log.Error("4G failover failed", "event", "uplink_failover_error", "err", merr)
-				return
-			}
 			w.failedOver = true
 			d.log.Warn("the uplink lost the internet; 4G takes over", "event", "uplink_failover",
 				"uplink", cfg.Network.Uplink, "modem", m.Interface, "check", m.Check, "err", err.Error())
 			d.events.Emit("uplink_failover", "", "")
 		}
-		return
-	}
-	w.fails = 0
-	if w.okSince.IsZero() {
-		w.okSince = now
-	}
-	if w.failedOver && now.Sub(w.okSince) >= mobileRestoreHold {
-		if merr := d.setModemMetric(ctx, m.Interface, setup.MobileMetric(m)); merr != nil {
-			d.log.Error("4G hand-back failed", "event", "uplink_restore_error", "err", merr)
-			return
+	default:
+		w.fails = 0
+		if w.okSince.IsZero() {
+			w.okSince = now
 		}
-		w.failedOver = false
-		d.log.Info("the uplink has the internet again; 4G hands back", "event", "uplink_restored",
-			"uplink", cfg.Network.Uplink, "modem", m.Interface)
-		d.events.Emit("uplink_restored", "", "")
+		if w.failedOver && now.Sub(w.okSince) >= mobileRestoreHold {
+			w.failedOver = false
+			d.log.Info("the uplink has the internet again; 4G hands back", "event", "uplink_restored",
+				"uplink", cfg.Network.Uplink, "modem", m.Interface)
+			d.events.Emit("uplink_restored", "", "")
+		}
+	}
+	want := setup.MobileMetric(m)
+	if w.failedOver {
+		want = mobileMetricFront
+	}
+	w.mu.Unlock()
+	if merr := d.ensureModemMetric(ctx, m, want); merr != nil {
+		d.log.Error("4G route metric not set", "event", "uplink_metric_error", "want", want, "err", merr)
 	}
 }
 

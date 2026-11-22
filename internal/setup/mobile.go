@@ -36,7 +36,7 @@ const (
 
 // RouterMode says whether the modem appears as a USB network card that routes by
 // itself (usb0) rather than through ModemManager (wwan*).
-func RouterMode(m config.Mobile) bool { return !strings.HasPrefix(m.Interface, "wwan") }
+func RouterMode(m config.Mobile) bool { return m.Match() != "wwan*" }
 
 // MobileMetric is the modem's route metric for its role.
 func MobileMetric(m config.Mobile) int {
@@ -163,6 +163,13 @@ func (a *applier) applyMobile(cfg *config.Config, m *Manifest) error {
 	if RouterMode(g) {
 		how = "router mode"
 	}
+	// Bring it up only when it changed or is down: every "up" redials the modem, which
+	// gets a new address and drops a WireGuard tunnel over it.
+	if out, err := a.run("nmcli", "-t", "-f", "NAME", "connection", "show", "--active"); !ch && err == nil &&
+		strings.Contains("\n"+string(out), "\n"+MobileProfile+"\n") {
+		a.note("4G: %s unchanged and up on %s (%s, role %s)", MobileProfile, g.Interface, how, g.Role)
+		return nil
+	}
 	if _, err := a.run("nmcli", "connection", "up", MobileProfile); err != nil {
 		a.warn("4G: %s did not come up (is the modem plugged in, with a SIM?); NetworkManager brings it up when it can", MobileProfile)
 	} else {
@@ -195,10 +202,13 @@ func (h Host) DetectModem() *Modem {
 			if err != nil {
 				continue
 			}
-			if maker, ok := lteVendors[strings.TrimSpace(string(v))]; ok {
+			vid := strings.TrimSpace(string(v))
+			if maker, ok := lteVendors[vid]; ok {
 				p, _ := h.read(filepath.Join("sys/bus/usb/devices", d.Name(), "idProduct"))
-				m.USB, m.Maker = strings.TrimSpace(string(v))+":"+strings.TrimSpace(string(p)), maker
-				found = true
+				m.USB, m.Maker = vid+":"+strings.TrimSpace(string(p)), maker
+				// Huawei and ZTE make other USB things too: theirs count only with a
+				// wwan interface or ModemManager's word (below).
+				found = vid != "12d1" && vid != "19d2"
 				break
 			}
 		}
@@ -206,7 +216,7 @@ func (h Host) DetectModem() *Modem {
 	if ifs, err := os.ReadDir(h.path("sys/class/net")); err == nil {
 		for _, i := range ifs {
 			n := i.Name()
-			if strings.HasPrefix(n, "wwan") || (found && strings.HasPrefix(n, "usb")) {
+			if strings.HasPrefix(n, "wwan") || (m.USB != "" && strings.HasPrefix(n, "usb")) {
 				m.Interfaces = append(m.Interfaces, n)
 				found = true
 			}
@@ -215,7 +225,7 @@ func (h Host) DetectModem() *Modem {
 	if out, err := h.run("mmcli", "-L"); err == nil && strings.Contains(string(out), "/Modem/") {
 		m.Managed, found = true, true
 	}
-	if !found {
+	if !found || (m.USB != "" && len(m.Interfaces) == 0 && !m.Managed && (strings.HasPrefix(m.USB, "12d1:") || strings.HasPrefix(m.USB, "19d2:"))) {
 		return nil
 	}
 	return &m

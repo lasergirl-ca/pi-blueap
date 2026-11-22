@@ -3440,3 +3440,15 @@ backup), settings (APN, "Only internet (no backup)", "Allow roaming"), and "Unlo
 with the PIN masked (`gInSecret`). `modef` is 17,440 bytes; `check-sections` passes; the host
 tests pass. Not yet on the T|X.
 
+### The 4G branch's review (D-076), 2026-11-22
+
+A read-only review found nine problems; each is fixed with a test where it can be:
+- `TestMobileFirewall` and `TestWGFirewall`: `wan->in` and `wg->in` drop all but replies;
+  `wwan*`; router mode on `usb0` once; a fail-closed tunnel keeps both guards.
+- `TestMobileFailover`: the device is `cdc-wdm0`; a redial back to 700 is put in front again;
+  an unchanged metric costs no `nmcli` call. `TestMobileRestartDuringFailover`: a metric left
+  at 50 goes back to 700 when the uplink answers.
+- `TestApplyMobile`: no redial when the keyfile is unchanged and the connection active.
+- `TestDetectModemHuaweiNeedsWwan`, `TestMobileValidation` (no firewall), `TestWanted`
+  (`wwan1` skipped), `TestUplinkChoiceMovesFourGToBackup`.
+

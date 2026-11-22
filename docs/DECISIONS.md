@@ -1377,6 +1377,32 @@ Where Part 2 (`internal/setup/mobile.go`) fills in D-074 and docs/MOBILE.md:
   ModemManager lists) and warns when one is on a Pi 5 supply under 5 A.
 - **ModemManager is now a package dependency**, so the image ships it.
 
+### D-076: The tunnel's and the modem's forward rules drop everything but replies; wwan*
+
+A review of the 4G branch (2026-11-22) found, and this fixes:
+- **The forward rules were too narrow,** in WireGuard (v0.7.0) as in the 4G branch. `wg->palm`
+  and `wan->palm` dropped only new connections into the Palm network. Anything else the far side
+  sent to the Pi to forward (to the home LAN, from the modem to the tunnel, conntrack-invalid
+  packets) passed the base chain's `policy accept`. They are now `wg->in` and `wan->in`:
+  `ct state != { established, related } drop`, whatever the destination.
+- **A ModemManager modem is matched as `wwan*`** (`config.Mobile.Match`), in the firewall and the
+  web UI's untrusted list, since a reset can bring it back as `wwan1` with the Pi's services on
+  a carrier address. Router mode keeps the exact interface.
+- **4G needs `firewall.manage_nftables = true`;** without it there is no WAN firewall at all.
+- **The failover finds NetworkManager's device** for the modem's connection (the control port,
+  `cdc-wdm0`, not `wwan0`), and on every check puts the route metric where the state says,
+  only when it is elsewhere. That also covers a redial (back to the profile's metric) and a
+  restart of palm-gwd during a failover (left at 50).
+- **An apply redials the modem only** when its connection file changed or it is not active, so
+  changing another setting does not cost the modem its address and the tunnel over it.
+- **The SIM PIN is not echoed** by `palm-gwctl mobile pin` or `palm-gw setup --mobile-pin` on a
+  terminal.
+- **A Huawei or ZTE USB device counts as a modem** only with a `wwan*` interface or
+  ModemManager listing it.
+- **Choosing Ethernet or Wi-Fi as the uplink** while 4G is the only one moves 4G to backup,
+  rather than refusing.
+- **The Palm app's APN buffer** holds the 100 characters the gateway allows.
+
 ## Hardware observations
 
 ### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)

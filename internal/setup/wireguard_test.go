@@ -182,7 +182,7 @@ func TestWGFirewall(t *testing.T) {
 	cfg.WireGuard.Enabled = true // full, fail_closed by default
 	on := renderNft(t, cfg)
 	for _, want := range []string{
-		`iifname "wg0" oifname { "br-palm", "ppp*" } ct state new counter drop comment "wg->palm"`,
+		`iifname "wg0" ct state != { established, related } counter drop comment "wg->in"`,
 		`iifname "wg0" ct state new counter drop comment "wg->pi"`,
 		`ip saddr 10.42.0.0/24 oifname "wg0" masquerade`,
 		`oifname "wg0" accept`,

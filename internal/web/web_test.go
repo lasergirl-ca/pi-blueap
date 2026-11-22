@@ -453,8 +453,8 @@ func TestWanted(t *testing.T) {
 	}
 
 	// The tunnel and a 4G modem are never listened on (D-069, D-074).
-	o = Options{Listen: []string{"0.0.0.0:8042"}, Gateway: "10.42.0.1", Bridge: "br-palm", Untrusted: []string{"wg0", "wwan0"}, ConnectedPort: 80}
-	got = wanted(o, append(addrs, IfAddr{"wg0", net.IPv4(10, 17, 200, 5)}, IfAddr{"wwan0", net.IPv4(100, 72, 9, 14)}))
+	o = Options{Listen: []string{"0.0.0.0:8042"}, Gateway: "10.42.0.1", Bridge: "br-palm", Untrusted: []string{"wg0", "wwan*"}, ConnectedPort: 80}
+	got = wanted(o, append(addrs, IfAddr{"wg0", net.IPv4(10, 17, 200, 5)}, IfAddr{"wwan1", net.IPv4(100, 72, 9, 14)}))
 	for _, b := range got {
 		if strings.HasPrefix(b.Addr, "10.17.200.5:") || strings.HasPrefix(b.Addr, "100.72.9.14:") {
 			t.Errorf("listens on an untrusted interface: %v", b)

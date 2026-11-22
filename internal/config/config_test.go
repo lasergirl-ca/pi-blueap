@@ -278,6 +278,7 @@ func TestMobileValidation(t *testing.T) {
 		{"negative warning", func(c *Config) { c.Mobile.DataWarningMB = -1 }, "mobile.data_warning_mb"},
 		{"only, uplink elsewhere", func(c *Config) { c.Mobile.Enabled = true }, "mobile.role"},
 		{"backup, uplink is the modem", func(c *Config) { only(c); c.Mobile.Role = "backup" }, "mobile.role"},
+		{"no firewall to guard it", func(c *Config) { only(c); c.Firewall.ManageNftables = false }, "mobile.enabled"},
 	}
 	for _, tc := range bad {
 		t.Run(tc.name, func(t *testing.T) {

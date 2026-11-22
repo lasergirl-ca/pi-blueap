@@ -543,6 +543,9 @@ func (c *Config) validateMobile(add func(string, string, ...any)) {
 	if !m.Enabled {
 		return
 	}
+	if !c.Firewall.ManageNftables {
+		add("mobile.enabled", "needs firewall.manage_nftables = true: the modem faces the internet and must be firewalled as a WAN")
+	}
 	switch {
 	case m.Role == "only" && c.Network.Uplink != m.Interface:
 		add("mobile.role", `"only" makes the modem the uplink: network.uplink must be %q, not %q`, m.Interface, c.Network.Uplink)

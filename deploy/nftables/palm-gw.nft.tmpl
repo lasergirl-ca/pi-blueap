@@ -21,10 +21,10 @@ table inet palm_gw {
     # policy accept + jump means this table coexists with any other firewall on the Pi.
     chain forward {
         type filter hook forward priority filter; policy accept;
-{{if WG}}        # Nothing starts a connection from the tunnel into the Palm network (D-069)
-        iifname "{{WG_IF}}" oifname { "{{BRIDGE}}", "ppp*" } ct state new counter drop comment "wg->palm"
-{{end}}{{if WAN}}        # The 4G modem faces the internet: nothing starts a connection from it into the Palm network (D-074)
-        iifname "{{WAN_IF}}" oifname { "{{BRIDGE}}", "ppp*" } ct state new counter drop comment "wan->palm"
+{{if WG}}        # Only replies come in from the tunnel: nothing it starts reaches a Palm, the LAN or anything else (D-069, D-076)
+        iifname "{{WG_IF}}" ct state != { established, related } counter drop comment "wg->in"
+{{end}}{{if WAN}}        # The 4G modem faces the internet: only replies come in through it (D-074, D-076)
+        iifname "{{WAN_IF}}" ct state != { established, related } counter drop comment "wan->in"
 {{end}}        iifname "{{BRIDGE}}" jump palm_forward
         iifname "ppp*"    jump palm_forward
     }

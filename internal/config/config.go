@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -164,6 +165,16 @@ type Mobile struct {
 	Roaming       bool   `toml:"roaming" json:"roaming"`
 	Check         string `toml:"check" json:"check"` // an IPv4 address that answers on TCP 53 or 443, tried through each uplink
 	DataWarningMB int    `toml:"data_warning_mb" json:"data_warning_mb"`
+}
+
+// Match is how rules name the modem's interface: any wwan* for a modem ModemManager
+// drives, since it can come back under another number after a reset; the exact
+// interface for a modem in router mode (D-074).
+func (m Mobile) Match() string {
+	if strings.HasPrefix(m.Interface, "wwan") {
+		return "wwan*"
+	}
+	return m.Interface
 }
 
 // Default returns the configuration that an empty file yields (PLAN.md section 7).

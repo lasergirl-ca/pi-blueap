@@ -43,7 +43,7 @@ static Boolean gWgOn, gWgUp, gWgClosed;
 static Char gWgNets[64];     /* a split tunnel's networks; "" for all traffic */
 /* the 4G modem (D-074), from GET mobile */
 static Boolean gMobOn, gMobOnly, gMobRoam, gMobLocked;
-static Char gMobAPN[48];
+static Char gMobAPN[101];   /* up to [mobile] apn's 100 characters */
 static Char gLogEvent[24], gLogText[40];
 
 static void setLabels(const Char *a, const Char *b, const Char *c)
@@ -761,7 +761,7 @@ static void loadMobile(void)
 static Boolean mobileMenu(UInt16 item)
 {
 	KvRecord r;
-	Char apn[48], pin[10];
+	Char apn[101], pin[10];
 	Boolean only = gMobOnly, roam = gMobRoam;
 
 	formReset();

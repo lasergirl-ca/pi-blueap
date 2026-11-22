@@ -1,6 +1,6 @@
 # 4G mobile uplink: design
 
-**Status:** design agreed 2026-11-22 (D-074); not built yet. To be tested on a third Pi 5
+**Status:** built 2026-11-22 on branch `mobile` (D-074 to D-076); not yet tested with a modem. To be tested on a third Pi 5
 with a proper supply (Lyman is in the field; Surrey's supply is too weak for a modem).
 
 ## Goal
@@ -63,7 +63,9 @@ the tunnel from the new address.
 
 ## The WAN firewall
 
-The modem's interface is treated as hostile, in `table inet palm_gw` (so IPv6 too):
+The modem's interface is treated as hostile, in `table inet palm_gw` (so IPv6 too). Rules name
+`wwan*` for a ModemManager modem, which can come back as `wwan1` after a reset, and the exact
+interface in router mode (D-076):
 
 ```
 chain input {        # the Pi itself
@@ -73,7 +75,7 @@ chain input {        # the Pi itself
     iifname "{{WAN}}" counter drop comment "wan->pi"         # no SSH, web UI or anything else from the internet
 }
 chain forward {
-    iifname "{{WAN}}" oifname { "{{BRIDGE}}", "ppp*" } ct state new counter drop comment "wan->palm"
+    iifname "{{WAN}}" ct state != { established, related } counter drop comment "wan->in"   # replies only, to anywhere
 }
 chain postrouting { ip saddr {{SUBNET}} oifname "{{WAN}}" masquerade }
 chain palm_forward { ... after palm->rfc1918:

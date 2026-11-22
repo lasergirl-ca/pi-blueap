@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"palm-gw/internal/bluez"
 	"palm-gw/internal/config"
 	"palm-gw/internal/setup"
@@ -89,7 +91,15 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "palm-gw setup --mobile-pin: run as root (the PIN is kept root only)")
 			return 1
 		}
-		b, err := io.ReadAll(io.LimitReader(os.Stdin, 64))
+		var b []byte
+		var err error
+		if fd := int(os.Stdin.Fd()); term.IsTerminal(fd) {
+			fmt.Fprint(stderr, "SIM PIN: ")
+			b, err = term.ReadPassword(fd) // not echoed
+			fmt.Fprintln(stderr)
+		} else {
+			b, err = io.ReadAll(io.LimitReader(os.Stdin, 64))
+		}
 		if err == nil {
 			err = setup.StashMobilePIN("/", setup.StateDir, string(b))
 		}

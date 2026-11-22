@@ -105,16 +105,19 @@ oifname "{{UPLINK}}" accept                               # only when on_down = 
 counter drop comment "palm->other"
 ```
 
-Nothing may start a connection from the tunnel into the Palm network, so a concentrator that
-routes 10.42.0.0/24 back to the Pi still cannot reach a Palm:
+Only replies come in from the tunnel: nothing the far side starts reaches a Palm, the home LAN or
+anything else the Pi forwards to (D-076), and nothing reaches the Pi itself:
 
 ```
-chain forward { …
-    iifname "wg0" oifname { "ppp*", "{{BRIDGE}}" } ct state new counter drop comment "wg->palm"
+chain forward { ...
+    iifname "wg0" ct state != { established, related } counter drop comment "wg->in"
+}
+chain input { ...
+    iifname "wg0" ct state new counter drop comment "wg->pi"
 }
 ```
 
-The firewall page and `palm-gwctl firewall counters` show `wg->palm` with the other drops.
+The firewall page and `palm-gwctl firewall counters` show `wg->in` and `wg->pi` with the other drops.
 
 ### 4. When the tunnel is down
 

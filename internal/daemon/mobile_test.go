@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,18 +18,34 @@ import (
 	"palm-gw/internal/setup"
 )
 
-// mobileFixture is the network fixture with the 4G commands and a recorder for
-// nmcli's route changes.
+// modemRoute is the fake modem's default route metric; 0 = no route.
+var modemRoute int
+
+// mobileFixture is the network fixture with the 4G commands, a recorder for
+// nmcli's route changes, and a modem whose default route has metric modemRoute.
 func mobileFixture(t *testing.T) (*netFixture, *[]string) {
 	t.Helper()
 	f := newNetFixture(t)
 	f.d.events = event.New()
+	modemRoute = 700
 	var nmcli []string
 	inner := f.d.opts.Command
 	f.d.opts.Command = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		if name == "nmcli" {
-			nmcli = append(nmcli, strings.Join(args, " "))
+		line := strings.Join(args, " ")
+		switch {
+		case name == "nmcli" && strings.HasPrefix(line, "-g GENERAL.DEVICES"):
+			return []byte("cdc-wdm0\n"), nil
+		case name == "nmcli":
+			nmcli = append(nmcli, line)
+			if strings.HasPrefix(line, "device modify cdc-wdm0 ipv4.route-metric ") {
+				_, _ = fmt.Sscanf(strings.Fields(line)[4], "%d", &modemRoute)
+			}
 			return nil, nil
+		case name == "ip" && strings.Contains(line, "route show default"):
+			if modemRoute == 0 {
+				return []byte(`[{"dst":"default","dev":"eth0","metric":100}]`), nil
+			}
+			return []byte(fmt.Sprintf(`[{"dst":"default","dev":"eth0","metric":100},{"dst":"default","dev":"wwan0","metric":%d}]`, modemRoute)), nil
 		}
 		return inner(ctx, name, args...)
 	}
@@ -62,8 +79,14 @@ func TestMobileFailover(t *testing.T) {
 		t.Fatal("failed over after 2 misses")
 	}
 	f.d.mobileStep(ctx, cfg, now)
-	if !f.d.mob().failedOver || (*nmcli)[0] != "device modify wwan0 ipv4.route-metric 50 ipv6.route-metric 50" {
+	if !f.d.mob().failedOver || (*nmcli)[0] != "device modify cdc-wdm0 ipv4.route-metric 50 ipv6.route-metric 50" {
 		t.Fatalf("no failover after 3 misses: %v", *nmcli)
+	}
+	// The modem redials while failed over and comes back at 700: the next check puts it in front again.
+	modemRoute = 700
+	f.d.mobileStep(ctx, cfg, now.Add(10*time.Second))
+	if modemRoute != 50 {
+		t.Fatalf("after a redial the modem stays at %d", modemRoute)
 	}
 	up = true
 	f.d.mobileStep(ctx, cfg, now.Add(30*time.Second))
@@ -72,8 +95,14 @@ func TestMobileFailover(t *testing.T) {
 		t.Fatal("handed back before 2 minutes of answers")
 	}
 	f.d.mobileStep(ctx, cfg, now.Add(2*time.Minute+30*time.Second))
-	if f.d.mob().failedOver || (*nmcli)[len(*nmcli)-1] != "device modify wwan0 ipv4.route-metric 700 ipv6.route-metric 700" {
+	if f.d.mob().failedOver || (*nmcli)[len(*nmcli)-1] != "device modify cdc-wdm0 ipv4.route-metric 700 ipv6.route-metric 700" {
 		t.Fatalf("no hand-back: %v", *nmcli)
+	}
+	// Nothing to change: no nmcli call.
+	calls := len(*nmcli)
+	f.d.mobileStep(ctx, cfg, now.Add(2*time.Minute+40*time.Second))
+	if len(*nmcli) != calls {
+		t.Fatalf("modified an unchanged metric: %v", (*nmcli)[calls:])
 	}
 	// One miss after a hand-back does not fail over again.
 	up = false
@@ -177,5 +206,36 @@ func TestMobileStatusAndPIN(t *testing.T) {
 	}
 	if fi, err := os.Stat(filepath.Join(filepath.Dir(f.d.opts.StatePath), setup.MobilePendingPIN)); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("pending PIN: %v %v", fi, err)
+	}
+}
+
+// palm-gwd restarted during a failover: its state is "standing by", and the first
+// check puts the modem back behind the uplink, which answers.
+func TestMobileRestartDuringFailover(t *testing.T) {
+	f, nmcli := mobileFixture(t)
+	cfg := config.Default()
+	cfg.Mobile.Enabled, cfg.Mobile.Role = true, "backup"
+	f.d.cfgp.Store(cfg)
+	modemRoute = 50
+	f.d.opts.Probe = func(context.Context, string, string) error { return nil }
+	f.d.mobileStep(context.Background(), cfg, time.Now())
+	if modemRoute != 700 || len(*nmcli) != 1 {
+		t.Fatalf("after a restart: metric %d, calls %v", modemRoute, *nmcli)
+	}
+}
+
+// Choosing Ethernet while 4G is the only uplink makes 4G the backup.
+func TestUplinkChoiceMovesFourGToBackup(t *testing.T) {
+	f, _ := mobileFixture(t)
+	on := true
+	if _, err := wgCall[ctl.MobileSetReply](t, f, ctl.Request{Cmd: "mobile.set", Mobile: &ctl.MobileRequest{Enabled: &on}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.set(t, setup.NetworkChange{Uplink: "eth0"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(f.cfgPath)
+	if cfg.Network.Uplink != "eth0" || !cfg.Mobile.Enabled || cfg.Mobile.Role != "backup" {
+		t.Fatalf("uplink %s, mobile %+v", cfg.Network.Uplink, cfg.Mobile)
 	}
 }
