@@ -21,6 +21,7 @@ func (s *Server) internetRoutes(mux *http.ServeMux, side Side) {
 	mux.Handle("POST /internet/forget", a(s.wifiForget))
 	mux.Handle("POST /internet/radio", a(s.wifiRadio))
 	s.wgRoutes(mux, a)
+	s.mobileRoutes(mux, a)
 }
 
 // netRow is a scanned network as the page shows it.
@@ -108,6 +109,10 @@ func (s *Server) renderInternet(w http.ResponseWriter, r *http.Request, code int
 	var wg ctl.WGStatus
 	if err := s.call(r.Context(), ctl.Request{Cmd: "wg"}, &wg); err == nil {
 		data["WG"] = wg
+	}
+	var mob ctl.MobileStatus
+	if err := s.call(r.Context(), ctl.Request{Cmd: "mobile"}, &mob); err == nil {
+		data["Mobile"] = mob
 	}
 	for k, v := range extra {
 		data[k] = v

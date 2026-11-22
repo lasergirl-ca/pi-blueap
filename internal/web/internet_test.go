@@ -125,3 +125,51 @@ func TestInternetWireGuardViewer(t *testing.T) {
 		t.Error("a viewer sees the WireGuard forms")
 	}
 }
+
+func TestInternetMobile(t *testing.T) {
+	f, ts, c, tok := loggedIn(t, "admin", "admin-pw")
+	_, page, _ := get(t, c, ts.URL+"/internet")
+	for _, want := range []string{"<h2>Mobile (4G)", "It is off.", "Turn 4G on", "5 V 5 A"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("off: page lacks %s", want)
+		}
+	}
+	f.mu.Lock()
+	f.mob = ctl.MobileStatus{Enabled: true, Role: "backup", Interface: "wwan0", Up: true, IP: "100.72.9.14", Modem: true,
+		State: "connected", Tech: "LTE", Operator: "Rogers", Signal: 72, UplinkOK: true, MonthRxBytes: 3 << 20, MonthTxBytes: 1 << 20}
+	f.mu.Unlock()
+	_, page, _ = get(t, c, ts.URL+"/internet")
+	for _, want := range []string{"standing by", "4G stands by", "connected, LTE, Rogers, signal 72%", "<code>100.72.9.14</code>",
+		"nothing from it can reach this Pi or a Palm", `name="role" value="backup" checked`, "Turn 4G off"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("standing by: page lacks %s", want)
+		}
+	}
+	f.mu.Lock()
+	f.mob.FailedOver, f.mob.UplinkOK, f.mob.Locked = true, false, ""
+	f.mu.Unlock()
+	if _, page, _ = get(t, c, ts.URL+"/internet"); !strings.Contains(page, "4G has taken over") {
+		t.Error("failed over: not said")
+	}
+	f.mu.Lock()
+	f.mob.Locked, f.mob.State = "sim-pin", "locked"
+	f.mu.Unlock()
+	if _, page, _ = get(t, c, ts.URL+"/internet"); !strings.Contains(page, "the SIM needs its PIN") || !strings.Contains(page, "Unlock the SIM") {
+		t.Error("locked SIM: no PIN form")
+	}
+	// The form: the roaming box sent after its hidden 0 counts.
+	code, _, body := post(t, c, ts.URL+"/internet/mobile/set", url.Values{"csrf": {tok}, "role": {"only"}, "apn": {"ltemobile.apn"}, "roaming": {"0", "1"}})
+	req, _ := f.last("mobile.set")
+	if code != 200 || req.Mobile.Role != "only" || req.Mobile.APN == nil || *req.Mobile.APN != "ltemobile.apn" ||
+		req.Mobile.Roaming == nil || !*req.Mobile.Roaming || !strings.Contains(body, "4G: mobile.enabled") {
+		t.Errorf("set %d %+v", code, req.Mobile)
+	}
+	if code, _, body = post(t, c, ts.URL+"/internet/mobile/set", url.Values{"csrf": {tok}, "role": {"sometimes"}}); code != http.StatusBadRequest || !strings.Contains(body, "must be only or backup") {
+		t.Errorf("bad role %d", code)
+	}
+	post(t, c, ts.URL+"/internet/mobile/pin", url.Values{"csrf": {tok}, "pin": {"4321"}})
+	if req, _ := f.last("mobile.pin"); req.Mobile == nil || req.Mobile.PIN != "4321" {
+		t.Error("PIN not passed on")
+	}
+}
+

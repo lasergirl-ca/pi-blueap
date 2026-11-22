@@ -3425,3 +3425,10 @@ Not yet run with a modem: the new Pi and the SIM7600G-H are on order (Part 6).
 - A reply field named `error` reads as a failed call on the control socket, so the status's
   is `problem`.
 
+### 4G part 4: the web UI (D-074), 2026-11-22
+
+A Mobile (4G) card on the Internet page and `/api/v1/mobile`. Tests render it off (with the
+power note), standing by in the backup role, taken over after a failover, and with a locked SIM
+(the PIN form); check the settings form (role, APN, the roaming box sent after its hidden 0), a
+bad role shown as an error, the PIN passed on, and three rows in `TestAPIParity`.
+

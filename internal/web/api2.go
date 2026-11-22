@@ -19,6 +19,7 @@ import (
 func (s *Server) apiRoutes2(mux *http.ServeMux, side Side) {
 	a := func(h http.HandlerFunc) http.Handler { return s.apiAuth(side, h) }
 	s.wgAPIRoutes(mux, a)
+	s.mobileAPIRoutes(mux, a)
 	mux.Handle("POST /api/v1/devices/allow", a(s.apiDeviceAllow))
 	mux.Handle("POST /api/v1/firewall/save", a(s.apiFirewallSave))
 	mux.Handle("POST /api/v1/firewall/test", a(s.apiFirewallTest))

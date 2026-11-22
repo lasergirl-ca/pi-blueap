@@ -108,6 +108,46 @@
   </details>
   {{end}}{{end}}
 </section>{{end}}
+{{with .Mobile}}<section class="card">
+  <h2>Mobile (4G) {{if .Active}}<span class="badge">in use</span>{{else if and .Enabled .FailedOver}}<span class="badge">in use</span>{{else if .Enabled}}<span class="badge" style="background: var(--muted, #888)">{{if eq .Role "backup"}}standing by{{else}}not connected{{end}}</span>{{end}}</h2>
+  {{if .Enabled}}
+  <p>{{if eq .Role "only"}}The 4G modem is this gateway's internet connection.{{else if .FailedOver}}<strong>The connection above lost the internet; 4G has taken over.</strong> It hands back once the connection above has answered for 2 minutes.{{else}}4G stands by: it takes over if the connection above loses the internet.{{end}}
+     It is treated as the open internet: nothing from it can reach this Pi or a Palm.</p>
+  <dl>
+    <dt>Modem</dt><dd>{{if .RouterMode}}router mode on {{.Interface}}{{else if not .Modem}}<span class="error">{{.Problem}}</span>{{else if .Locked}}<span class="error">the SIM needs its {{if eq .Locked "sim-pin"}}PIN{{else}}{{.Locked}}{{end}}</span>{{else}}{{.State}}{{with .Tech}}, {{.}}{{end}}{{with .Operator}}, {{.}}{{end}}, signal {{.Signal}}%{{if .Roaming}}, <strong>roaming</strong>{{end}}{{end}}</dd>
+    <dt>Address</dt><dd>{{if .Up}}<code>{{.IP}}</code> on {{.Interface}}{{else}}none yet{{end}}</dd>
+    <dt>Data this month</dt><dd>{{bytes .MonthRxBytes}} in, {{bytes .MonthTxBytes}} out{{if .WarningMB}} (warning at {{.WarningMB}} MB){{end}}</dd>
+    <dt>APN</dt><dd>{{if .APN}}<code>{{.APN}}</code>{{else}}chosen by ModemManager{{end}}; roaming {{if .RoamingOK}}allowed{{else}}not allowed{{end}}</dd>
+  </dl>
+  {{if .Applying}}<p class="notice">Applying now: palm-gwd restarts in a moment.</p>{{end}}
+  {{if $admin}}
+  {{if and .Locked (not .RouterMode)}}<form method="post" action="/internet/mobile/pin" class="row"><input type="hidden" name="csrf" value="{{$csrf}}">
+    <input type="password" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" aria-label="SIM PIN" placeholder="SIM PIN" autocomplete="off" required>
+    <button type="submit">Unlock the SIM</button></form>{{end}}
+  <details><summary>4G settings</summary>
+    <form method="post" action="/internet/mobile/set" class="narrow-form"><input type="hidden" name="csrf" value="{{$csrf}}">
+      <fieldset><legend>Role</legend>
+        <label><input type="radio" name="role" value="only"{{if eq .Role "only"}} checked{{end}}> The only internet connection</label>
+        <label><input type="radio" name="role" value="backup"{{if eq .Role "backup"}} checked{{end}}> A backup when the connection above loses the internet</label>
+      </fieldset>
+      <label>APN <input name="apn" value="{{.APN}}" maxlength="100" placeholder="leave empty to let ModemManager choose"></label>
+      <input type="hidden" name="roaming" value="0"><label><input type="checkbox" name="roaming" value="1"{{if .RoamingOK}} checked{{end}}> Allow data while roaming</label>
+      <button type="submit">Save and apply</button>
+    </form></details>
+  <form method="post" action="/internet/mobile/set"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="enabled" value="0"><button type="submit" class="danger">Turn 4G off</button></form>
+  {{end}}
+  {{else}}
+  <p>A 4G USB modem (for example a SIM7600G-H) can be this gateway's internet, or a backup for the connection above, firewalled as the open internet. It is off.{{if .Modem}} A modem is plugged in{{with .Operator}} ({{.}}){{end}}.{{end}}</p>
+  {{if $admin}}<form method="post" action="/internet/mobile/set" class="narrow-form"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="enabled" value="1">
+    <fieldset><legend>Use it as</legend>
+      <label><input type="radio" name="role" value="backup" checked> A backup when the connection above loses the internet</label>
+      <label><input type="radio" name="role" value="only"> The only internet connection</label>
+    </fieldset>
+    <label>APN <input name="apn" maxlength="100" placeholder="leave empty to let ModemManager choose"></label>
+    <p class="muted">A Pi 5 needs its 5 V 5 A supply (or a powered USB hub) for a modem: it draws up to about 2 A when it transmits.</p>
+    <button type="submit">Turn 4G on</button></form>{{end}}
+  {{end}}
+</section>{{end}}
 {{if $admin}}<p class="muted">Switching between Ethernet and Wi-Fi rewrites the firewall and restarts palm-gwd, which takes about 20 seconds: connected Palms are disconnected and you log in again. A Wi-Fi network that cannot be joined within 45 seconds is removed again and the Pi goes back to the network it had. If this browser reaches the Pi over Wi-Fi, joining another network moves the Pi there, at a new address.</p>{{end}}
 {{template "foot" .}}{{end}}
 

@@ -41,7 +41,8 @@ type daemonFake struct {
 	rules  []config.AllowRule
 	set    map[string]json.RawMessage // config.set calls by key
 	job    *ctl.WifiJob
-	wg     ctl.WGStatus // the tunnel (D-069); zero = off
+	wg     ctl.WGStatus     // the tunnel (D-069); zero = off
+	mob    ctl.MobileStatus // the 4G modem (D-074); zero = off
 	// part 4
 	stateDir string
 	running  bool
@@ -204,6 +205,21 @@ func (f *daemonFake) Call(ctx context.Context, req ctl.Request, emit func(json.R
 			return errors.New("[Peer] PublicKey is missing or not a WireGuard key")
 		}
 		return send(ctl.WGSetReply{OK: true, Changed: []string{"wireguard.mode"}, Applying: true, Unit: "palm-gw-apply", Mode: "full"})
+	case "mobile":
+		f.mu.Lock()
+		m := f.mob
+		f.mu.Unlock()
+		if m.Interface == "" {
+			m = ctl.MobileStatus{Role: "only", Interface: "wwan0"}
+		}
+		return send(m)
+	case "mobile.set":
+		if req.Mobile != nil && req.Mobile.Role == "sometimes" {
+			return errors.New("not saved: mobile.role: must be only or backup")
+		}
+		return send(ctl.MobileSetReply{OK: true, Changed: []string{"mobile.enabled", "network.uplink"}, Applying: true, Unit: "palm-gw-apply"})
+	case "mobile.pin":
+		return send(ctl.MobileSetReply{OK: true, Changed: []string{"mobile.pin"}, Applying: true, Unit: "palm-gw-apply"})
 	case "wg.generate":
 		return send(ctl.WGSetReply{OK: true, Changed: []string{"wireguard.public_key"}, PublicKey: "pub-key-for-the-peer"})
 	case "internet":
