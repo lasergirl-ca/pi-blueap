@@ -412,6 +412,7 @@ type Report struct {
 	ConfigError  string         `json:"config_error,omitempty"`
 	Config       *config.Config `json:"-"`
 	Subnet       Subnet         `json:"subnet"`
+	Modem        *Modem         `json:"modem,omitempty"` // a 4G modem (D-074)
 	Warnings     []string       `json:"warnings"`
 }
 
@@ -490,6 +491,10 @@ func (h Host) Detect(cfgPath string) Report {
 		warn("the Pi is under-voltage right now (get_throttled=%#x); use the official power supply", r.Power.Throttled)
 	} else if r.Power.UnderVoltageSeen() {
 		warn("the Pi has been under-voltage since boot (get_throttled=%#x)", r.Power.Throttled)
+	}
+	r.Modem = h.DetectModem()
+	if r.Modem != nil && r.Board.ID == "pi5" && r.Power.MaxCurrentMA > 0 && r.Power.MaxCurrentMA < 5000 {
+		warn("a 4G modem is plugged in, but the Pi 5's supply negotiated %d mA (under 5 A), so USB ports share 600 mA; a modem draws up to about 2 A when it transmits: use a 5 V 5 A supply or a powered USB hub", r.Power.MaxCurrentMA)
 	}
 	if r.Board.ID == "pi5" && dongle && r.Power.MaxCurrentMA > 0 && r.Power.MaxCurrentMA < 5000 {
 		warn("Pi 5 supply negotiated %d mA (under 5 A), so USB ports share 600 mA; a Bluetooth dongle needs about 50 mA, which is fine unless other USB devices draw a lot", r.Power.MaxCurrentMA)

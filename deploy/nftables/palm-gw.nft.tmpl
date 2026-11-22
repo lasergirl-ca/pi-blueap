@@ -23,6 +23,8 @@ table inet palm_gw {
         type filter hook forward priority filter; policy accept;
 {{if WG}}        # Nothing starts a connection from the tunnel into the Palm network (D-069)
         iifname "{{WG_IF}}" oifname { "{{BRIDGE}}", "ppp*" } ct state new counter drop comment "wg->palm"
+{{end}}{{if WAN}}        # The 4G modem faces the internet: nothing starts a connection from it into the Palm network (D-074)
+        iifname "{{WAN_IF}}" oifname { "{{BRIDGE}}", "ppp*" } ct state new counter drop comment "wan->palm"
 {{end}}        iifname "{{BRIDGE}}" jump palm_forward
         iifname "ppp*"    jump palm_forward
     }
@@ -30,6 +32,13 @@ table inet palm_gw {
         type filter hook input priority filter; policy accept;
 {{if WG}}        # ... nor to the Pi itself: the far side is as locked out as the Palms (D-069)
         iifname "{{WG_IF}}" ct state new counter drop comment "wg->pi"
+{{end}}{{if WAN}}        # ... nor to the Pi: replies, its own address (DHCP in router mode, IPv6), and errors only (D-074)
+        iifname "{{WAN_IF}}" ct state established,related accept
+        iifname "{{WAN_IF}}" udp sport 67 udp dport 68 accept comment "DHCP from a modem in router mode"
+        iifname "{{WAN_IF}}" udp sport 547 udp dport 546 accept comment "DHCPv6"
+        iifname "{{WAN_IF}}" icmp type { destination-unreachable, time-exceeded } accept
+        iifname "{{WAN_IF}}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+        iifname "{{WAN_IF}}" counter drop comment "wan->pi"
 {{end}}        iifname "{{BRIDGE}}" jump palm_input
         iifname "ppp*"    jump palm_input
     }
@@ -37,6 +46,7 @@ table inet palm_gw {
         type nat hook postrouting priority srcnat; policy accept;
         ip saddr {{SUBNET}} oifname "{{UPLINK}}" masquerade
 {{if WG}}        ip saddr {{SUBNET}} oifname "{{WG_IF}}" masquerade
+{{end}}{{if WAN_SECOND}}        ip saddr {{SUBNET}} oifname "{{WAN_IF}}" masquerade
 {{end}}    }
 
     chain palm_forward {
@@ -51,7 +61,10 @@ table inet palm_gw {
         oifname "{{WG_IF}}" accept
 {{end}}{{if UPLINK_EXIT}}{{if MSS_CLAMP}}        oifname "{{UPLINK}}" tcp flags syn tcp option maxseg size set rt mtu
 {{end}}        oifname "{{UPLINK}}" accept
-{{end}}        counter drop comment "palm->other"
+{{if WAN_SECOND}}        # The 4G backup is an exit too, so a failover needs no reload (D-074)
+        oifname "{{WAN_IF}}" tcp flags syn tcp option maxseg size set rt mtu
+        oifname "{{WAN_IF}}" accept
+{{end}}{{end}}        counter drop comment "palm->other"
     }
     chain palm_input {
         ct state established,related accept

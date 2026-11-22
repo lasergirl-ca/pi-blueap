@@ -45,6 +45,9 @@ func LoadManifest(path string) (*Manifest, error) {
 // Add records a path.
 func (m *Manifest) Add(p string) { m.paths[p] = true }
 
+// Drop forgets a file setup no longer writes.
+func (m *Manifest) Drop(p string) { delete(m.paths, p) }
+
 // Paths returns the recorded paths, sorted.
 func (m *Manifest) Paths() []string {
 	out := make([]string, 0, len(m.paths))
@@ -105,7 +108,7 @@ func RemoveSystem(o RemoveOptions) error {
 	}
 	if out, err := a.run("nmcli", "-t", "-f", "NAME", "con", "show"); err == nil {
 		for _, l := range strings.Split(string(out), "\n") {
-			if name := strings.TrimSpace(l); name == bridge || name == WGProfile {
+			if name := strings.TrimSpace(l); name == bridge || name == WGProfile || name == MobileProfile {
 				if _, err := a.run("nmcli", "con", "delete", name); err == nil {
 					a.note("NetworkManager connection %s removed", name)
 				}
@@ -114,6 +117,7 @@ func RemoveSystem(o RemoveOptions) error {
 	}
 
 	_ = os.Remove(a.path(filepath.Join(o.StateDir, WGPendingKey))) // a WireGuard key never applied
+	_ = os.Remove(a.path(filepath.Join(o.StateDir, MobilePendingPIN))) // a SIM PIN never applied
 
 	a.say("Restoring %s", mainConfPath)
 	if ch, err := RemoveFile(a.path(mainConfPath)); err == nil && ch {

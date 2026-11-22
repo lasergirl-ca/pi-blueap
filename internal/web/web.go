@@ -54,6 +54,7 @@ type Options struct {
 	Listen        []string
 	Gateway       string
 	Bridge        string
+	Untrusted     []string // interfaces never listened on: the WireGuard tunnel and a 4G modem (D-069, D-074)
 	BluetoothSide bool
 	AllowCIDRs    []netip.Prefix
 	SessionTTL    time.Duration
@@ -89,6 +90,13 @@ func New(o Options) (*Server, error) {
 	o.Listen = cfg.Web.Listen
 	o.Gateway = cfg.Network.Gateway
 	o.Bridge = cfg.PAN.Bridge
+	o.Untrusted = nil
+	if cfg.WireGuard.Enabled {
+		o.Untrusted = append(o.Untrusted, cfg.WireGuard.Interface)
+	}
+	if cfg.Mobile.Enabled {
+		o.Untrusted = append(o.Untrusted, cfg.Mobile.Interface)
+	}
 	o.BluetoothSide = cfg.Web.BluetoothSide
 	o.SessionTTL = time.Duration(cfg.Web.SessionHours) * time.Hour
 	for _, c := range cfg.Web.AllowCIDRs {

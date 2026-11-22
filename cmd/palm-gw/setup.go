@@ -56,6 +56,7 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	remove := fs.Bool("remove", false, "undo --apply and a source install's files; keeps config and paired devices")
 	purge := fs.Bool("purge", false, "with --remove: also delete config.toml and the paired devices")
 	wgImport := fs.String("wg-import", "", "read a WireGuard .conf (wg-quick style; - for stdin) into [wireguard]; its private key waits, root only, for --apply")
+	mobilePIN := fs.Bool("mobile-pin", false, "read the 4G SIM's PIN from stdin; it waits, root only, for --apply, which writes it into NetworkManager's connection")
 	wgGenerate := fs.Bool("wg-generate", false, "make the gateway a WireGuard key pair and print its public key; the private key waits, root only, for --apply")
 	var wf wizardFlags
 	fs.StringVar(&wf.name, "name", "", "gateway name as the Palm sees it (PALM_GW_NAME)")
@@ -83,6 +84,21 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 		layout = l
 	}
 	switch {
+	case *mobilePIN:
+		if os.Geteuid() != 0 {
+			fmt.Fprintln(stderr, "palm-gw setup --mobile-pin: run as root (the PIN is kept root only)")
+			return 1
+		}
+		b, err := io.ReadAll(io.LimitReader(os.Stdin, 64))
+		if err == nil {
+			err = setup.StashMobilePIN("/", setup.StateDir, string(b))
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, "palm-gw setup --mobile-pin:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "SIM PIN kept for the next sudo palm-gw setup --apply.")
+		return 0
 	case *wgImport != "" || *wgGenerate:
 		return setupWireGuard(*wgImport, *cfgPath, stdout, stderr)
 	case *installFiles:
@@ -269,6 +285,17 @@ func printReport(w io.Writer, r setup.Report) {
 		power += fmt.Sprintf(", get_throttled=%#x", r.Power.Throttled)
 	}
 	fmt.Fprintf(w, "power:     %s\n", power)
+	if m := r.Modem; m != nil {
+		desc := strings.TrimSpace(m.Maker + " " + m.USB)
+		if desc == "" {
+			desc = "a modem"
+		}
+		mm := "ModemManager does not list it"
+		if m.Managed {
+			mm = "ModemManager lists it"
+		}
+		fmt.Fprintf(w, "modem:     %s, interfaces %s, %s\n", desc, strings.Join(m.Interfaces, " "), mm)
+	}
 	switch {
 	case r.ConfigError != "":
 		fmt.Fprintf(w, "config:    %s does not load\n", r.ConfigPath)

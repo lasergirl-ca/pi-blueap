@@ -237,6 +237,11 @@ func ApplySystem(o ApplyOptions) (ApplyResult, error) {
 		return a.res, fmt.Errorf("WireGuard: %w", err)
 	}
 
+	a.say("4G modem")
+	if err := a.applyMobile(cfg, m); err != nil {
+		return a.res, fmt.Errorf("4G: %w", err)
+	}
+
 	a.say("Bluetooth adapter mode")
 	mode, added, err := a.adapterMode(cfg, prev)
 	if err != nil {

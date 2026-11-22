@@ -451,6 +451,18 @@ func TestWanted(t *testing.T) {
 	if len(got) != 1 || got[0].Side != SideLAN {
 		t.Errorf("bridge down: %v", got)
 	}
+
+	// The tunnel and a 4G modem are never listened on (D-069, D-074).
+	o = Options{Listen: []string{"0.0.0.0:8042"}, Gateway: "10.42.0.1", Bridge: "br-palm", Untrusted: []string{"wg0", "wwan0"}, ConnectedPort: 80}
+	got = wanted(o, append(addrs, IfAddr{"wg0", net.IPv4(10, 17, 200, 5)}, IfAddr{"wwan0", net.IPv4(100, 72, 9, 14)}))
+	for _, b := range got {
+		if strings.HasPrefix(b.Addr, "10.17.200.5:") || strings.HasPrefix(b.Addr, "100.72.9.14:") {
+			t.Errorf("listens on an untrusted interface: %v", b)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("untrusted: %v", got)
+	}
 }
 
 // After a restart (or expiry) an htmx refresh must send the browser to the

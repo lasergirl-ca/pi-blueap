@@ -3385,3 +3385,26 @@ Lyman stays on the tunnel, full and fail closed. Surrey stays without one (AS393
   with rules 4241 and 4242 and table 4242 as before; `wg down` and `wg up` now answer with the
   state after the change.
 
+
+
+### 4G parts 1 and 2 (D-074, D-075), 2026-11-22, on branch `mobile`
+
+- Part 1: `[mobile]` in the schema, defaults, `config.example.toml` and validation;
+  `TestMobileValidation` checks each rule names its key, and the role against `network.uplink`.
+- Part 2, on the Mac: `go test ./...` passes; `internal/setup/mobile_test.go` checks the keyfile
+  (gsm with and without an APN, roaming, the PIN; router mode as a wired connection), the PIN
+  stash (4 to 8 digits, 0600), an apply (keyfile 0600 with the PIN, the PIN on no command line,
+  kept on a rewrite, a missing modem only a warning, removed when off), the firewall in each
+  role (and shut by a fail-closed WireGuard tunnel), and the modem probe. `TestWanted` checks
+  the web UI skips `wg0` and `wwan0`.
+- On Surrey, check only (`nft -c`, nothing loaded):
+
+  ```
+  nft-backup.nft       ok
+  nft-backup-wg.nft    ok
+  nft-only.nft         ok
+  nft-router.nft       ok
+  ```
+
+Not yet run with a modem: the new Pi and the SIM7600G-H are on order (Part 6).
+

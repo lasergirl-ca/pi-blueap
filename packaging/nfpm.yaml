@@ -24,6 +24,7 @@ depends:
   - dnsmasq-base
   - nftables
   - network-manager
+  - modemmanager # a 4G modem as the uplink (D-074); idle without one
 
 contents:
   # Binaries (Debian policy: /usr/bin). fake-palm is a test tool (PLAN.md section 9).

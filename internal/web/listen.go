@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"slices"
 	"net/http"
 	"sort"
 	"strconv"
@@ -97,7 +98,7 @@ func wanted(o Options, addrs []IfAddr) []bindSpec {
 			btPort = port
 		}
 		for _, a := range addrs {
-			if palmIface(a.Iface, o.Bridge) || a.IP.String() == o.Gateway {
+			if palmIface(a.Iface, o.Bridge) || a.IP.String() == o.Gateway || slices.Contains(o.Untrusted, a.Iface) {
 				continue
 			}
 			if host == "" || host == "0.0.0.0" || host == a.IP.String() {

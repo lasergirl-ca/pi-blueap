@@ -1355,6 +1355,28 @@ connection, "firewall it as a WAN". This is not in PLAN.md. docs/MOBILE.md has t
 It is tested on a third Pi 5, since Lyman is in the field and Surrey's 1.5 A supply is too weak
 (Zoe, 2026-11-22). Nothing is built yet.
 
+### D-075: 4G part 2: the modem's connection as a keyfile, and what the WAN lets in
+
+Where Part 2 (`internal/setup/mobile.go`) fills in D-074 and docs/MOBILE.md:
+- **The connection is a keyfile setup writes,**
+  `/etc/NetworkManager/system-connections/palm-gw-mobile.nmconnection` (0600, root), then
+  `nmcli connection reload` and `up`. A SIM PIN goes in it from
+  `palm-gw setup --mobile-pin` (stdin, kept root only until the apply, as WireGuard's key is),
+  so it is never on a command line or in `config.toml`. A later apply keeps the PIN from the
+  keyfile. It is a `gsm` connection for `wwan*` (an empty APN lets ModemManager choose), and a
+  wired one for a modem in router mode (`usb0`). The route metric is 100 in "only" and 700 in
+  "backup", behind Ethernet (100) and Wi-Fi (600).
+- **What the WAN lets in, beyond replies:** DHCP replies (router mode), DHCPv6, ICMP errors,
+  and the ICMPv6 that IPv6 needs (neighbour discovery, router adverts, packet-too-big). Then
+  `wan->pi` drops the rest; nothing new reaches the Palm network (`wan->palm`).
+- **In backup,** the modem is a Palm exit beside the uplink, after the private-address drop,
+  so a failover needs no firewall reload. A full WireGuard tunnel that fails closed shuts both.
+- **The web UI never listens on the tunnel or the modem** (`web.Options.Untrusted`). Before
+  this it listened on `wg0` too, and only `wg->pi` kept it unreachable there.
+- **`palm-gw setup --check`** reports a modem (a known LTE vendor on USB, `wwan*`, or one
+  ModemManager lists) and warns when one is on a Pi 5 supply under 5 A.
+- **ModemManager is now a package dependency**, so the image ships it.
+
 ## Hardware observations
 
 ### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)

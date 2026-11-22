@@ -43,6 +43,11 @@ func (c *Config) Funcs() template.FuncMap {
 		"WG":          func() bool { return c.WireGuard.Enabled },
 		"WG_IF":       func() string { return c.WireGuard.Interface },
 		"UPLINK_EXIT": c.UplinkExit,
+		// A 4G modem, firewalled as a WAN (D-074): whether it is on, its interface, and
+		// whether it is a second exit beside network.uplink (the backup role).
+		"WAN":        func() bool { return c.Mobile.Enabled },
+		"WAN_IF":     func() string { return c.Mobile.Interface },
+		"WAN_SECOND": func() bool { return c.Mobile.Enabled && c.Mobile.Interface != c.Network.Uplink },
 	}
 }
 
