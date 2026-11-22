@@ -30,6 +30,7 @@ type Config struct {
 	Ctl       Ctl       `toml:"ctl" json:"ctl"`
 	Web       Web       `toml:"web" json:"web"`
 	WireGuard WireGuard `toml:"wireguard" json:"wireguard"`
+	Mobile    Mobile    `toml:"mobile" json:"mobile"`
 }
 
 // Bluetooth is the [bluetooth] table.
@@ -152,6 +153,19 @@ type WireGuard struct {
 	PublicKey        string   `toml:"public_key" json:"public_key"` // the gateway's own, written by setup; for the peer's admin
 }
 
+// Mobile is the [mobile] table (D-074, docs/MOBILE.md): an LTE modem as the uplink,
+// firewalled as a WAN. A SIM PIN is not here: setup keeps it in NetworkManager's
+// root-only connection file.
+type Mobile struct {
+	Enabled       bool   `toml:"enabled" json:"enabled"`
+	Interface     string `toml:"interface" json:"interface"` // wwan0 (ModemManager), or usb0 for a modem in router mode
+	Role          string `toml:"role" json:"role"`           // "only": the gateway's internet; "backup": when network.uplink loses it
+	APN           string `toml:"apn" json:"apn"`             // empty: ModemManager's guess from the SIM
+	Roaming       bool   `toml:"roaming" json:"roaming"`
+	Check         string `toml:"check" json:"check"` // an IPv4 address that answers on TCP 53 or 443, tried through each uplink
+	DataWarningMB int    `toml:"data_warning_mb" json:"data_warning_mb"`
+}
+
 // Default returns the configuration that an empty file yields (PLAN.md section 7).
 func Default() *Config {
 	return &Config{
@@ -218,6 +232,12 @@ func Default() *Config {
 			Mode:             "full",
 			OnDown:           "fail_closed",
 			DNS:              []string{},
+		},
+		Mobile: Mobile{
+			Enabled:   false,
+			Interface: "wwan0",
+			Role:      "only",
+			Check:     "1.1.1.1",
 		},
 	}
 }

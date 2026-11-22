@@ -262,6 +262,54 @@ func TestWireGuardValidation(t *testing.T) {
 	}
 }
 
+func TestMobileValidation(t *testing.T) {
+	only := func(c *Config) { c.Mobile.Enabled = true; c.Network.Uplink = "wwan0" }
+	bad := []struct {
+		name   string
+		mutate func(c *Config)
+		key    string
+	}{
+		{"role", func(c *Config) { c.Mobile.Role = "sometimes" }, "mobile.role"},
+		{"interface is the bridge", func(c *Config) { c.Mobile.Interface = "br-palm" }, "mobile.interface"},
+		{"interface is the tunnel", func(c *Config) { c.Mobile.Interface = "wg0" }, "mobile.interface"},
+		{"apn with a quote", func(c *Config) { c.Mobile.APN = `ltemobile"x` }, "mobile.apn"},
+		{"apn with a newline", func(c *Config) { c.Mobile.APN = "a\nb" }, "mobile.apn"},
+		{"check not an address", func(c *Config) { c.Mobile.Check = "one.one" }, "mobile.check"},
+		{"negative warning", func(c *Config) { c.Mobile.DataWarningMB = -1 }, "mobile.data_warning_mb"},
+		{"only, uplink elsewhere", func(c *Config) { c.Mobile.Enabled = true }, "mobile.role"},
+		{"backup, uplink is the modem", func(c *Config) { only(c); c.Mobile.Role = "backup" }, "mobile.role"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			tc.mutate(c)
+			err := c.Validate()
+			if err == nil {
+				t.Fatalf("expected an error naming %s", tc.key)
+			}
+			mustHaveKey(t, err, tc.key)
+		})
+	}
+	good := []struct {
+		name   string
+		mutate func(c *Config)
+	}{
+		{"off ignores the uplink", func(c *Config) { c.Mobile.Role = "only" }},
+		{"only", only},
+		{"backup behind Ethernet", func(c *Config) { c.Mobile.Enabled, c.Mobile.Role, c.Mobile.APN = true, "backup", "ltemobile.apn" }},
+		{"router mode", func(c *Config) { c.Mobile.Enabled, c.Mobile.Interface, c.Network.Uplink = true, "usb0", "usb0" }},
+	}
+	for _, tc := range good {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			tc.mutate(c)
+			if err := c.Validate(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestValidationAccepts(t *testing.T) {
 	cases := []struct {
 		name   string

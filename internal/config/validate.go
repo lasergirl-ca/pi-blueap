@@ -275,6 +275,7 @@ func (c *Config) Validate() error {
 	}
 
 	c.validateWireGuard(subnet, haveSubnet, add)
+	c.validateMobile(add)
 
 	if len(errs) == 0 {
 		return nil
@@ -516,4 +517,36 @@ func isIPOrCIDR(s string) bool {
 		return p.Addr().Is4()
 	}
 	return false
+}
+
+// validateMobile checks [mobile] (D-074). The choices are checked always; how the
+// modem fits the uplink only when it is enabled.
+func (c *Config) validateMobile(add func(string, string, ...any)) {
+	m := &c.Mobile
+	if !ifnameRe.MatchString(m.Interface) {
+		add("mobile.interface", "must be an interface name (1 to 15 characters), got %q", m.Interface)
+	} else if m.Interface == c.PAN.Bridge || strings.HasPrefix(m.Interface, "ppp") || m.Interface == c.WireGuard.Interface {
+		add("mobile.interface", "must differ from pan.bridge, ppp* and wireguard.interface, got %q", m.Interface)
+	}
+	if m.Role != "only" && m.Role != "backup" {
+		add("mobile.role", "must be only or backup, got %q", m.Role)
+	}
+	if len(m.APN) > 100 || strings.ContainsAny(m.APN, "\"\\\n\r\t") {
+		add("mobile.apn", "must be up to 100 characters with no quotes, backslashes or line breaks")
+	}
+	if a, err := netip.ParseAddr(m.Check); err != nil || !a.Is4() {
+		add("mobile.check", "must be an IPv4 address that answers on TCP 53 or 443, e.g. 1.1.1.1, got %q", m.Check)
+	}
+	if m.DataWarningMB < 0 {
+		add("mobile.data_warning_mb", "must not be negative")
+	}
+	if !m.Enabled {
+		return
+	}
+	switch {
+	case m.Role == "only" && c.Network.Uplink != m.Interface:
+		add("mobile.role", `"only" makes the modem the uplink: network.uplink must be %q, not %q`, m.Interface, c.Network.Uplink)
+	case m.Role == "backup" && c.Network.Uplink == m.Interface:
+		add("mobile.role", `"backup" needs another uplink: network.uplink is the modem's interface %q`, m.Interface)
+	}
 }
