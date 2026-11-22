@@ -1339,6 +1339,22 @@ Lyman only by `wg up`/`wg down` waiting for the change and a message's wording, 
 upgraded to the release with `palm-gw upgrade` as its check. The Pi 4, the LifeDrive and the
 Palm app's T|X checklist stay open (D-041, D-070).
 
+### D-074: A 4G modem as the uplink, firewalled as a WAN (added scope)
+
+Zoe asked on 2026-11-22 for an LTE USB dongle (a SIMCom SIM7600G-H) as the gateway's internet
+connection, "firewall it as a WAN". This is not in PLAN.md. docs/MOBILE.md has the design:
+- **Two ways the modem appears:** through ModemManager over QMI (`wwan0`, the main path), or
+  as a USB router (`usb0`).
+- **A `[mobile]` table with a `role`:** "only", or "backup" taking over when the uplink loses
+  the internet. Zoe chose a setting offering both.
+- **The modem's interface treated as hostile:** nothing in to the Pi (`wan->pi`) or to the
+  Palm network (`wan->palm`), IPv6 included; Palm traffic out with the usual guards; the web
+  UI never listening there.
+- **Power:** the module draws up to about 2 A, so it needs a 5 A supply or a powered hub.
+
+It is tested on a third Pi 5, since Lyman is in the field and Surrey's 1.5 A supply is too weak
+(Zoe, 2026-11-22). Nothing is built yet.
+
 ## Hardware observations
 
 ### The T|X's "Serial: timeout (0x0305)", 2026-11-12 (D-050's open item)

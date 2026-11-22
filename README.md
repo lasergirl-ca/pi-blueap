@@ -77,6 +77,7 @@ ssh pi 'sudo apt install ./palm-gw_*_arm64.deb && sudo palm-gw setup'
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | When something goes wrong, with real log excerpts |
 | [docs/WEB-UI.md](docs/WEB-UI.md) | The web UI, its listeners and the `/api/v1` API |
 | [docs/WIREGUARD.md](docs/WIREGUARD.md) | Sending the Palm network through a WireGuard tunnel |
+| [docs/MOBILE.md](docs/MOBILE.md) | A 4G modem as the internet connection (design, not built yet) |
 | [docs/PALM-APP.md](docs/PALM-APP.md), [docs/PALM-DEV.md](docs/PALM-DEV.md) | The Palm app's design, and building Palm OS code |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Every deviation from the plan, with its reason |
 | [docs/TESTING.md](docs/TESTING.md) | The acceptance evidence, phase by phase |
