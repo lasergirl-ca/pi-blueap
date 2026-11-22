@@ -31,6 +31,8 @@ static Boolean wifiUse(void) MODE_SEC;
 static void bytes(UInt32 n, Char *out) MODE_SEC;
 static void loadWG(void) MODE_SEC;
 static Boolean wgMenu(UInt16 item) MODE_SEC;
+static void loadMobile(void) MODE_SEC;
+static Boolean mobileMenu(UInt16 item) MODE_SEC;
 
 #define lineMax 160 /* a row is built here, then cut to rowLen */
 
@@ -39,6 +41,9 @@ static Boolean gWifiOn;
 /* the WireGuard tunnel (D-069), from GET wireguard */
 static Boolean gWgOn, gWgUp, gWgClosed;
 static Char gWgNets[64];     /* a split tunnel's networks; "" for all traffic */
+/* the 4G modem (D-074), from GET mobile */
+static Boolean gMobOn, gMobOnly, gMobRoam, gMobLocked;
+static Char gMobAPN[48];
 static Char gLogEvent[24], gLogText[40];
 
 static void setLabels(const Char *a, const Char *b, const Char *c)
@@ -259,6 +264,7 @@ static Boolean loadWifi(void)
 		StrNCat(gInfo, "This Pi has no Wi-Fi.", sizeof gInfo);
 	}
 	loadWG();
+	loadMobile();
 	if (!any || !gWifiOn) {
 		return true;
 	}
@@ -609,6 +615,9 @@ Boolean modeMenuItem(UInt16 mode, UInt16 item, Int16 sel)
 	if (item >= MenuWgUpDown && item <= MenuWgKey) {
 		return wgMenu(item);
 	}
+	if (item >= MenuMobOnOff && item <= MenuMobPIN) {
+		return mobileMenu(item);
+	}
 	if (item == MenuWifiOn || item == MenuWifiOff) {
 		formAdd("on", on ? "1" : "0");
 		return post("wifi/radio", "The Wi-Fi radio was not switched.");
@@ -704,6 +713,108 @@ static Boolean wgMenu(UInt16 item)
 	}
 	if (flag(&r, "applying")) {
 		apiLeft("Applying the tunnel settings: palm-gwd restarts. Connect again in about 20 seconds.");
+		return false;
+	}
+	info("Nothing changed.", NULL);
+	return true;
+}
+
+/* loadMobile reads the 4G modem and adds a line about it to gInfo. */
+static void loadMobile(void)
+{
+	KvRecord r;
+	Char st[16], tech[6], op[24], lock[12], line[80];
+	Int32 sig;
+
+	gMobOn = gMobOnly = gMobRoam = gMobLocked = false;
+	gMobAPN[0] = 0;
+	if (!api("GET", apiPath("mobile"), NULL) || !apiHead(&r)) {
+		return; /* an older gateway: no 4G line */
+	}
+	gMobOn = flag(&r, "enabled");
+	if (!gMobOn) {
+		return;
+	}
+	kvGet(&r, "role", st, sizeof st);
+	gMobOnly = StrCompare(st, "only") == 0;
+	gMobRoam = flag(&r, "roaming_ok");
+	kvGet(&r, "apn", gMobAPN, sizeof gMobAPN);
+	kvGet(&r, "locked", lock, sizeof lock);
+	gMobLocked = lock[0] != 0;
+	kvGet(&r, "state", st, sizeof st);
+	kvGet(&r, "tech", tech, sizeof tech);
+	kvGet(&r, "operator", op, sizeof op);
+	sig = kvInt(&r, "signal", 0);
+	if (gMobLocked) {
+		StrCopy(line, " 4G: the SIM needs its PIN (menu).");
+	} else if (!flag(&r, "modem") && !flag(&r, "router_mode")) {
+		StrCopy(line, " 4G: no modem.");
+	} else {
+		StrPrintF(line, " 4G %s: %s %s %ld%%.", gMobOnly ? "only" : flag(&r, "failed_over") ? "in use" : "standing by",
+			tech[0] ? tech : st, op, sig);
+	}
+	StrNCat(gInfo, line, sizeof gInfo);
+}
+
+/* mobileMenu is the Mobile menu: on or off, the settings, the SIM PIN. Each
+ * applies: palm-gwd restarts, so the session ends. */
+static Boolean mobileMenu(UInt16 item)
+{
+	KvRecord r;
+	Char apn[48], pin[10];
+	Boolean only = gMobOnly, roam = gMobRoam;
+
+	formReset();
+	if (item == MenuMobPIN) {
+		if (!gMobLocked && !confirm("The SIM is not asking for a PIN. Set one anyway? ", NULL)) {
+			return false;
+		}
+		pin[0] = 0;
+		gInSecret = 1;
+		if (!inputDialog("Unlock the SIM", "SIM PIN (4 to 8 digits):", pin, sizeof pin, NULL, NULL, 0, NULL, NULL, 0,
+				NULL, NULL, NULL, NULL)) {
+			MemSet(pin, sizeof pin, 0);
+			return false;
+		}
+		formAdd("pin", pin);
+		MemSet(pin, sizeof pin, 0);
+		if (!post("mobile/pin", "The PIN was not set.")) {
+			return false;
+		}
+		apiLeft("SIM PIN set: palm-gwd restarts to use it. Connect again in about 20 seconds.");
+		return false;
+	}
+	if (item == MenuMobOnOff) {
+		if (!confirm(gMobOn ? "Turn 4G off? " : "Turn 4G on, as a backup for the connection the Pi has? ",
+				"palm-gwd restarts, and this Palm's connection drops for about 20 seconds.")) {
+			return false;
+		}
+		formAdd("enabled", gMobOn ? "0" : "1");
+		if (!gMobOn) {
+			formAdd("role", "backup");
+		}
+	} else { /* MenuMobSettings */
+		if (!gMobOn) {
+			info("4G is off. Turn it on first (Mobile menu).", NULL);
+			return false;
+		}
+		StrCopy(apn, gMobAPN);
+		if (!inputDialog("4G settings", "APN (empty = automatic):", apn, sizeof apn, NULL, NULL, 0, NULL, NULL, 0,
+				"Only internet (no backup)", &only, "Allow roaming", &roam)) {
+			return false;
+		}
+		if (!confirm("Apply the 4G settings? ", "palm-gwd restarts, and this Palm's connection drops for about 20 seconds.")) {
+			return false;
+		}
+		formAdd("role", only ? "only" : "backup");
+		formAdd("apn", apn);
+		formAdd("roaming", roam ? "1" : "0");
+	}
+	if (!post("mobile/set", "4G was not changed.") || !apiHead(&r)) {
+		return false;
+	}
+	if (flag(&r, "applying")) {
+		apiLeft("Applying the 4G settings: palm-gwd restarts. Connect again in about 20 seconds.");
 		return false;
 	}
 	info("Nothing changed.", NULL);

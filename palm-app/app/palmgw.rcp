@@ -241,6 +241,12 @@ BEGIN
 		MENUITEM "Turn WireGuard on/off" ID MenuWgOnOff "W"
 		MENUITEM "New key pair..." ID MenuWgKey "K"
 	END
+	PULLDOWN "Mobile"
+	BEGIN
+		MENUITEM "Turn 4G on/off" ID MenuMobOnOff "M"
+		MENUITEM "4G settings..." ID MenuMobSettings "G"
+		MENUITEM "Unlock the SIM..." ID MenuMobPIN "P"
+	END
 END
 
 MENU ID MenuKeys

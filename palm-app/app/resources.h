@@ -104,6 +104,9 @@
 #define MenuWgSettings    2276
 #define MenuWgOnOff       2277
 #define MenuWgKey         2278
+#define MenuMobOnOff      2279
+#define MenuMobSettings   2280
+#define MenuMobPIN        2281
 
 #define TextForm          2300
 #define TextText          2301

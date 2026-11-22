@@ -3432,3 +3432,11 @@ power note), standing by in the backup role, taken over after a failover, and wi
 (the PIN form); check the settings form (role, APN, the roaming box sent after its hidden 0), a
 bad role shown as an error, the PIN passed on, and three rows in `TestAPIParity`.
 
+### 4G part 5: the Palm app (D-074), 2026-11-22
+
+The Internet screen adds a 4G line (only or backup, standing by or in use, the network type,
+carrier and signal, or "the SIM needs its PIN") and a Mobile menu: on or off (on as a
+backup), settings (APN, "Only internet (no backup)", "Allow roaming"), and "Unlock the SIM"
+with the PIN masked (`gInSecret`). `modef` is 17,440 bytes; `check-sections` passes; the host
+tests pass. Not yet on the T|X.
+
