@@ -172,4 +172,3 @@ func TestInternetMobile(t *testing.T) {
 		t.Error("PIN not passed on")
 	}
 }
-
