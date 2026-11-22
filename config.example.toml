@@ -111,4 +111,3 @@ apn             = ""               # empty: ModemManager's guess from the SIM; a
 roaming         = false            # allow data while roaming
 check           = "1.1.1.1"        # answers on TCP 53 or 443 through each uplink: how "has the internet" is tested
 data_warning_mb = 0                # 0 = off; otherwise a warning once a month's 4G data passes it
-
