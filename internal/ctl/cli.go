@@ -223,6 +223,8 @@ func Main(args []string, stdout, stderr io.Writer, version string) int {
 		return c.capture(secs)
 	case "wg":
 		return c.wg(cmdArgs)
+	case "mobile":
+		return c.mobile(cmdArgs)
 	case "devkeys":
 		if len(cmdArgs) == 2 && cmdArgs[0] == "revoke" {
 			return c.devKeyRevoke(cmdArgs[1])
@@ -303,6 +305,12 @@ Commands:
   wg networks CIDR[,CIDR...]  what a split tunnel carries
   wg import FILE|-            read a wg-quick .conf (keys, address, peer, DNS), and apply
   wg generate                 make the gateway a key pair; prints the public key
+  mobile [show]               the 4G modem as an uplink, firewalled as a WAN (D-074)
+  mobile on | off             turn 4G on or off, and apply
+  mobile role only|backup     4G as the only internet, or when the uplink loses it
+  mobile apn NAME|auto        the SIM's APN (auto: ModemManager chooses)
+  mobile roaming on|off       allow data while roaming
+  mobile pin                  set the SIM's PIN (read from stdin, never an argument)
   check                       health report
   class toggle                swap Class of Device with class_fallback
   bundle [--with-capture]     write a support bundle (hashes redacted) into /var/lib/palm-gw/bundles
@@ -473,6 +481,9 @@ func (c *cli) status() int {
 	}
 	if g := st.WireGuard; g != nil {
 		fmt.Fprintf(w, "wireguard: %s\n", wgLine(g))
+	}
+	if m := st.Mobile; m != nil {
+		fmt.Fprintf(w, "mobile:    %s\n", mobileLine(m))
 	}
 	switch f := st.Firewall; {
 	case !f.Managed:
@@ -1630,4 +1641,139 @@ func (c *cli) wgSaved(rep WGSetReply) {
 	if rep.PublicKey != "" {
 		fmt.Fprintf(c.stdout, "The gateway's public key: %s\n", rep.PublicKey)
 	}
+}
+
+// mobileLine is the 4G uplink in one line, for status and mobile show.
+func mobileLine(m *MobileStatus) string {
+	if !m.Enabled {
+		return "off ([mobile] enabled = false)"
+	}
+	role := "the only internet"
+	if m.Role == "backup" {
+		switch {
+		case m.FailedOver:
+			role = "backup, CARRYING THE INTERNET (the uplink lost it)"
+		case m.UplinkOK:
+			role = "backup, standing by (the uplink has the internet)"
+		default:
+			role = "backup"
+		}
+	}
+	radio := ""
+	switch {
+	case m.RouterMode:
+		radio = "router mode"
+	case !m.Modem:
+		radio = "NO MODEM: " + m.Problem
+	case m.Locked != "":
+		radio = "SIM LOCKED (" + m.Locked + "): palm-gwctl mobile pin"
+	default:
+		radio = strings.TrimSpace(fmt.Sprintf("%s %s %s, signal %d%%", m.State, m.Tech, m.Operator, m.Signal))
+		if m.Roaming {
+			radio += ", roaming"
+		}
+	}
+	addr := "no address"
+	if m.Up {
+		addr = m.IP
+	}
+	return fmt.Sprintf("%s on %s (%s), %s, %s this month", role, m.Interface, addr, radio,
+		mib(m.MonthRxBytes+m.MonthTxBytes))
+}
+
+func mib(b uint64) string {
+	if b < 1<<20 {
+		return fmt.Sprintf("%d KB", b>>10)
+	}
+	return fmt.Sprintf("%.1f MB", float64(b)/(1<<20))
+}
+
+// mobile is palm-gwctl mobile: show, on, off, role, apn, roaming, pin.
+func (c *cli) mobile(args []string) int {
+	sub := "show"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	need := func(n int, usage string) bool {
+		if len(args) != n {
+			fmt.Fprintln(c.stderr, "palm-gwctl mobile "+usage)
+			return false
+		}
+		return true
+	}
+	set := func(cmd string, r MobileRequest) int {
+		var rep MobileSetReply
+		printed, err := c.call(Request{Cmd: cmd, Mobile: &r}, &rep)
+		if err != nil {
+			return c.fail(err)
+		}
+		if printed {
+			return 0
+		}
+		if !rep.Applying {
+			fmt.Fprintln(c.stdout, "Nothing changed.")
+			return 0
+		}
+		fmt.Fprintf(c.stdout, "Saved %s; applying in %s: palm-gwd restarts and Palms reconnect.\n", strings.Join(rep.Changed, ", "), rep.Unit)
+		return 0
+	}
+	switch sub {
+	case "show":
+		var m MobileStatus
+		printed, err := c.call(Request{Cmd: "mobile"}, &m)
+		if err != nil || printed {
+			if err != nil {
+				return c.fail(err)
+			}
+			return 0
+		}
+		fmt.Fprintf(c.stdout, "mobile: %s\n", mobileLine(&m))
+		if m.Enabled {
+			apn := m.APN
+			if apn == "" {
+				apn = "chosen by ModemManager"
+			}
+			fmt.Fprintf(c.stdout, "  APN %s, roaming %s\n", apn, map[bool]string{true: "allowed", false: "not allowed"}[m.RoamingOK])
+		}
+		return 0
+	case "on", "off":
+		if !need(1, sub) {
+			return 2
+		}
+		on := sub == "on"
+		return set("mobile.set", MobileRequest{Enabled: &on})
+	case "role":
+		if !need(2, "role only|backup") {
+			return 2
+		}
+		return set("mobile.set", MobileRequest{Role: args[1]})
+	case "apn":
+		if !need(2, "apn NAME|auto") {
+			return 2
+		}
+		apn := args[1]
+		if apn == "auto" {
+			apn = ""
+		}
+		return set("mobile.set", MobileRequest{APN: &apn})
+	case "roaming":
+		if !need(2, "roaming on|off") || (args[1] != "on" && args[1] != "off") {
+			fmt.Fprintln(c.stderr, "palm-gwctl mobile roaming on|off")
+			return 2
+		}
+		r := args[1] == "on"
+		return set("mobile.set", MobileRequest{Roaming: &r})
+	case "pin":
+		if !need(1, "pin   (then type the PIN and press Return)") {
+			return 2
+		}
+		fmt.Fprint(c.stderr, "SIM PIN: ")
+		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil && line == "" {
+			return c.fail(err)
+		}
+		return set("mobile.pin", MobileRequest{PIN: strings.TrimSpace(line)})
+	}
+	fmt.Fprintln(c.stderr, "palm-gwctl mobile [show|on|off|role|apn|roaming|pin]")
+	return 2
 }

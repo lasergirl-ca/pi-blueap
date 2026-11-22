@@ -3406,3 +3406,22 @@ Lyman stays on the tunnel, full and fail closed. Surrey stays without one (AS393
 
 Not yet run with a modem: the new Pi and the SIM7600G-H are on order (Part 6).
 
+### 4G part 3: the daemon (D-074), 2026-11-22
+
+- `internal/mm`: ModemManager read over D-Bus (GetManagedObjects; no new module). `TestParse`
+  reads a SIM7600G-H shaped answer (connected, LTE, 72 %, the carrier, home) and a locked SIM
+  roaming on 3G.
+- `internal/daemon/mobile.go`: `mobile`, `mobile.set`, `mobile.pin`; a `mobile:` line in
+  `palm-gwctl status`; `palm-gwctl mobile`. Tests:
+  - failover: 2 failed checks do nothing, the 3rd moves the modem's routes to metric 50, answers
+    for under 2 minutes keep it there, 2 minutes hand back to 700, one miss after does not fail
+    over again;
+  - the month's data: counted from the interface's counters, a counter reset taken as new
+    traffic, the warning once, saved to `mobile-data.json`, a new month from zero;
+  - `mobile.set` keeps the uplink with the role: on ("only") makes `wwan0` the uplink, "backup"
+    and off put it back on the Pi's other connection (`eth0` here); a bad role is refused;
+  - status from a fake modem, "no modem: is it plugged in?", and the PIN refused when not
+    digits, kept 0600 and applied when it is.
+- A reply field named `error` reads as a failed call on the control socket, so the status's
+  is `problem`.
+

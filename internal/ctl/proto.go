@@ -58,6 +58,53 @@ type Request struct {
 	DevKey *DevKeyRequest `json:"devkey,omitempty"`
 	// wg.* (D-069). A .conf carries a private key and is never logged.
 	WG *WGRequest `json:"wg,omitempty"`
+	// mobile.* (D-074). A SIM PIN is never logged.
+	Mobile *MobileRequest `json:"mobile,omitempty"`
+}
+
+// MobileRequest carries the mobile.* commands: mobile.set changes the settings
+// given, mobile.pin sets the SIM PIN.
+type MobileRequest struct {
+	Enabled *bool   `json:"enabled,omitempty"`
+	Role    string  `json:"role,omitempty"` // only or backup
+	APN     *string `json:"apn,omitempty"`  // "" lets ModemManager choose
+	Roaming *bool   `json:"roaming,omitempty"`
+	PIN     string  `json:"pin,omitempty"` // mobile.pin
+}
+
+// MobileStatus is the 4G uplink as status and mobile show report it (D-074).
+type MobileStatus struct {
+	Enabled      bool   `json:"enabled"`
+	Role         string `json:"role"`
+	Interface    string `json:"interface"`
+	RouterMode   bool   `json:"router_mode"` // usb0: the modem routes by itself
+	Up           bool   `json:"up"`          // the interface has an address
+	IP           string `json:"ip,omitempty"`
+	Active       bool   `json:"active"`      // carrying the internet now: always in "only", after a failover in "backup"
+	FailedOver   bool   `json:"failed_over"` // backup: the uplink lost the internet and 4G took over
+	UplinkOK     bool   `json:"uplink_ok"`   // backup: network.uplink answered the last check
+	Modem        bool   `json:"modem"`       // ModemManager lists a modem
+	State        string `json:"state"`       // ModemManager's: connected, registered, searching, locked, ...
+	Locked       string `json:"locked"`      // what the SIM needs, e.g. sim-pin
+	Operator     string `json:"operator"`    // the carrier
+	Tech         string `json:"tech"`        // LTE, 3G, ...
+	Signal       int    `json:"signal"`      // percent
+	Roaming      bool   `json:"roaming"`     // registered on another carrier's network
+	APN          string `json:"apn"`         // configured; "" = ModemManager's choice
+	RoamingOK    bool   `json:"roaming_ok"`  // [mobile] roaming
+	MonthRxBytes uint64 `json:"month_rx_bytes"`
+	MonthTxBytes uint64 `json:"month_tx_bytes"`
+	WarningMB    int    `json:"warning_mb"`
+	Problem      string `json:"problem,omitempty"` // why the modem cannot be read (not "error": that marks a failed call)
+	Applying     bool   `json:"applying"`
+}
+
+// MobileSetReply answers mobile.set and mobile.pin.
+type MobileSetReply struct {
+	OK       bool     `json:"ok"`
+	Changed  []string `json:"changed"`
+	Applying bool     `json:"applying"`
+	Unit     string   `json:"unit,omitempty"`
 }
 
 // WGRequest carries the wg.* commands: wg.set changes the settings given,
@@ -182,6 +229,7 @@ type StatusReply struct {
 	Firewall      FirewallStatus     `json:"firewall"`
 	PAN           PANStatus          `json:"pan"`
 	WireGuard     *WGStatus          `json:"wireguard,omitempty"`
+	Mobile        *MobileStatus      `json:"mobile,omitempty"`
 	Config        *config.Config     `json:"config"`
 }
 

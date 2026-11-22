@@ -57,6 +57,9 @@ func (d *Daemon) registerHandlers() {
 	d.ctl.Handle("wg.generate", d.handleWGGenerate)
 	d.ctl.Handle("wg.up", d.handleWGUpDown(true))
 	d.ctl.Handle("wg.down", d.handleWGUpDown(false))
+	d.ctl.Handle("mobile", d.handleMobile)
+	d.ctl.Handle("mobile.set", d.handleMobileSet)
+	d.ctl.Handle("mobile.pin", d.handleMobilePIN)
 }
 
 // handleEvents streams every daemon event until the client disconnects
@@ -169,6 +172,9 @@ func (d *Daemon) handleStatus(ctx context.Context, _ ctl.Request, w *ctl.Writer)
 	st.PAN = d.panStatus()
 	if d.config().WireGuard.Enabled {
 		st.WireGuard = d.wgStatus(ctx)
+	}
+	if d.config().Mobile.Enabled {
+		st.Mobile = d.mobileStatus(ctx)
 	}
 
 	st.PairingWindow = d.window.State()

@@ -27,6 +27,7 @@ import (
 	"palm-gw/internal/devkey"
 	"palm-gw/internal/event"
 	"palm-gw/internal/fw"
+	"palm-gw/internal/mm"
 	"palm-gw/internal/ppp"
 	"palm-gw/internal/profile"
 	"palm-gw/internal/rfkill"
@@ -62,6 +63,11 @@ type Options struct {
 	Conntrack func() ([]fw.Conn, error)
 	// IfBytes reads an interface's rx and tx byte counters (nil = /sys).
 	IfBytes func(ifname string) (rx, tx uint64)
+	// The 4G uplink (D-074): ModemManager's modem, the uplink check, and an
+	// interface's IPv4 address (nil = D-Bus, a bound TCP connection, the kernel).
+	ReadModem func() (mm.Modem, error)
+	Probe     func(ctx context.Context, iface, check string) error
+	IfaceIP   func(iface string) string
 	// OnReady is called once, the first time the agent is registered
 	// (sd_notify READY=1 lives in main).
 	OnReady func()
@@ -106,6 +112,9 @@ type Daemon struct {
 
 	wgOnce sync.Once // the WireGuard watch (D-069)
 	wgw    *wgWatch
+
+	mobOnce sync.Once // the 4G failover and data count (D-074)
+	mobw    *mobileWatch
 
 	capMu   sync.Mutex
 	capture ctl.CaptureState // the btmon capture running, or the last one (D-057)
@@ -218,6 +227,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.keepPAN(ctx)
 	// The WireGuard tunnel's watch (D-069): wg_stale when it goes quiet.
 	go d.keepWG(ctx)
+	// The 4G uplink's failover and data count (D-074).
+	go d.keepMobile(ctx)
 	if _, err := d.syncDnsmasq(ctx, d.config()); err != nil {
 		d.log.Error("dnsmasq configuration not written", "err", err)
 	}
